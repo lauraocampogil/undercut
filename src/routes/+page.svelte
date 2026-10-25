@@ -270,9 +270,9 @@
 					<a href="/terms" class="hover:text-cream">Terms</a>
 					<a href="mailto:hello@undercut.app" class="hover:text-cream">Contact</a>
 				</nav>
-				<a href="https://unixcreativestudio.com" target="_blank" rel="noopener" class="flex items-center gap-2.5 hover:text-cream" aria-label="Made by Unix Studio">
+				<a href="https://unixcreativestudio.com" target="_blank" rel="noopener" class="flex items-center gap-2.5 hover:text-cream">
 					<span>Made by</span>
-					<UnixLogo size={24} />
+					<UnixLogo height={30} />
 				</a>
 			</footer>
 		</div>
