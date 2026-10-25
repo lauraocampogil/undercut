@@ -2,8 +2,8 @@
 
 /* Undercut brand tokens (mirrors the Figma "Undercut" variable collection) */
 @theme {
-	--font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
-	--font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+	--font-sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+	--font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
 
 	--color-ink: #111111;
 	--color-cream: #fff1d6;
@@ -44,6 +44,21 @@
 		outline: 3px solid var(--color-tangerine);
 		outline-offset: 2px;
 	}
+}
+
+/* Motion: hide animated elements until GSAP takes over (failsafe after 2.5 s) */
+.js [data-motion]:not([data-ready]) {
+	visibility: hidden;
+	animation: motion-failsafe 0s 2.5s forwards;
+}
+@keyframes motion-failsafe {
+	to {
+		visibility: visible;
+	}
+}
+.split-line {
+	padding-bottom: 0.08em;
+	margin-bottom: -0.08em;
 }
 
 @layer components {
