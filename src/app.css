@@ -1,0 +1,95 @@
+@import 'tailwindcss';
+
+/* Undercut brand tokens (mirrors the Figma "Undercut" variable collection) */
+@theme {
+	--font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+	--font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+
+	--color-ink: #111111;
+	--color-cream: #fff1d6;
+	--color-paper: #fff1d6; /* page background */
+	--color-card: #fff8ea;
+	--color-tangerine: #ff6a3d;
+	--color-lime: #c8f25a;
+	--color-sand: #eadfc6;
+	--color-night: #1f1f1f;
+	--color-stone: #bfb39a;
+	--color-muted: #5c5140;
+	--color-line: #e6d8bc;
+
+	/* semantic */
+	--color-accent: #ff6a3d;
+	--color-accent-soft: #ffe2d6;
+	--color-down: #d9481c; /* a competitor got cheaper: pay attention */
+	--color-down-soft: #ffe2d6;
+	--color-up: #3d6b00; /* a competitor got more expensive: opportunity */
+	--color-up-soft: #eef9cf;
+}
+
+@layer base {
+	html {
+		background: var(--color-paper);
+		color: var(--color-ink);
+		-webkit-font-smoothing: antialiased;
+		scroll-behavior: smooth;
+	}
+	body {
+		font-family: var(--font-sans);
+	}
+	::selection {
+		background: var(--color-tangerine);
+		color: var(--color-ink);
+	}
+	:focus-visible {
+		outline: 3px solid var(--color-tangerine);
+		outline-offset: 2px;
+	}
+}
+
+@layer components {
+	/* Condensed uppercase headline, as in the brand boards */
+	.display {
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-stretch: 75%;
+		text-transform: uppercase;
+		line-height: 0.9;
+		letter-spacing: -0.005em;
+	}
+	.wordmark {
+		font-family: var(--font-display);
+		font-weight: 800;
+		letter-spacing: -0.04em;
+	}
+	.btn {
+		@apply inline-flex items-center justify-center gap-2 rounded-full bg-ink px-5 py-3 text-sm font-semibold text-cream transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-50;
+	}
+	.btn-accent {
+		@apply inline-flex items-center justify-center gap-2 rounded-full bg-tangerine px-6 py-3.5 font-bold text-ink transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60;
+	}
+	.btn-ghost {
+		@apply inline-flex items-center justify-center gap-2 rounded-full bg-card px-4 py-2.5 text-sm font-medium shadow-[inset_0_0_0_2px_var(--color-ink)] transition hover:bg-white;
+	}
+	.input {
+		@apply w-full rounded-xl border-2 border-line bg-card px-4 py-3 text-[15px] outline-none transition placeholder:text-muted/70 focus:border-ink;
+	}
+	.card {
+		@apply rounded-3xl border-2 border-line bg-card;
+	}
+	.eyebrow {
+		@apply text-xs font-semibold tracking-[0.08em] text-muted uppercase;
+	}
+	/* Scalloped section edges */
+	.bumps,
+	.drips {
+		height: 24px;
+		background-repeat: repeat-x;
+		background-size: 48px 24px;
+	}
+	.bumps {
+		background-image: radial-gradient(circle at 24px 24px, var(--edge) 23.5px, transparent 24px);
+	}
+	.drips {
+		background-image: radial-gradient(circle at 24px 0, var(--edge) 23.5px, transparent 24px);
+	}
+}
