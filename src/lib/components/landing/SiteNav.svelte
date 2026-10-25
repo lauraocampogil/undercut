@@ -1,6 +1,7 @@
 <!--
-  Playful navigation: logo + round menu button on top, a floating CTA that slides up
-  once the hero is out of view, and a menu card with "sticker" links.
+  Playful navigation: a fixed bar that hides while scrolling down and comes back when
+  scrolling up, a floating CTA that only shows while the bar is hidden (and the hero
+  and final CTA are out of view), and a menu card with "sticker" links.
 -->
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
@@ -14,7 +15,10 @@
 	let { loggedIn = false }: { loggedIn?: boolean } = $props();
 
 	let open = $state(false);
-	let floating = $state(false);
+	let ctaOut = $state(false); // hero and final CTA both out of view
+	let navHidden = $state(false);
+	let scrolled = $state(false);
+	const floating = $derived(ctaOut && navHidden && !open);
 	let card: HTMLElement | undefined = $state();
 	let closeBtn: HTMLButtonElement | undefined = $state();
 	let menuBtn: HTMLButtonElement | undefined = $state();
@@ -53,7 +57,7 @@
 		const io = new IntersectionObserver(
 			(entries) => {
 				for (const e of entries) e.isIntersecting ? visible.add(e.target) : visible.delete(e.target);
-				floating = visible.size === 0;
+				ctaOut = visible.size === 0;
 			},
 			{ threshold: 0.15 }
 		);
@@ -61,14 +65,38 @@
 		if (final) io.observe(final);
 		const onKey = (e: KeyboardEvent) => e.key === 'Escape' && open && closeMenu();
 		window.addEventListener('keydown', onKey);
+
+		// Hide the bar on scroll down, bring it back on scroll up.
+		let last = window.scrollY;
+		let frame = 0;
+		const onScroll = () => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(() => {
+				const y = window.scrollY;
+				scrolled = y > 12;
+				if (y < 120) navHidden = false;
+				else if (y > last + 6) navHidden = true;
+				else if (y < last - 6) navHidden = false;
+				last = y;
+			});
+		};
+		onScroll();
+		window.addEventListener('scroll', onScroll, { passive: true });
 		return () => {
 			io.disconnect();
 			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('scroll', onScroll);
 		};
 	});
 </script>
 
-<header class="relative z-40 mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6">
+<div class="h-[88px]" aria-hidden="true"></div>
+<div
+	class="fixed inset-x-0 top-0 z-40 transition-[translate,background-color,box-shadow] duration-500 ease-[cubic-bezier(.2,.8,.2,1)] {navHidden ? '-translate-y-full' : 'translate-y-0'} {scrolled
+		? 'bg-cream/90 shadow-[0_2px_0_var(--color-ink)] backdrop-blur-md'
+		: 'bg-transparent'}"
+>
+<header class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-5 sm:px-6">
 	<Brand />
 	<div class="flex items-center gap-3">
 		<a
@@ -89,6 +117,7 @@
 		</button>
 	</div>
 </header>
+</div>
 
 <!-- Floating CTA: appears once the hero is out of view -->
 <a

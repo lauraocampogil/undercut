@@ -1,6 +1,5 @@
 <script lang="ts">
 	import AppIcon from '$lib/components/AppIcon.svelte';
-	import DemoBanner from '$lib/components/DemoBanner.svelte';
 	import Mascot from '$lib/components/Mascot.svelte';
 	import Sparkle from '$lib/components/Sparkle.svelte';
 	import UnixLogo from '$lib/components/UnixLogo.svelte';
@@ -9,7 +8,7 @@
 	import SiteNav from '$lib/components/landing/SiteNav.svelte';
 	import UrlForm from '$lib/components/landing/UrlForm.svelte';
 	import { track } from '$lib/analytics';
-	import { magnetic, parallax, reveal, splitReveal } from '$lib/motion';
+	import { magnetic, reveal, splitReveal } from '$lib/motion';
 
 	let { data, form } = $props();
 
@@ -29,14 +28,14 @@
 	const errorFor = (id: string) => (form?.placement === id ? form.error : null);
 
 	const pains = [
-		{ big: '10 tabs', title: 'Every Monday, by hand', text: 'You open each competitor’s store and compare prices one product at a time. And you still miss things.' },
-		{ big: 'Too late', title: 'You see their sale after it starts', text: 'By the time you notice their campaign, your customers have already bought from them.' },
-		{ big: '$99+', title: 'Tools built for big brands', text: 'Most price trackers cost $99 a month or more and take weeks to set up.' }
+		{ big: 'Friday', title: 'Your rival starts a sale', text: 'They drop prices on the same products you sell. Nobody tells you.' },
+		{ big: 'Monday', title: 'You finally notice', text: 'Your sales were quiet all weekend. Now you know why.' },
+		{ big: 'Too late', title: 'Their customers were yours', text: 'The orders already went to them. With Undercut you’d have known on Friday.' }
 	];
 	const steps = [
-		{ n: '1', bg: 'bg-ink text-cream', tilt: -2, title: 'Paste your URL', text: 'We read your categories, prices and country in about 30 seconds.' },
-		{ n: '2', bg: 'bg-tangerine', tilt: 1.5, title: 'Confirm your rivals', text: 'We suggest the 5 most similar stores. Remove or add any of them.' },
-		{ n: '3', bg: 'bg-lime', tilt: -1, title: 'Get notified', text: 'Sales, price drops and new products, on your phone and your computer.' }
+		{ n: '1', bg: 'bg-ink text-cream', tilt: -2, title: 'Paste your shop link', text: 'We look at what you sell and how much it costs. It takes about 30 seconds.' },
+		{ n: '2', bg: 'bg-tangerine', tilt: 1.5, title: 'Meet your 5 rivals', text: 'We find the shops that sell the most similar things. Swap any you don’t like.' },
+		{ n: '3', bg: 'bg-sand', tilt: -1, title: 'Get a ping when they move', text: 'Price drop, new sale, new product: your phone buzzes and you know first.' }
 	];
 	const plans = [
 		{ name: 'Free', price: '€0', per: false, features: ['1 competitor', 'Changes dashboard', 'Weekly summary'], cta: 'Start free', featured: false },
@@ -58,14 +57,12 @@
 </script>
 
 <svelte:head>
-	<title>Undercut · Know what your competitors do on Shopify</title>
-	<meta name="description" content="Paste your Shopify store URL. See your 5 closest competitors in 30 seconds and get notified when they change prices, start a sale or launch products." />
-	<meta property="og:title" content="Undercut · Know what your competitors do. Before anyone else." />
+	<title>Undercut · See your competitors’ sales before your customers do</title>
+	<meta name="description" content="Undercut watches the 5 Shopify stores closest to yours and pings you the moment they cut a price, start a sale or launch a product." />
+	<meta property="og:title" content="Undercut · See their sale before your customers do." />
 	<meta property="og:description" content="Competitor price and sale alerts for Shopify stores. Free to start." />
 	<meta property="og:type" content="website" />
 </svelte:head>
-
-<DemoBanner demoMode={data.demoMode} hasSearch={data.hasSearch} />
 
 <div class="overflow-x-clip">
 	<SiteNav loggedIn={!!data.account} />
@@ -73,11 +70,11 @@
 	<!-- Hero: fits in one screen -->
 	<section id="start" class="mx-auto grid min-h-[calc(100svh-88px)] max-w-7xl grid-cols-1 items-center gap-12 px-4 pt-4 pb-16 sm:px-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:pb-20">
 		<div class="flex min-w-0 flex-col gap-6">
-			<h1 data-motion use:splitReveal={{ immediate: true, delay: 0.1 }} class="display text-[clamp(54px,min(7.6vw,12svh),136px)]">
-				Know what your <span class="text-tangerine">competitors</span> do. Before anyone else.
+			<h1 data-motion use:splitReveal={{ immediate: true, delay: 0.1 }} class="display text-[clamp(52px,min(6.6vw,11svh),118px)]">
+				See their sale <span class="text-tangerine">before</span> your customers do.
 			</h1>
 			<p data-motion use:reveal={{ immediate: true, delay: 0.7, y: 20 }} class="max-w-xl text-lg leading-relaxed">
-				Paste your store URL. In 30 seconds you’ll see your 5 closest competitors and how your prices compare. Then we ping you every time they move.
+				Undercut keeps an eye on the 5 shops that sell what you sell. The moment they cut a price, start a sale or add something new, your phone buzzes. You just paste your link.
 			</p>
 			<div data-motion use:reveal={{ immediate: true, delay: 0.85, y: 20 }}>
 				<UrlForm id="hero" value={form?.placement === 'hero' ? form.url : ''} error={errorFor('hero')} {onloading} />
@@ -141,13 +138,12 @@
 	</div>
 
 	<!-- Problem -->
-	<div class="bumps" style="--edge: var(--color-ink)"></div>
 	<section class="bg-ink px-4 text-cream sm:px-6 {section}">
 		<div class="mx-auto flex max-w-7xl flex-col gap-16">
 			<div class="flex flex-col gap-5">
-				<p data-motion use:reveal class="eyebrow text-stone">The problem</p>
+				<p data-motion use:reveal class="eyebrow text-stone">Sound familiar?</p>
 				<h2 data-motion use:splitReveal class="display max-w-5xl text-[clamp(44px,6.4vw,96px)]">
-					Watching competitors shouldn’t be <span class="text-tangerine">a second job.</span>
+					Your rivals change prices every week. <span class="text-tangerine">Do you notice?</span>
 				</h2>
 			</div>
 			<div data-motion use:reveal={{ children: true, y: 60, stagger: 0.15 }} class="grid gap-5 md:grid-cols-3">
@@ -166,8 +162,8 @@
 	<!-- How it works -->
 	<section id="how" class="mx-auto flex max-w-7xl scroll-mt-6 flex-col gap-16 px-4 sm:px-6 {section}">
 		<div class="flex flex-wrap items-end justify-between gap-6">
-			<h2 data-motion use:splitReveal class="display text-[clamp(44px,6.4vw,96px)]">Ready in 3 steps.<br />Zero setup.</h2>
-			<p data-motion use:reveal={{ delay: 0.2 }} class="max-w-sm text-lg leading-relaxed">No app to install, no store to connect: we read the public catalog, the same one any shopper sees.</p>
+			<h2 data-motion use:splitReveal class="display text-[clamp(44px,6.4vw,96px)]">How it works.<br />3 steps, zero setup.</h2>
+			<p data-motion use:reveal={{ delay: 0.2 }} class="max-w-sm text-lg leading-relaxed">Think of it as a friend who checks your rivals’ shops every day, so you don’t have to. Nothing to install.</p>
 		</div>
 		<div data-motion use:reveal={{ children: true, y: 70, rotate: 3, stagger: 0.15 }} class="grid gap-5 md:grid-cols-3">
 			{#each steps as s (s.n)}
@@ -189,7 +185,7 @@
 			<div class="flex flex-col gap-7">
 				<h2 data-motion use:splitReveal class="display text-[clamp(44px,6.4vw,96px)]">One ping.<br />Not another report.</h2>
 				<p data-motion use:reveal class="max-w-lg text-lg leading-relaxed sm:text-[19px]">
-					Undercut only reaches out when something deserves your attention. No three-page emails: one notification, one tap, and it’s all in your dashboard.
+					No long emails to read. When a rival does something you should know about, you get one notification. Tap it and see exactly what changed.
 				</p>
 				<ul data-motion use:reveal={{ children: true, y: 16, stagger: 0.1 }} class="flex flex-col gap-3 text-[17px] font-medium">
 					{#each ['Sale campaigns the moment they start', 'Price drops on products like yours', 'You choose what pings you, and when'] as li (li)}
@@ -204,7 +200,6 @@
 				<div data-motion use:reveal={{ y: 0, rotate: -6, scale: 0.7, delay: 0.25 }} class="w-full max-w-[380px] lg:ml-16">
 					<Notification class="float-b w-full" mood="spy" when="Mon 9:00" title="Your week: 14 changes across 5 competitors" />
 				</div>
-				<div use:parallax={50} class="absolute -bottom-24 left-2 hidden lg:block"><Mascot mood="shock" size={120} color="ink" hole="#FF6A3D" animated /></div>
 			</div>
 		</div>
 	</section>
@@ -215,12 +210,12 @@
 		<h2 data-motion use:splitReveal class="display text-center text-[clamp(44px,6.4vw,96px)]">Pricing for<br />real stores.</h2>
 		<div data-motion use:reveal={{ children: true, y: 80, stagger: 0.14 }} class="grid gap-5 md:grid-cols-3">
 			{#each plans as p (p.name)}
-				<div class="relative flex flex-col gap-5 rounded-[28px] p-9 transition-[translate] duration-300 hover:-translate-y-2 {p.featured ? 'bg-ink text-cream md:-translate-y-4 md:hover:-translate-y-6' : 'bg-card shadow-[inset_0_0_0_2px_var(--color-ink)]'}">
+				<div class="relative flex flex-col gap-5 rounded-[28px] p-9 transition-[translate] duration-300 hover:-translate-y-2 {p.featured ? 'bg-ink text-cream shadow-[inset_0_0_0_2px_var(--color-ink)]' : 'bg-card shadow-[inset_0_0_0_2px_var(--color-ink)]'}">
 					{#if p.featured}
 						<span class="absolute -top-3.5 right-7 flex items-center gap-1.5 rounded-full bg-tangerine px-3 py-1.5 text-[13px] font-bold text-ink"><Sparkle size={12} color="#111111" twinkle />Recommended</span>
 					{/if}
 					<h3 class="text-[22px] font-semibold">{p.name}</h3>
-					<p><span class="display text-7xl">{p.price}</span>{#if p.per}<span class={p.featured ? 'text-stone' : 'text-muted'}> /month</span>{/if}</p>
+					<p class="flex items-baseline gap-1"><span class="display text-7xl">{p.price}</span>{#if p.per}<span class={p.featured ? 'text-stone' : 'text-muted'}>/month</span>{/if}</p>
 					<ul class="flex list-disc flex-col gap-2 pl-5 leading-snug">{#each p.features as f (f)}<li>{f}</li>{/each}</ul>
 					<a
 						href="#start"
@@ -252,7 +247,7 @@
 	<div class="bumps" style="--edge: var(--color-ink)"></div>
 	<section id="final-cta" class="relative bg-ink px-4 pt-[clamp(120px,13vw,200px)] pb-14 text-cream sm:px-6">
 		<Sparkle size={40} twinkle class="absolute top-24 left-[10%]" />
-		<Sparkle size={22} color="#C8F25A" twinkle delay={1} class="absolute top-40 right-[12%]" />
+		<Sparkle size={22} color="#FFF1D6" twinkle delay={1} class="absolute top-40 right-[12%]" />
 		<div class="mx-auto flex max-w-7xl flex-col items-center gap-10 text-center">
 			<h2 data-motion use:splitReveal class="display text-[clamp(44px,8vw,136px)]">Who should we<br /><span class="text-tangerine">watch for you?</span></h2>
 			<div class="flex w-full max-w-xl flex-col items-center">
