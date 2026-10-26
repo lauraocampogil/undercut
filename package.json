@@ -14,7 +14,7 @@
     "fake-shopify": "node scripts/fake-shopify.mjs"
   },
   "devDependencies": {
-    "@sveltejs/adapter-auto": "^6.1.1",
+    "@sveltejs/adapter-vercel": "^6.3.4",
     "@sveltejs/kit": "^2.70.3",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tailwindcss/vite": "^4.3.3",
