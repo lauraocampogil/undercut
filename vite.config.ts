@@ -17,5 +17,8 @@ export default defineConfig({
 		tailwindcss(),
 		sveltekit()
 	],
+	// Fixed port so it never clashes with other local projects (Supabase redirects here).
+	server: { port: 5180, strictPort: true },
+	preview: { port: 5180 },
 	test: { include: ['src/**/*.test.ts'] }
 });

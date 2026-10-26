@@ -12,7 +12,7 @@ Roadmap: see the "Undercut — Build Roadmap" doc. Design: Figma file "Undercut 
 ```bash
 npm install
 cp .env.example .env
-npm run dev            # http://localhost:5173
+npm run dev            # http://localhost:5180
 ```
 
 Without keys the app runs in **demo mode**: data lives in `data/db.json`, login skips email verification, and automatic discovery is off (you add competitors by hand). PostHog and Sentry stay off until their keys are set.
@@ -47,7 +47,12 @@ Remove `FAKE_SHOPIFY_URL` to use real stores.
 | [Resend](https://resend.com) | Login emails + weekly summary fallback | `RESEND_API_KEY`, `EMAIL_FROM` |
 | [Anthropic](https://console.anthropic.com) (optional) | Smarter search queries | `ANTHROPIC_API_KEY` |
 
-**Supabase:** create a project in Frankfurt → *SQL Editor* → run `supabase/schema.sql` → *Authentication → URL Configuration*: add `http://localhost:5173/auth/callback` (and your domain) to *Redirect URLs* → copy the 3 keys. Demo mode turns off by itself.
+**Supabase:** create a project in Frankfurt → *SQL Editor* → run `supabase/schema.sql` → copy the 3 keys. Demo mode turns off by itself.
+
+- *Authentication → URL Configuration*: Site URL `http://localhost:5180` (your domain in production); Redirect URLs `http://localhost:5180/**` and `https://yourdomain.com/**`.
+- *Authentication → Emails*: in both **Magic Link** and **Confirm signup**, replace the link with
+  `<a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email">Log in to Undercut</a>`
+  so login works even when the email is opened on another device.
 
 **Vercel:** import the repo, paste the variables (including `CRON_SECRET` and `PUBLIC_APP_URL`). `vercel.json` already schedules the daily cron at 06:00 UTC. Hobby is fine for the free beta; switch to Pro before charging customers.
 
