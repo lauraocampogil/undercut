@@ -22,7 +22,7 @@ export const config = {
 /** Without Supabase configured, the app runs in demo mode (local JSON + login without verification). */
 export const demoMode = !(config.supabaseUrl && config.supabaseAnonKey && config.supabaseServiceKey);
 
-export const hasSearch = Boolean(config.serpApiKey || config.braveKey || config.fakeShopifyUrl);
+export const hasSearch = Boolean(config.serpApiKey || config.braveKey || config.anthropicKey || config.fakeShopifyUrl);
 
 let repo: Repo | null = null;
 export function db(): Repo {

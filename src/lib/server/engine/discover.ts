@@ -1,6 +1,6 @@
 import type { Candidate, Product, Store } from '$lib/types';
 import { db, hasSearch } from '../config';
-import { buildQueries } from './queries';
+import { buildQueries, suggestCompetitorDomains } from './queries';
 import { isBlocked, searchDomains } from './search';
 import { fetchCatalog, fetchMeta, normalizeDomain, type RawProduct } from './shopify';
 import { applyIdf, catalogVector, cosine, quantile, sharedTerms } from './text';
@@ -15,6 +15,7 @@ interface Profile {
 	currency: string | null;
 	country: string | null;
 	language: string | null;
+	about?: string | null;
 }
 
 const pricesOf = (ps: RawProduct[]) =>
@@ -43,7 +44,7 @@ const fmtRange = (p: number[], cur: string | null) =>
 
 /** Scores candidates against the user's own store. */
 export function scoreCandidates(own: Profile, cands: Profile[]) {
-	const vecs = applyIdf([catalogVector(own.products), ...cands.map((c) => catalogVector(c.products))]);
+	const vecs = applyIdf([catalogVector(own.products, own.about), ...cands.map((c) => catalogVector(c.products, c.about))]);
 	const ownVec = vecs[0];
 	return cands.map((c, i) => {
 		const v = vecs[i + 1];
@@ -90,7 +91,8 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 		prices: pricesOf(ownCatalog),
 		currency: own.currency,
 		country: own.country,
-		language: own.language
+		language: own.language,
+		about: (await fetchMeta(domain)).about
 	};
 
 	const repo = db();
@@ -100,14 +102,15 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 	}
 
 	onStep?.('Looking for similar stores');
-	const queries = await buildQueries({
+	const queryInput = {
 		storeName: own.name,
 		domain,
 		products: ownCatalog,
-		vector: catalogVector(ownCatalog),
+		vector: catalogVector(ownCatalog, ownProfile.about),
 		language: own.language,
 		country: own.country
-	});
+	};
+	const [queries, suggested] = await Promise.all([buildQueries(queryInput), suggestCompetitorDomains(queryInput)]);
 	const results = await Promise.all(
 		queries.map((q) =>
 			searchDomains(q, { country: own.country, language: own.language }).catch((e) => {
@@ -122,13 +125,15 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 			if (d === domain || d.endsWith('.' + domain) || isBlocked(d)) continue;
 			freq.set(d, (freq.get(d) ?? 0) + 1 + (rank < 5 ? 0.5 : 0));
 		}
+	// Model suggestions go to the front of the line.
+	for (const d of suggested) if (d !== domain && !d.endsWith('.' + domain) && !isBlocked(d)) freq.set(d, (freq.get(d) ?? 0) + 10);
 	const domains = [...freq.entries()]
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, 24)
+		.slice(0, 40)
 		.map(([d]) => d);
 
 	onStep?.('Checking which ones run on Shopify');
-	const probed = await pool(domains, 6, async (d) => {
+	const probed = await pool(domains, 8, async (d) => {
 		const catalog = await fetchCatalog(d, { maxPages: 2, timeoutMs: 7000 });
 		return catalog && catalog.length >= 3 ? { d, catalog } : null;
 	});
@@ -139,10 +144,12 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 		const meta = await fetchMeta(d);
 		return { domain: d, products: catalog, prices: pricesOf(catalog), ...meta };
 	});
-	const scored = scoreCandidates(ownProfile, profiles)
-		.filter((s) => s.sim > 0.12)
-		.sort((a, b) => b.score - a.score)
-		.slice(0, 5);
+	// Rank everyone, then keep the clearly similar ones. If none passes, still offer the
+	// best 3 as "possible" matches: an empty page is worse than a suggestion to review.
+	const ranked = scoreCandidates(ownProfile, profiles).sort((a, b) => b.score - a.score);
+	let scored = ranked.filter((s) => s.sim > 0.06 || s.score >= 0.3).slice(0, 5);
+	if (!scored.length)
+		scored = ranked.slice(0, 3).map((s) => ({ ...s, reasons: ['Possible match: check it', ...s.reasons] }));
 
 	// Only the 5 picks are saved (as their baseline)
 	const catalogs = new Map(shopify.map((s) => [s.d, s.catalog]));
@@ -153,7 +160,12 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 	// One line per analysis in Vercel → Logs, to see where the funnel narrows.
 	console.log(
 		`[discover] ${domain}: ${queries.length} queries → ${results.flat().length} results → ${domains.length} domains → ${shopify.length} on Shopify → ${candidates.length} picked`,
-		JSON.stringify({ queries, domains: domains.slice(0, 12), shopify: shopify.map((s) => s.d) })
+		JSON.stringify({
+			queries,
+			suggested,
+			domains: domains.slice(0, 15),
+			ranked: ranked.map((r) => `${r.domain} score=${r.score} sim=${r.sim.toFixed(2)}`)
+		})
 	);
 	const a = await repo.createAnalysis(own.id, candidates, queries);
 	return { analysisId: a.id, own, usedSearch: true };

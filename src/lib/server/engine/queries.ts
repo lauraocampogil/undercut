@@ -85,3 +85,44 @@ Write 6 Google search queries, in the store's language, that a shopper would typ
 		return fallback;
 	}
 }
+
+/**
+ * With ANTHROPIC_API_KEY: asks the model for the websites of direct competitor brands.
+ * Search engines rarely return small competitor stores for generic queries; a model
+ * that knows the market usually does (e.g. olipop.com → poppi.com, drinkculturepop.com).
+ * Every suggestion is still checked (must run on Shopify and be similar), so a wrong
+ * guess costs one request and is filtered out.
+ */
+export async function suggestCompetitorDomains(q: QueryInput): Promise<string[]> {
+	if (!config.anthropicKey) return [];
+	const sample = q.products.slice(0, 25).map((p) => `- ${p.title}${p.product_type ? ` (${p.product_type})` : ''}`);
+	const prompt = `Store: ${q.storeName ?? q.domain} (${q.domain}). Country: ${q.country ?? 'unknown'}.
+Most characteristic words: ${topTerms(q.vector, 15).join(', ')}.
+Sample products:
+${sample.join('\n')}
+
+List up to 10 direct competitors: independent brands or online stores that sell the same kind of products to the same audience, preferably in the same country or region. Exclude marketplaces (Amazon, eBay, Etsy, Zalando…) and big retailers. Answer ONLY with a JSON array of their website domains, like ["example.com"].`;
+	try {
+		const res = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', 'x-api-key': config.anthropicKey, 'anthropic-version': '2023-06-01' },
+			body: JSON.stringify({ model: config.anthropicModel, max_tokens: 300, messages: [{ role: 'user', content: prompt }] }),
+			signal: AbortSignal.timeout(20_000)
+		});
+		if (!res.ok) {
+			console.error(`[anthropic] ${res.status}: ${(await res.text()).slice(0, 200)}`);
+			return [];
+		}
+		const json = (await res.json()) as { content?: { type: string; text?: string }[] };
+		const text = json.content?.find((c) => c.type === 'text')?.text ?? '';
+		const arr = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1));
+		return (Array.isArray(arr) ? arr : [])
+			.filter((s): s is string => typeof s === 'string')
+			.map((s) => s.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0])
+			.filter((s) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(s))
+			.slice(0, 10);
+	} catch (e) {
+		console.error('[anthropic] suggestion failed:', e);
+		return [];
+	}
+}

@@ -27,6 +27,8 @@ export interface StoreMeta {
 	currency: string | null;
 	country: string | null;
 	language: string | null;
+	/** Homepage title + meta description: says what the brand sells even with few products. */
+	about?: string | null;
 }
 
 /** "https://www.Store.com/collections/x" → "store.com" */
@@ -116,6 +118,12 @@ export async function fetchMeta(domain: string): Promise<StoreMeta> {
 	meta.country = pick(/Shopify\.country\s*=\s*"([A-Z]{2})"/);
 	meta.language = pick(/<html[^>]+lang=["']([a-zA-Z-]+)/i)?.slice(0, 2).toLowerCase() ?? null;
 	if (meta.name) meta.name = decodeEntities(meta.name);
+	const about = [
+		pick(/<title[^>]*>([^<]+)/i),
+		pick(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)/i),
+		pick(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)/i)
+	].filter(Boolean);
+	meta.about = about.length ? decodeEntities(about.join(' ')) : null;
 	return meta;
 }
 

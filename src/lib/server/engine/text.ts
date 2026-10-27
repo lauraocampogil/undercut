@@ -29,7 +29,7 @@ export function tokenize(s: string): string[] {
 export type Vec = Map<string, number>;
 
 /** Catalog text profile: product type weighs more than title, and title more than tags. */
-export function catalogVector(products: RawProduct[]): Vec {
+export function catalogVector(products: RawProduct[], about?: string | null): Vec {
 	const v: Vec = new Map();
 	const add = (t: string, w: number) => v.set(t, (v.get(t) ?? 0) + w);
 	for (const p of products) {
@@ -37,6 +37,8 @@ export function catalogVector(products: RawProduct[]): Vec {
 		for (const t of tokenize(p.product_type ?? '')) add(t, 2);
 		for (const tag of tagsOf(p).slice(0, 10)) for (const t of tokenize(tag)) add(t, 0.5);
 	}
+	// The homepage pitch ("prebiotic soda with less sugar") weighs like several products.
+	for (const t of tokenize(about ?? '')) add(t, 3);
 	// log-TF: a term repeated 500 times must not crush the rest
 	for (const [k, n] of v) v.set(k, 1 + Math.log(n));
 	return v;
