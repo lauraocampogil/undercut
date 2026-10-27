@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light only" />
+<title>Your Undercut login link</title>
+</head>
+<body style="margin:0;padding:0;background:#FFF1D6;">
+<!-- Undercut · Magic Link. Paste into Supabase → Authentication → Emails → Magic Link. -->
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;">Your login link for Undercut. It works once and expires in 1 hour.</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FFF1D6;">
+  <tr>
+    <td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;">
+        <tr>
+          <td style="padding:0 4px 24px;">
+            <img src="https://getundercut.app/email/logo.png" width="146" height="36" alt="Undercut" style="display:block;border:0;outline:none;" />
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#FFF8EA;border:2px solid #111111;border-radius:24px;padding:36px 32px;font-family:Helvetica,Arial,sans-serif;color:#111111;">
+            <h1 style="margin:0 0 12px;font-size:28px;line-height:1.15;font-weight:800;letter-spacing:-0.02em;">Log in to Undercut</h1>
+            <p style="margin:0 0 28px;font-size:16px;line-height:1.55;color:#5C5140;">Tap the button to open your dashboard. No password needed.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="border-radius:999px;background:#FF6A3D;border:2px solid #111111;">
+                  <a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email" style="display:inline-block;padding:14px 28px;font-family:Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;color:#111111;text-decoration:none;">Log in &rarr;</a>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:28px 0 0;font-size:13px;line-height:1.5;color:#5C5140;">This link works once and expires in 1 hour. If you didn’t ask for it, you can ignore this email.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:24px 4px 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#5C5140;">
+            Undercut · See your competitors’ sales before your customers do.<br />
+            <a href="https://getundercut.app" style="color:#5C5140;">getundercut.app</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

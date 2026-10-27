@@ -1,6 +1,15 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { AnalysisError, analyze } from '$lib/server/engine/discover';
-import type { Actions } from './$types';
+import type { Actions, PageServerLoad } from './$types';
+
+/**
+ * Safety net: if Supabase falls back to the Site URL, the login link lands on the
+ * homepage with ?code= / ?token_hash= / ?error=. Forward it to the real callback.
+ */
+export const load: PageServerLoad = ({ url }) => {
+	const p = url.searchParams;
+	if (p.has('code') || p.has('token_hash') || p.has('error_code')) redirect(303, `/auth/callback${url.search}`);
+};
 
 export const actions: Actions = {
 	analyze: async ({ request }) => {
