@@ -1,6 +1,6 @@
 import type { Candidate, Product, Store } from '$lib/types';
 import { db, hasSearch } from '../config';
-import { buildQueries, suggestCompetitorDomains } from './queries';
+import { buildQueries, judgeCompetitors, suggestCompetitorDomains, type JudgeInput } from './queries';
 import { isBlocked, searchDomains } from './search';
 import { fetchCatalog, fetchMeta, normalizeDomain, type RawProduct } from './shopify';
 import { applyIdf, catalogVector, cosine, quantile, sharedTerms } from './text';
@@ -144,12 +144,35 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 		const meta = await fetchMeta(d);
 		return { domain: d, products: catalog, prices: pricesOf(catalog), ...meta };
 	});
-	// Rank everyone, then keep the clearly similar ones. If none passes, still offer the
-	// best 3 as "possible" matches: an empty page is worse than a suggestion to review.
 	const ranked = scoreCandidates(ownProfile, profiles).sort((a, b) => b.score - a.score);
-	let scored = ranked.filter((s) => s.sim > 0.06 || s.score >= 0.3).slice(0, 5);
-	if (!scored.length)
-		scored = ranked.slice(0, 3).map((s) => ({ ...s, reasons: ['Possible match: check it', ...s.reasons] }));
+
+	// The AI reads both stores and keeps only real head-to-head competitors (score ≥ 6/10).
+	// Without a key we fall back to a strict keyword filter: no match beats a wrong match.
+	const judgeInput = (p: Profile & { name?: string | null }): JudgeInput => ({
+		domain: p.domain,
+		name: p.name ?? null,
+		about: p.about ?? null,
+		titles: p.products.slice(0, 12).map((x) => x.title),
+		medianPrice: Math.round(quantile(p.prices, 0.5) * 100) / 100,
+		currency: p.currency
+	});
+	const shortlist = ranked.slice(0, 15);
+	const verdicts = await judgeCompetitors(
+		judgeInput({ ...ownProfile, name: own.name }),
+		shortlist.map((r) => judgeInput(profiles.find((p) => p.domain === r.domain)!))
+	);
+	const scored = verdicts
+		? shortlist
+				.map((r) => ({ r, v: verdicts.get(r.domain) }))
+				.filter((x) => x.v && x.v.score >= 6)
+				.map(({ r, v }) => ({
+					...r,
+					score: Math.round((0.75 * (v!.score / 10) + 0.25 * r.score) * 100) / 100,
+					reasons: [v!.reason, ...r.reasons.filter((t) => !t.startsWith('Products in common'))].filter(Boolean)
+				}))
+				.sort((a, b) => b.score - a.score)
+				.slice(0, 5)
+		: ranked.filter((s) => s.sim > 0.15 && s.score >= 0.35).slice(0, 5);
 
 	// Only the 5 picks are saved (as their baseline)
 	const catalogs = new Map(shopify.map((s) => [s.d, s.catalog]));
@@ -164,7 +187,9 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 			queries,
 			suggested,
 			domains: domains.slice(0, 15),
-			ranked: ranked.map((r) => `${r.domain} score=${r.score} sim=${r.sim.toFixed(2)}`)
+			ranked: ranked.map(
+				(r) => `${r.domain} score=${r.score} sim=${r.sim.toFixed(2)}${verdicts?.get(r.domain) ? ` ai=${verdicts.get(r.domain)!.score} "${verdicts.get(r.domain)!.reason}"` : ''}`
+			)
 		})
 	);
 	const a = await repo.createAnalysis(own.id, candidates, queries);

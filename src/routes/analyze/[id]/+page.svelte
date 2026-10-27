@@ -39,16 +39,22 @@
 
 		{#if data.candidates.length}
 			<h1 class="mt-8 max-w-3xl font-display text-4xl leading-tight sm:text-5xl">
-				{#if verdict === 'average'}
+				{#if !pos.comparable}
+					We found <span class="text-accent">{data.candidates.length} {data.candidates.length === 1 ? 'competitor' : 'competitors'}</span> to watch for you.
+				{:else if verdict === 'average'}
 					Your prices are <span class="text-accent">right on average</span> with your competitors
 					({signedPct(pos.diffPct)}).
 				{:else}
-					You are <span class={pos.diffPct > 0 ? 'text-down' : 'text-up'}>{Math.abs(pos.diffPct).toLocaleString('es-ES')} %</span>
+					You are <span class={pos.diffPct > 0 ? 'text-down' : 'text-up'}>{Math.abs(pos.diffPct).toLocaleString('en')} %</span>
 					{verdict} than your competitors.
 				{/if}
 			</h1>
 			<p class="mt-3 text-muted">
-				Your median price is {money(pos.ownMedian, cur)}; your competitors’ is {money(pos.marketMedian, cur)}.
+				{#if pos.comparable}
+					Your median price is {money(pos.ownMedian, cur)}; your competitors’ is {money(pos.marketMedian, cur)}.
+				{:else}
+					{pos.note ?? 'Here is what they sell and how they price it.'}
+				{/if}
 			</p>
 		{:else}
 			<h1 class="mt-8 font-display text-4xl sm:text-5xl">Add your competitors</h1>

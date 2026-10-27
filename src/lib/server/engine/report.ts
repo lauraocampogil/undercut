@@ -24,6 +24,9 @@ export interface InstantReport {
 	ownMedian: number;
 	marketMedian: number;
 	diffPct: number;
+	/** False when the numbers would mislead (other currency, or wildly different products/pack sizes). */
+	comparable: boolean;
+	note: string | null;
 	competitors: CompetitorSummary[];
 	categories: CategoryPosition[];
 	topDeals: { product: Product; store: Store; discount: number }[];
@@ -78,11 +81,19 @@ function categories(own: Product[], market: Product[]): CategoryPosition[] {
 
 export function instantReport(
 	ownProducts: Product[],
-	competitors: { store: Store; products: Product[] }[]
+	competitors: { store: Store; products: Product[] }[],
+	ownCurrency: string | null = null
 ): InstantReport {
-	const market = competitors.flatMap((c) => c.products);
+	// Never compare euros with dollars: only same-currency competitors count for prices.
+	const sameCurrency = competitors.filter((c) => !ownCurrency || !c.store.currency || c.store.currency === ownCurrency);
+	const market = sameCurrency.flatMap((c) => c.products);
 	const ownMedian = median(ownProducts.map((p) => p.price));
 	const marketMedian = median(market.map((p) => p.price));
+	const diff = marketMedian ? ((ownMedian - marketMedian) / marketMedian) * 100 : 0;
+	let note: string | null = null;
+	if (!competitors.length) note = null;
+	else if (!sameCurrency.length) note = 'Your competitors sell in another currency, so we don’t compare prices directly.';
+	else if (Math.abs(diff) > 150) note = 'Your prices and theirs are too different to compare (pack sizes or product types may differ). See each category below.';
 	const deals = competitors
 		.flatMap((c) => c.products.filter((p) => p.compare_at).map((p) => ({ product: p, store: c.store, discount: Math.round(discountOf(p)) })))
 		.sort((a, b) => b.discount - a.discount)
@@ -90,7 +101,9 @@ export function instantReport(
 	return {
 		ownMedian: round1(ownMedian),
 		marketMedian: round1(marketMedian),
-		diffPct: marketMedian ? round1(((ownMedian - marketMedian) / marketMedian) * 100) : 0,
+		diffPct: round1(diff),
+		comparable: Boolean(sameCurrency.length) && note === null,
+		note,
 		competitors: competitors.map((c) => summarize(c.store, c.products)),
 		categories: categories(ownProducts, market),
 		topDeals: deals

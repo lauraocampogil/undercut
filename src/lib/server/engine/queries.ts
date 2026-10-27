@@ -126,3 +126,58 @@ List up to 10 direct competitors: independent brands or online stores that sell 
 		return [];
 	}
 }
+
+export interface JudgeInput {
+	domain: string;
+	name: string | null;
+	about: string | null;
+	titles: string[];
+	medianPrice: number;
+	currency: string | null;
+}
+
+/**
+ * With ANTHROPIC_API_KEY: rates how much each candidate is a DIRECT competitor (0–10)
+ * and explains why in a few words. Keyword overlap alone can't tell a soda brand from a
+ * shop selling "apple" and "cream" scented candles; a model reading both stores can.
+ * Returns null when the model is unavailable, so callers can fall back to heuristics.
+ */
+export async function judgeCompetitors(
+	own: JudgeInput,
+	cands: JudgeInput[]
+): Promise<Map<string, { score: number; reason: string }> | null> {
+	if (!config.anthropicKey || !cands.length) return null;
+	const describe = (s: JudgeInput) =>
+		`${s.domain} — ${s.name ?? ''}\n  About: ${(s.about ?? 'n/a').slice(0, 220)}\n  Products: ${s.titles.slice(0, 12).join(' | ')}\n  Median price: ${s.medianPrice} ${s.currency ?? ''}`;
+	const prompt = `You decide which online stores are DIRECT competitors of a store: same kind of product, same customer, a shopper would hesitate between them. Selling to the same broad category is not enough (a soda brand and a candle shop are not competitors even if both mention "apple").
+
+THE STORE:
+${describe(own)}
+
+CANDIDATES:
+${cands.map(describe).join('\n')}
+
+For each candidate give a score from 0 (unrelated) to 10 (head-to-head competitor) and a reason of max 8 words, written for the store owner (e.g. "Also sells prebiotic soda in cans"). Answer ONLY with a JSON array: [{"domain":"…","score":7,"reason":"…"}].`;
+	try {
+		const res = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', 'x-api-key': config.anthropicKey, 'anthropic-version': '2023-06-01' },
+			body: JSON.stringify({ model: config.anthropicModel, max_tokens: 1200, messages: [{ role: 'user', content: prompt }] }),
+			signal: AbortSignal.timeout(30_000)
+		});
+		if (!res.ok) {
+			console.error(`[anthropic] judge ${res.status}: ${(await res.text()).slice(0, 200)}`);
+			return null;
+		}
+		const json = (await res.json()) as { content?: { type: string; text?: string }[] };
+		const text = json.content?.find((c) => c.type === 'text')?.text ?? '';
+		const arr = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1)) as { domain?: string; score?: number; reason?: string }[];
+		const out = new Map<string, { score: number; reason: string }>();
+		for (const r of Array.isArray(arr) ? arr : [])
+			if (r.domain && typeof r.score === 'number') out.set(r.domain.toLowerCase(), { score: Math.max(0, Math.min(10, r.score)), reason: r.reason ?? '' });
+		return out;
+	} catch (e) {
+		console.error('[anthropic] judge failed:', e);
+		return null;
+	}
+}

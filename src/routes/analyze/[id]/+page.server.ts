@@ -18,7 +18,7 @@ export const load: PageServerLoad = async ({ params }) => {
 	const ownProducts = await repo.getProducts(own.id);
 	const stores = await repo.getStores(analysis.candidates.map((c) => c.store_id));
 	const comps = await Promise.all(stores.map(async (store) => ({ store, products: await repo.getProducts(store.id) })));
-	const report = instantReport(ownProducts, comps);
+	const report = instantReport(ownProducts, comps, own.currency);
 
 	const candidates = analysis.candidates
 		.map((c) => {
@@ -39,7 +39,7 @@ export const load: PageServerLoad = async ({ params }) => {
 		own: { domain: own.domain, name: own.name, currency: own.currency, country: own.country, productCount: ownProducts.length },
 		candidates,
 		max: MAX_COMPETITORS,
-		position: { ownMedian: report.ownMedian, marketMedian: report.marketMedian, diffPct: report.diffPct },
+		position: { ownMedian: report.ownMedian, marketMedian: report.marketMedian, diffPct: report.diffPct, comparable: report.comparable, note: report.note },
 		categories: report.categories,
 		deals: report.topDeals.map((d) => ({
 			title: d.product.title,
