@@ -39,7 +39,11 @@ export function heuristicQueries(q: QueryInput): string[] {
 	if (terms.length >= 4) out.add(`${terms[2]} ${terms[3]} ${SHOP[lang]}`);
 	if (terms.length >= 1) out.add(`${terms[0]} ${SHOP[lang]}`);
 	for (const v of vendors) out.add(`${v} ${BUY[lang]}`);
-	return [...out].slice(0, 6);
+	// Shopify stores all use /collections/ URLs: this biases results toward them.
+	const list = [...out].slice(0, 4);
+	if (types[0]) list.push(`${types[0]} inurl:collections`);
+	if (terms.length >= 2) list.push(`${terms[0]} ${terms[1]} inurl:collections`);
+	return [...new Set(list)].slice(0, 6);
 }
 
 /** With ANTHROPIC_API_KEY, an LLM writes more natural queries. On failure we fall back to heuristics. */

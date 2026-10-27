@@ -109,7 +109,12 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 		country: own.country
 	});
 	const results = await Promise.all(
-		queries.map((q) => searchDomains(q, { country: own.country, language: own.language }).catch(() => []))
+		queries.map((q) =>
+			searchDomains(q, { country: own.country, language: own.language }).catch((e) => {
+				console.error(`[discover] search failed for "${q}":`, e);
+				return [] as string[];
+			})
+		)
 	);
 	const freq = new Map<string, number>();
 	for (const list of results)
@@ -145,6 +150,11 @@ export async function analyze(input: string, onStep?: (s: string) => void): Prom
 		const res = await syncStore(s.domain, catalogs.get(s.domain));
 		return { store_id: res.store.id, score: s.score, reasons: s.reasons };
 	});
+	// One line per analysis in Vercel → Logs, to see where the funnel narrows.
+	console.log(
+		`[discover] ${domain}: ${queries.length} queries → ${results.flat().length} results → ${domains.length} domains → ${shopify.length} on Shopify → ${candidates.length} picked`,
+		JSON.stringify({ queries, domains: domains.slice(0, 12), shopify: shopify.map((s) => s.d) })
+	);
 	const a = await repo.createAnalysis(own.id, candidates, queries);
 	return { analysisId: a.id, own, usedSearch: true };
 }

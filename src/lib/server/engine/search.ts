@@ -42,7 +42,11 @@ async function serpApi(query: string, ctx: SearchContext): Promise<string[]> {
 	if (ctx.country) params.set('gl', ctx.country.toLowerCase());
 	if (ctx.language) params.set('hl', ctx.language);
 	const res = await fetch(`https://serpapi.com/search.json?${params}`, { signal: AbortSignal.timeout(20_000) });
-	if (!res.ok) return [];
+	if (!res.ok) {
+		// e.g. 401 invalid key, 429 quota used up: visible in Vercel → Logs
+		console.error(`[serpapi] ${res.status} for "${query}": ${(await res.text()).slice(0, 200)}`);
+		return [];
+	}
 	const json = (await res.json()) as {
 		organic_results?: { link?: string }[];
 		shopping_results?: { link?: string; product_link?: string }[];
@@ -64,7 +68,10 @@ async function brave(query: string, ctx: SearchContext): Promise<string[]> {
 		headers: { accept: 'application/json', 'x-subscription-token': config.braveKey },
 		signal: AbortSignal.timeout(20_000)
 	});
-	if (!res.ok) return [];
+	if (!res.ok) {
+		console.error(`[brave] ${res.status} for "${query}": ${(await res.text()).slice(0, 200)}`);
+		return [];
+	}
 	const json = (await res.json()) as { web?: { results?: { url?: string }[] } };
 	return (json.web?.results ?? []).map((r) => hostOf(r.url)).filter((h): h is string => Boolean(h));
 }
