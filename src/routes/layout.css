@@ -34,6 +34,7 @@ body {
 	font-feature-settings: 'tnum';
 }
 
+@layer components {
 /* Display serif for titles */
 .display {
 	font-family: var(--font-serif);
@@ -176,6 +177,8 @@ select.input {
 }
 .scrollbar-none::-webkit-scrollbar {
 	display: none;
+}
+
 }
 
 @media print {

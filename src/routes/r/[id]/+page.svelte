@@ -5,6 +5,8 @@
 	import { day, n, pct } from '#lib/format.ts';
 	let { data } = $props();
 	const m = $derived(data.metrics);
+	const app = $derived(data.app);
+	const range = $derived(data.range);
 	const c = $derived(data.client);
 	const a = $derived(data.agency);
 	const actions = $derived(data.insights.filter((i) => i.level !== 'good').slice(0, 3));
@@ -23,10 +25,10 @@
 			<div class="absolute -top-24 -right-24 size-72 rounded-full opacity-90" style="background:{c.color}"></div>
 			<div class="relative flex items-center justify-between gap-3 text-sm">
 				<span class="rounded-full bg-white px-3 py-1 font-medium text-ink">{a.name}</span>
-				<span class="text-white/60">{day(m.range.start)} – {day(m.range.end)}</span>
+				<span class="text-white/60">{day(range.start)} – {day(range.end)}</span>
 			</div>
 			<h1 class="display relative mt-16 text-[52px] sm:text-[88px]">{c.name}</h1>
-			<p class="relative mt-2 text-white/60">Your website, the last {m.range.days} days</p>
+			<p class="relative mt-2 text-white/60">Your {m && app ? 'website and app' : app ? 'app' : 'website'}, the last {range.days} days</p>
 		</header>
 
 		<section class="card mt-4 p-7 sm:p-9">
@@ -34,6 +36,7 @@
 			<p class="display mt-3 text-[28px] leading-[1.2] sm:text-[36px]">{data.summary.text}</p>
 		</section>
 
+		{#if m}
 		<section class="card mt-4 grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4">
 			{#each [
 				{ l: 'Visits', v: m.visits.total, p: m.visits.prev },
@@ -53,6 +56,28 @@
 			<h2 class="text-lg font-medium">Visits per day</h2>
 			<div class="mt-5"><BarChart data={m.visits.daily} height={190} /></div>
 		</section>
+
+		{/if}
+		{#if app}
+			<section class="card mt-4 grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4">
+				{#each [
+					{ l: 'App users', v: n(app.active.total), d: pct(app.active.total, app.active.prev) },
+					{ l: 'New users', v: n(app.newUsers.total), d: pct(app.newUsers.total, app.newUsers.prev) },
+					{ l: 'Crash-free', v: `${app.crashFree}%`, d: null },
+					{ l: 'Store rating', v: `${app.store.ios?.rating ?? app.store.android?.rating ?? '—'}★`, d: null }
+				] as k (k.l)}
+					<div class="bg-white p-6">
+						<p class="text-sm text-muted">{k.l}</p>
+						<p class="big mt-4 text-[44px]">{k.v}</p>
+						{#if k.d !== null}<div class="mt-2"><Delta value={k.d} /></div>{/if}
+					</div>
+				{/each}
+			</section>
+			<section class="card mt-4 p-7">
+				<h2 class="text-lg font-medium">App users per day</h2>
+				<div class="mt-5"><BarChart data={app.dau} height={190} unit="users" /></div>
+			</section>
+		{/if}
 
 		<section class="mt-4 grid gap-4 sm:grid-cols-2">
 			<div class="card p-7">
@@ -75,6 +100,7 @@
 			</div>
 		</section>
 
+		{#if m}
 		<section class="mt-4 grid gap-4 sm:grid-cols-2">
 			<div class="card p-7">
 				<h2 class="text-lg font-medium">How people find you</h2>
@@ -85,6 +111,8 @@
 				<div class="mt-5"><BarList items={m.search.queries.slice(0, 5).map((q) => ({ label: q.query, value: q.clicks, extra: `#${q.position}` }))} /></div>
 			</div>
 		</section>
+
+		{/if}
 
 		<footer class="mt-8 flex flex-wrap items-center justify-between gap-2 px-2 text-sm text-muted">
 			<p>{a.reportFooter}</p>

@@ -9,12 +9,17 @@ export const actions = {
 		const f = await request.formData();
 		const name = String(f.get('name') ?? '').trim();
 		const domainRaw = String(f.get('domain') ?? '').trim();
-		if (!name || !domainRaw) return fail(400, { name, domain: domainRaw, error: 'Name and website are required.' });
-		let domain: string;
-		try {
-			domain = normaliseSite(domainRaw);
-		} catch {
-			return fail(400, { name, domain: domainRaw, error: 'That website address does not look valid.' });
+		const t = String(f.get('type') ?? 'web');
+		const type = (['web', 'app', 'both'].includes(t) ? t : 'web') as 'web' | 'app' | 'both';
+		if (!name) return fail(400, { name, domain: domainRaw, error: 'Give the client a name.' });
+		if (type !== 'app' && !domainRaw) return fail(400, { name, domain: domainRaw, error: 'Add the website address.' });
+		let domain = '';
+		if (domainRaw) {
+			try {
+				domain = normaliseSite(domainRaw);
+			} catch {
+				return fail(400, { name, domain: domainRaw, error: 'That website address does not look valid.' });
+			}
 		}
 		let id = slugify(name);
 		while (getClient(id)) id += '-2';
@@ -24,6 +29,8 @@ export const actions = {
 			domain,
 			color: String(f.get('color') || COLORS[Math.floor(Math.random() * COLORS.length)]),
 			createdAt: new Date().toISOString().slice(0, 10),
+			type,
+			app: type !== 'web' ? { name } : undefined,
 			google: {}
 		});
 		redirect(303, `/app/clients/${id}/settings?new=1`);

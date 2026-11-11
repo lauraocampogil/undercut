@@ -56,6 +56,19 @@ const SEED: Client[] = [
 		color: '#D9534C',
 		createdAt: '2026-10-20',
 		demo: true,
+		type: 'both',
+		app: { name: 'Vélo Flandria', iosId: '', androidPackage: 'be.veloflandria.app' },
+		google: {}
+	},
+	{
+		id: 'moove-app',
+		name: 'Moove Fitness App',
+		domain: 'https://moove.fit',
+		color: '#8B5CF6',
+		createdAt: '2026-11-01',
+		demo: true,
+		type: 'app',
+		app: { name: 'Moove', iosId: '', androidPackage: 'fit.moove.app' },
 		google: {}
 	}
 ];
@@ -121,3 +134,22 @@ export function slugify(s: string) {
 			.slice(0, 40) || 'client'
 	);
 }
+
+// Tasks ticked off by the agency: { clientId: { insightId: isoDate } }
+type Done = Record<string, Record<string, string>>;
+
+export function getDone(clientId: string): Record<string, string> {
+	return read<Done>('tasks.json', {})[clientId] ?? {};
+}
+
+export function toggleDone(clientId: string, insightId: string) {
+	const all = read<Done>('tasks.json', {});
+	const c = (all[clientId] ??= {});
+	if (c[insightId]) delete c[insightId];
+	else c[insightId] = new Date().toISOString();
+	write('tasks.json', all);
+}
+
+export const clientType = (c: Client) => c.type ?? 'web';
+export const hasWeb = (c: Client) => clientType(c) !== 'app';
+export const hasApp = (c: Client) => clientType(c) !== 'web';

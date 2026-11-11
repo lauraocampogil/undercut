@@ -1,12 +1,12 @@
 <script lang="ts">
-	let { size = 30, light = false }: { size?: number; light?: boolean } = $props();
+	// Mark: a circle cut in two, the lower half slid sideways — the "under cut".
+	let { size = 30, light = false, wordmark = true }: { size?: number; light?: boolean; wordmark?: boolean } = $props();
 </script>
 
 <span class="inline-flex items-center gap-2">
-	<svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-		<circle cx="16" cy="16" r="16" fill={light ? '#C6F432' : '#0D0D0D'} />
-		<path d="M10 9.5v7a6 6 0 0 0 12 0v-7" stroke={light ? '#0D0D0D' : '#C6F432'} stroke-width="3" fill="none" stroke-linecap="round" />
-		<path d="M7 22.5 25 13.5" stroke={light ? '#C6F432' : '#0D0D0D'} stroke-width="2.2" />
+	<svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" class="shrink-0">
+		<path d="M1.5 14.5a13 13 0 0 1 26 0Z" fill={light ? '#fff' : '#0D0D0D'} />
+		<path d="M4.5 17.5h26a13 13 0 0 1-26 0Z" fill="#C6F432" />
 	</svg>
-	<span class="display text-[26px] leading-none">undercut</span>
+	{#if wordmark}<span class="text-[22px] leading-none font-semibold tracking-[-0.05em] {light ? 'text-white' : ''}">undercut</span>{/if}
 </span>

@@ -86,6 +86,33 @@
 	</div>
 </section>
 
+{#if data.maps}
+	{@const mp = data.maps}
+	{@const total = mp.calls + mp.directions + mp.websiteClicks}
+	<section id="maps" class="mt-10 scroll-mt-6">
+		<h2 class="display text-[40px] sm:text-[48px]">Google <em>Maps</em></h2>
+		<p class="text-sm text-muted">What people did on the Google Business profile.</p>
+		<div class="mt-5 grid gap-4 lg:grid-cols-[1fr_2fr]">
+			<div class="flex flex-col rounded-[28px] bg-[#E4F5B8] p-6">
+				<div class="flex items-start justify-between gap-3">
+					<p class="text-sm">{n(mp.views)} profile views</p>
+					<SourceBadge state={data.mapsSource} />
+				</div>
+				<p class="mt-6 flex items-start gap-2"><span class="big text-[64px]">{n(total)}</span><Delta value={pct(total, mp.prevTotal)} /></p>
+				<p class="text-sm text-ink-2/70">actions: someone called, asked for directions or opened the site</p>
+			</div>
+			<div class="card grid grid-cols-3 gap-px overflow-hidden bg-line">
+				{#each [['Calls', mp.calls, 'tapped “Call”'], ['Route requests', mp.directions, 'asked for directions'], ['Website clicks', mp.websiteClicks, 'opened the site from Maps']] as [l, v, h] (l)}
+					<div class="flex flex-col justify-between gap-6 bg-white p-6">
+						<div><p class="text-sm font-medium">{l}</p><p class="text-xs text-muted">{h}</p></div>
+						<p class="big text-[48px]">{n(Number(v))}</p>
+					</div>
+				{/each}
+			</div>
+		</div>
+	</section>
+{/if}
+
 <section class="card mt-10 p-4 sm:p-6">
 	<div class="flex flex-wrap items-center gap-2">
 		{#each [['queries', 'Searches'], ['pages', 'Pages'], ['countries', 'Countries'], ['devices', 'Devices']] as [id, label] (id)}

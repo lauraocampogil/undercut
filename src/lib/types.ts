@@ -4,7 +4,9 @@ export type Client = {
 	domain: string; // e.g. https://example.be
 	color: string; // brand colour used on reports
 	createdAt: string;
-	demo?: boolean; // seeded example client: sitemap is simulated
+	demo?: boolean; // seeded example client: data is simulated
+	type?: 'web' | 'app' | 'both'; // what the agency manages for this client
+	app?: { name?: string; iosId?: string; androidPackage?: string };
 	google: {
 		ga4PropertyId?: string; // "properties/123456"
 		gscSiteUrl?: string; // "sc-domain:example.be" or "https://example.be/"
@@ -53,9 +55,12 @@ export type Metrics = {
 
 export type Level = 'good' | 'warn' | 'bad';
 
+export type Area = 'Traffic' | 'Google Search' | 'Google Maps' | 'Conversions' | 'Tracking' | 'Sitemap' | 'SEO' | 'App' | 'Behaviour';
+
 export type Insight = {
+	id: string; // stable rule id, used to tick tasks off
 	level: Level;
-	area: 'Traffic' | 'Google Search' | 'Google Maps' | 'Conversions' | 'Tracking' | 'Sitemap';
+	area: Area;
 	title: string;
 	meaning: string;
 	action: string;

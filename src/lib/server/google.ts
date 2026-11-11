@@ -416,3 +416,9 @@ export async function getSearchConsole(client: Client, days = 28): Promise<Searc
 		return { ...demo, source: 'error', error: (e as Error).message };
 	}
 }
+
+// ---------- shared helpers for other modules ----------
+export const googleReady = () => isConnected() && googleConfigured();
+export function gaReport(property: string, body: object) {
+	return g(`https://analyticsdata.googleapis.com/v1beta/${property}:runReport`, { method: 'POST', body: JSON.stringify(body) });
+}

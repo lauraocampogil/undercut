@@ -5,8 +5,27 @@ import type { Client, Insight, Metrics, SitemapReport } from '#lib/types.ts';
 
 const change = (a: number, b: number) => (b ? Math.round(((a - b) / b) * 100) : 0);
 
-export function buildInsights(m: Metrics, sitemap?: SitemapReport | null): Insight[] {
-	const out: Insight[] = [];
+export type Draft = Omit<Insight, 'id'>;
+
+export function withIds(list: Draft[]): Insight[] {
+	return list.map((i) => ({
+		...i,
+		id: (i.area + '-' + i.title.replace(/[\d.,+%()#↑↓-]+/g, ' '))
+			.toLowerCase()
+			.normalize('NFD')
+			.replace(/[\u0300-\u036f]/g, '')
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/(^-|-$)/g, '')
+	}));
+}
+
+export function sortInsights(list: Insight[]) {
+	const order = { bad: 0, warn: 1, good: 2 };
+	return list.sort((a, b) => order[a.level] - order[b.level]);
+}
+
+export function buildInsights(m: Metrics, sitemap?: SitemapReport | null, extra: Draft[] = []): Insight[] {
+	const out: Draft[] = [];
 	const v = change(m.visits.total, m.visits.prev);
 
 	if (v >= 10)
@@ -144,14 +163,13 @@ export function buildInsights(m: Metrics, sitemap?: SitemapReport | null): Insig
 			});
 	}
 
-	const order = { bad: 0, warn: 1, good: 2 };
-	return out.sort((a, b) => order[a.level] - order[b.level]);
+	return sortInsights(withIds([...out, ...extra]));
 }
 
 export function healthScore(insights: Insight[]) {
 	const score = Math.max(
 		0,
-		Math.min(100, 100 - insights.filter((i) => i.level === 'bad').length * 15 - insights.filter((i) => i.level === 'warn').length * 6)
+		Math.min(100, 100 - insights.filter((i) => i.level === 'bad').length * 10 - insights.filter((i) => i.level === 'warn').length * 4)
 	);
 	return { score, level: (score >= 75 ? 'good' : score >= 50 ? 'warn' : 'bad') as 'good' | 'warn' | 'bad' };
 }

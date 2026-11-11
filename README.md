@@ -2,6 +2,13 @@
 
 MVP built with SvelteKit 3 + Svelte 5 + Tailwind 4.
 
+## How the app is organised
+
+- **Overview** — the agency's week: the 2 most urgent tasks per client, and every client with a health score and a status dot per area.
+- **Client** — *Summary* (health, one tile per area, one to-do list you tick off) → *Traffic* → *Search & Maps* → *SEO* (automatic audit) → *Heatmaps* → *App* → *Setup*. Tabs only appear for what the agency manages (website, app or both).
+- **Content ideas** — questions people ask, trends, pages that rank.
+- **Settings** — your agency, white-label client reports, connections.
+
 ## Run it
 
 ```bash
@@ -20,7 +27,10 @@ Open http://localhost:5173. Four example clients load with demo data straight aw
 | Client dashboard: visits, sources, pages, Google Search, Maps, contacts | ✅ demo data, live once Google is linked |
 | "What to do now": every number explained + one action | ✅ rule-based |
 | Weekly summary | ✅ rule-based, or Claude if `ANTHROPIC_API_KEY` is set |
-| Free SEO check (sitemap.xml, robots.txt, broken pages, https, duplicates) | ✅ **live, no login** |
+| **Automatic SEO audit** per client (no URL to type): homepage + sitemap pages — titles, descriptions, H1, canonical, noindex, alt texts, thin content, structured data, share image, speed, robots.txt, sitemap, HTTPS + Core Web Vitals via PageSpeed. Cached 24 h, "check again" button | ✅ **live** |
+| **Heatmaps** (Hotjar-style): one cookieless snippet → click map, scroll map, rage clicks, "clicks on things that are not links", drawn on a snapshot of the real page; desktop / mobile | ✅ **live** (tested end-to-end) |
+| **App analytics**: active users, new users, DAU/MAU, sessions, crash-free users, iOS vs Android, versions, screens (GA4/Firebase), retention cohorts, App Store rating + reviews (public, live) | ✅ usage live via GA4 · App Store live · Google Play & downloads demo |
+| Tasks: every finding becomes a task you can tick off, per client and across clients | ✅ |
 | Add client → its sitemap is checked live | ✅ |
 | One "Connect with Google" → GA4, Search Console, Business Profile, Tag Manager | ✅ code ready, needs your Google Cloud keys |
 | Pick each client's property from dropdowns | ✅ once Google is connected |
@@ -50,12 +60,30 @@ Serif + sans: **Instrument Serif** for titles, **Geist** for UI and the big ligh
 src/lib/server/google.ts    OAuth + GA4 / Search Console / Business Profile / Tag Manager calls (plain fetch)
 src/lib/server/sitemap.ts   live sitemap.xml + robots.txt analysis
 src/lib/server/insights.ts  numbers → plain-language findings, health score, AI summary
+src/lib/server/overview.ts  gathers every area of a client → tiles + one task list
+src/lib/server/seo-audit.ts automatic SEO audit
+src/lib/server/tracking.ts  heatmap events, snapshots, aggregation (+ src/routes/u.js = the snippet)
+src/lib/server/app-analytics.ts  app usage (GA4/Firebase), App Store ratings & reviews
 src/lib/server/ideas.ts     content ideas: autocomplete questions + SerpApi trends / top content
 src/lib/server/demo.ts      deterministic demo data per client
 src/lib/server/store.ts     MVP storage in ./.data (JSON). Swap for Supabase: supabase/schema.sql
 src/routes/app/...          agency app
 src/routes/r/[id]           white-label client report
 ```
+
+## Heatmap snippet
+
+```html
+<script defer src="https://YOUR-UNDERCUT-URL/u.js" data-site="CLIENT_ID"></script>
+```
+
+Cookieless, no IP stored, form fields never recorded, `data-undercut-mask` hides any element's text. Each client's snippet (with its id) is on *Client → Setup*.
+
+## App analytics — how it works
+
+1. **Usage** (active users, retention, screens, versions, crashes): the app uses Firebase; link the Firebase project to a GA4 property and pick it in *Setup*. Undercut reads it with the same Google login (platform iOS + Android).
+2. **Ratings & reviews**: App Store ID in *Setup* → loaded live from Apple's public API. Google Play reviews need a Play Console service account (next step).
+3. **Downloads**: App Store Connect API key + Play Console reports (next step).
 
 ## Next steps to production
 

@@ -6,10 +6,8 @@
 
 	const nav = [
 		{ href: '/app', label: 'Overview' },
-		{ href: '/app/ideas', label: 'Ideas' },
-		{ href: '/app/seo-check', label: 'SEO check' },
-		{ href: '/app/connections', label: 'Connections' },
-		{ href: '/app/settings', label: 'Branding' }
+		{ href: '/app/ideas', label: 'Content ideas' },
+		{ href: '/app/settings', label: 'Settings' }
 	];
 	const active = (href: string) =>
 		href === '/app' ? page.url.pathname === '/app' || page.url.pathname.startsWith('/app/clients') : page.url.pathname.startsWith(href);
@@ -48,7 +46,7 @@
 				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6" /></svg>
 			</button>
 			<a
-				href="/app/connections"
+				href="/app/settings#connections"
 				class="grid size-11 place-items-center rounded-full bg-white"
 				title={data.google.connected ? `Google: ${data.google.email ?? 'connected'}` : 'Google not connected'}
 				aria-label="Google connection"
