@@ -1,0 +1,194 @@
+@import 'tailwindcss';
+
+@theme {
+	--font-sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+	--font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+
+	--color-paper: #efefeb;
+	--color-card: #ffffff;
+	--color-tile: #f3f3f0;
+	--color-ink: #0d0d0d;
+	--color-ink-2: #3b3c40;
+	--color-muted: #85878d;
+	--color-line: #e3e3de;
+	--color-accent: #c6f432;
+	--color-accent-ink: #172000;
+	--color-good: #2f9e44;
+	--color-good-bg: #e8f7d4;
+	--color-warn: #b7791f;
+	--color-warn-bg: #fbf1d9;
+	--color-bad: #d6453d;
+	--color-bad-bg: #fbe7e5;
+
+	--radius-card: 28px;
+}
+
+html {
+	background: var(--color-paper);
+	color: var(--color-ink);
+	-webkit-font-smoothing: antialiased;
+}
+
+body {
+	font-family: var(--font-sans);
+	font-feature-settings: 'tnum';
+}
+
+/* Display serif for titles */
+.display {
+	font-family: var(--font-serif);
+	font-weight: 400;
+	letter-spacing: -0.02em;
+	line-height: 0.95;
+}
+
+/* Large light numerals (reference style) */
+.big {
+	font-weight: 300;
+	letter-spacing: -0.045em;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+}
+.num {
+	font-variant-numeric: tabular-nums;
+}
+
+.card {
+	min-width: 0;
+	background: var(--color-card);
+	border-radius: var(--radius-card);
+}
+.tile {
+	min-width: 0;
+	background: var(--color-tile);
+	border-radius: 20px;
+}
+.card-dark {
+	min-width: 0;
+	background: var(--color-ink);
+	color: white;
+	border-radius: var(--radius-card);
+}
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	border-radius: 999px;
+	padding: 0.65rem 1.15rem;
+	font-size: 0.875rem;
+	font-weight: 500;
+	white-space: nowrap;
+	transition:
+		transform 0.12s ease,
+		background 0.15s ease,
+		border-color 0.15s ease;
+}
+.btn:active {
+	transform: scale(0.97);
+}
+.btn-primary {
+	background: var(--color-ink);
+	color: white;
+}
+.btn-primary:hover {
+	background: #262626;
+}
+.btn-accent {
+	background: var(--color-accent);
+	color: var(--color-accent-ink);
+}
+.btn-accent:hover {
+	background: #b8e81f;
+}
+.btn-ghost {
+	border: 1px solid #d6d6d0;
+	background: transparent;
+}
+.btn-ghost:hover {
+	border-color: var(--color-ink);
+}
+
+/* Round icon button (arrow ↗ in the references) */
+.icon-btn {
+	display: inline-grid;
+	place-items: center;
+	width: 38px;
+	height: 38px;
+	border-radius: 999px;
+	border: 1px solid #d6d6d0;
+	transition: background 0.15s ease;
+}
+.icon-btn:hover {
+	background: var(--color-ink);
+	color: white;
+	border-color: var(--color-ink);
+}
+
+/* Outlined filter pills */
+.pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	border-radius: 999px;
+	border: 1px solid #d0d0ca;
+	padding: 0.45rem 1rem;
+	font-size: 0.875rem;
+	white-space: nowrap;
+	transition: all 0.15s ease;
+}
+.pill:hover {
+	border-color: var(--color-ink);
+}
+.pill-active {
+	background: var(--color-ink);
+	border-color: var(--color-ink);
+	color: white;
+}
+
+.input {
+	width: 100%;
+	border: 1px solid #d6d6d0;
+	background: white;
+	border-radius: 999px;
+	padding: 0.7rem 1.1rem;
+	font-size: 0.95rem;
+}
+textarea.input,
+select.input {
+	border-radius: 16px;
+}
+.input:focus {
+	outline: 2px solid var(--color-ink);
+	outline-offset: -1px;
+}
+
+.label {
+	font-size: 0.75rem;
+	font-weight: 500;
+	color: var(--color-muted);
+	letter-spacing: 0.02em;
+}
+
+.scrollbar-none {
+	scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+	display: none;
+}
+
+@media print {
+	.no-print {
+		display: none !important;
+	}
+	html,
+	body {
+		background: white;
+	}
+	.card,
+	.card-dark,
+	.tile {
+		break-inside: avoid;
+	}
+}

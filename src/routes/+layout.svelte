@@ -1,11 +1,16 @@
 <script lang="ts">
-	// Self-hosted fonts: faster, and no call to Google Fonts (GDPR).
-	import '@fontsource-variable/bricolage-grotesque/wdth.css';
 	import '@fontsource-variable/geist';
-	import '../app.css';
-	import CookieBanner from '$lib/components/CookieBanner.svelte';
-	let { children } = $props();
+	import '@fontsource/instrument-serif/400.css';
+	import '@fontsource/instrument-serif/400-italic.css';
+	import './layout.css';
+	import favicon from '#lib/assets/favicon.svg';
+	import type { LayoutProps } from './$types';
+
+	let { children }: LayoutProps = $props();
 </script>
 
+<svelte:head>
+	<link rel="icon" href={favicon} />
+</svelte:head>
+
 {@render children()}
-<CookieBanner />

@@ -1,30 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	let { domain, size = 36 }: { domain: string; size?: number } = $props();
-	let failed = $state(false);
-	let img: HTMLImageElement | undefined = $state();
-	// The image may fail before hydration attaches onerror: check once mounted.
-	onMount(() => {
-		if (img && img.complete && img.naturalWidth === 0) failed = true;
-	});
+	let { size = 30, light = false }: { size?: number; light?: boolean } = $props();
 </script>
 
-{#if failed}
-	<div
-		class="grid shrink-0 place-items-center rounded-lg bg-ink font-semibold text-cream uppercase"
-		style="width:{size}px;height:{size}px;font-size:{size * 0.42}px"
-		aria-hidden="true"
-	>
-		{domain.slice(0, 1)}
-	</div>
-{:else}
-	<img
-		bind:this={img}
-		src="https://www.google.com/s2/favicons?domain={domain}&sz=64"
-		alt=""
-		width={size}
-		height={size}
-		class="shrink-0 rounded-lg border border-line bg-white object-contain p-1"
-		onerror={() => (failed = true)}
-	/>
-{/if}
+<span class="inline-flex items-center gap-2">
+	<svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
+		<circle cx="16" cy="16" r="16" fill={light ? '#C6F432' : '#0D0D0D'} />
+		<path d="M10 9.5v7a6 6 0 0 0 12 0v-7" stroke={light ? '#0D0D0D' : '#C6F432'} stroke-width="3" fill="none" stroke-linecap="round" />
+		<path d="M7 22.5 25 13.5" stroke={light ? '#C6F432' : '#0D0D0D'} stroke-width="2.2" />
+	</svg>
+	<span class="display text-[26px] leading-none">undercut</span>
+</span>

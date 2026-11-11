@@ -1,24 +1,22 @@
-import { sentrySvelteKit } from '@sentry/sveltekit/vite';
-import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
+import adapter from '@sveltejs/adapter-auto';
+import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-
-// Source maps are uploaded to Sentry only when SENTRY_AUTH_TOKEN is set (e.g. on Vercel).
-const uploadSourceMaps = Boolean(process.env.SENTRY_AUTH_TOKEN);
 
 export default defineConfig({
 	plugins: [
-		sentrySvelteKit({
-			autoUploadSourceMaps: uploadSourceMaps,
-			org: process.env.SENTRY_ORG,
-			project: process.env.SENTRY_PROJECT,
-			authToken: process.env.SENTRY_AUTH_TOKEN
-		}),
 		tailwindcss(),
-		sveltekit()
-	],
-	// Fixed port so it never clashes with other local projects (Supabase redirects here).
-	server: { port: 5180, strictPort: true },
-	preview: { port: 5180 },
-	test: { include: ['src/**/*.test.ts'] }
+		sveltekit({
+			compilerOptions: {
+				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
+				runes: ({ filename }) =>
+					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+			},
+
+			// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
+			// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
+			// See https://svelte.dev/docs/kit/adapters for more information about adapters.
+			adapter: adapter()
+		})
+	]
 });

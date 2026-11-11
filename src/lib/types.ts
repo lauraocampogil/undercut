@@ -1,104 +1,93 @@
-export type ChangeKind =
-	| 'price_down'
-	| 'price_up'
-	| 'new_product'
-	| 'sale_start'
-	| 'sale_end'
-	| 'out_of_stock'
-	| 'restock';
-
-export interface Store {
+export type Client = {
 	id: string;
-	domain: string;
-	name: string | null;
-	currency: string | null;
-	country: string | null;
-	language: string | null;
-	product_count: number;
-	blocked: boolean;
-	last_checked_at: string | null;
-	created_at: string;
-}
+	name: string;
+	domain: string; // e.g. https://example.be
+	color: string; // brand colour used on reports
+	createdAt: string;
+	demo?: boolean; // seeded example client: sitemap is simulated
+	google: {
+		ga4PropertyId?: string; // "properties/123456"
+		gscSiteUrl?: string; // "sc-domain:example.be" or "https://example.be/"
+		gbpLocation?: string; // "locations/123"
+		gtmContainer?: string; // "accounts/1/containers/2"
+	};
+};
 
-export interface Product {
-	id: string; // `${store_id}:${shopify_id}`
-	store_id: string;
-	shopify_id: number;
-	handle: string;
+export type Agency = {
+	name: string;
+	color: string;
+	reportFooter: string;
+};
+
+export type Point = { date: string; value: number };
+
+export type Source = 'demo' | 'google';
+
+export type Metrics = {
+	range: { start: string; end: string; days: number };
+	sources: Record<'ga4' | 'gsc' | 'gbp' | 'gtm', Source | 'error' | 'off'>;
+	visits: { total: number; prev: number; daily: Point[] };
+	users: { total: number; prev: number };
+	engagementSec: { value: number; prev: number };
+	conversions: { total: number; prev: number };
+	channels: { name: string; visits: number }[];
+	topPages: { path: string; views: number; change: number }[];
+	search: {
+		clicks: number;
+		prevClicks: number;
+		impressions: number;
+		position: number;
+		prevPosition: number;
+		queries: { query: string; clicks: number; impressions: number; position: number }[];
+	};
+	maps: {
+		views: number;
+		calls: number;
+		directions: number;
+		websiteClicks: number;
+		prevTotal: number;
+	} | null;
+	tags: { container: string; googleTagFound: boolean; tagCount: number } | null;
+	errors: string[];
+};
+
+export type Level = 'good' | 'warn' | 'bad';
+
+export type Insight = {
+	level: Level;
+	area: 'Traffic' | 'Google Search' | 'Google Maps' | 'Conversions' | 'Tracking' | 'Sitemap';
 	title: string;
-	product_type: string | null;
-	vendor: string | null;
-	tags: string[];
-	image: string | null;
-	price: number;
-	compare_at: number | null;
-	available: boolean;
-	shop_created_at: string | null;
-	first_seen_at: string;
-	updated_at: string;
-}
+	meaning: string;
+	action: string;
+};
 
-export interface Snapshot {
-	product_id: string;
-	day: string; // YYYY-MM-DD
-	price: number;
-	compare_at: number | null;
-	available: boolean;
-}
+export type SitemapReport = {
+	url: string;
+	found: boolean;
+	sitemapUrl: string | null;
+	via: 'robots.txt' | 'default' | null;
+	urlCount: number;
+	childSitemaps: number;
+	withLastmod: number;
+	newestLastmod: string | null;
+	stale: number; // urls with lastmod older than 12 months
+	httpUrls: number;
+	duplicates: number;
+	checked: { url: string; status: number }[];
+	broken: number;
+	error?: string;
+};
 
-export interface Change {
-	id: string;
-	store_id: string;
-	product_id: string | null;
-	kind: ChangeKind;
-	old_value: number | null;
-	new_value: number | null;
-	pct: number | null;
-	detected_at: string;
-}
+export type GscRow = { key: string; clicks: number; impressions: number; ctr: number; position: number; prevClicks?: number };
 
-export interface Candidate {
-	store_id: string;
-	score: number; // 0–1
-	reasons: string[];
-}
-
-export interface Analysis {
-	id: string;
-	own_store_id: string;
-	candidates: Candidate[];
-	queries: string[];
-	created_at: string;
-}
-
-export interface Account {
-	id: string;
-	email: string;
-	own_store_id: string | null;
-	reminder_day: number; // 0 = Sunday … 6 = Saturday
-	last_seen_at: string | null;
-	created_at: string;
-}
-
-export interface Tracked {
-	account_id: string;
-	store_id: string;
-	score: number | null;
-	reasons: string[];
-	added_at: string;
-}
-
-/** A change ready to render in the dashboard feed. */
-export interface FeedItem {
-	id: string;
-	kind: ChangeKind;
-	pct: number | null;
-	old_value: number | null;
-	new_value: number | null;
-	detected_at: string;
-	store: { id: string; domain: string; name: string | null; currency: string | null };
-	product: { id: string; title: string; image: string | null; url: string } | null;
-}
-
-/** Competitors per account in the MVP (Starter plan). */
-export const MAX_COMPETITORS = 5;
+export type SearchConsoleDetail = {
+	source: Source | 'error';
+	error?: string;
+	range: { start: string; end: string; days: number };
+	totals: { clicks: number; impressions: number; ctr: number; position: number; prevClicks: number; prevImpressions: number; prevPosition: number };
+	daily: { date: string; clicks: number; impressions: number }[];
+	queries: GscRow[];
+	pages: GscRow[];
+	countries: GscRow[];
+	devices: GscRow[];
+};

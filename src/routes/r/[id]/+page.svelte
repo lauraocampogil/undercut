@@ -1,0 +1,94 @@
+<script lang="ts">
+	import BarChart from '#lib/components/BarChart.svelte';
+	import BarList from '#lib/components/BarList.svelte';
+	import Delta from '#lib/components/Delta.svelte';
+	import { day, n, pct } from '#lib/format.ts';
+	let { data } = $props();
+	const m = $derived(data.metrics);
+	const c = $derived(data.client);
+	const a = $derived(data.agency);
+	const actions = $derived(data.insights.filter((i) => i.level !== 'good').slice(0, 3));
+	const wins = $derived(data.insights.filter((i) => i.level === 'good').slice(0, 3));
+</script>
+
+<svelte:head><title>{c.name} · report by {a.name}</title></svelte:head>
+
+<div class="min-h-dvh px-3 py-6 sm:px-6 sm:py-10">
+	<article class="mx-auto max-w-4xl">
+		<div class="no-print mb-4 flex justify-end">
+			<button class="btn btn-primary" onclick={() => window.print()}>Save as PDF</button>
+		</div>
+
+		<header class="card-dark relative overflow-hidden p-7 sm:p-10">
+			<div class="absolute -top-24 -right-24 size-72 rounded-full opacity-90" style="background:{c.color}"></div>
+			<div class="relative flex items-center justify-between gap-3 text-sm">
+				<span class="rounded-full bg-white px-3 py-1 font-medium text-ink">{a.name}</span>
+				<span class="text-white/60">{day(m.range.start)} – {day(m.range.end)}</span>
+			</div>
+			<h1 class="display relative mt-16 text-[52px] sm:text-[88px]">{c.name}</h1>
+			<p class="relative mt-2 text-white/60">Your website, the last {m.range.days} days</p>
+		</header>
+
+		<section class="card mt-4 p-7 sm:p-9">
+			<p class="label">In short</p>
+			<p class="display mt-3 text-[28px] leading-[1.2] sm:text-[36px]">{data.summary.text}</p>
+		</section>
+
+		<section class="card mt-4 grid grid-cols-2 gap-px overflow-hidden bg-line sm:grid-cols-4">
+			{#each [
+				{ l: 'Visits', v: m.visits.total, p: m.visits.prev },
+				{ l: 'People', v: m.users.total, p: m.users.prev },
+				{ l: 'Google clicks', v: m.search.clicks, p: m.search.prevClicks },
+				{ l: 'Contacts', v: m.conversions.total, p: m.conversions.prev }
+			] as k (k.l)}
+				<div class="bg-white p-6">
+					<p class="text-sm text-muted">{k.l}</p>
+					<p class="big mt-4 text-[44px]">{n(k.v)}</p>
+					<div class="mt-2"><Delta value={pct(k.v, k.p)} /></div>
+				</div>
+			{/each}
+		</section>
+
+		<section class="card mt-4 p-7">
+			<h2 class="text-lg font-medium">Visits per day</h2>
+			<div class="mt-5"><BarChart data={m.visits.daily} height={190} /></div>
+		</section>
+
+		<section class="mt-4 grid gap-4 sm:grid-cols-2">
+			<div class="card p-7">
+				<h2 class="display text-[34px]">What went <em>well</em></h2>
+				<ul class="mt-5 space-y-4">
+					{#each wins as w (w.area + w.title)}
+						<li class="flex gap-3 text-sm"><span class="grid size-6 shrink-0 place-items-center rounded-full bg-accent text-xs text-accent-ink">✓</span><span><strong class="font-medium">{w.title}.</strong> <span class="text-ink-2">{w.meaning}</span></span></li>
+					{/each}
+				</ul>
+			</div>
+			<div class="card-dark p-7">
+				<h2 class="display text-[34px]">What we do <em>next</em></h2>
+				<ol class="mt-5 space-y-4">
+					{#each actions as w, i (w.area + w.title)}
+						<li class="flex gap-3 text-sm"><span class="num grid size-6 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-ink">{i + 1}</span><span><strong class="font-medium">{w.title}.</strong> <span class="text-white/70">{w.action}</span></span></li>
+					{:else}
+						<li class="text-sm text-white/70">Nothing urgent. We keep monitoring.</li>
+					{/each}
+				</ol>
+			</div>
+		</section>
+
+		<section class="mt-4 grid gap-4 sm:grid-cols-2">
+			<div class="card p-7">
+				<h2 class="text-lg font-medium">How people find you</h2>
+				<div class="mt-5"><BarList items={m.channels.map((x) => ({ label: x.name, value: x.visits }))} /></div>
+			</div>
+			<div class="card p-7">
+				<h2 class="text-lg font-medium">Top Google searches</h2>
+				<div class="mt-5"><BarList items={m.search.queries.slice(0, 5).map((q) => ({ label: q.query, value: q.clicks, extra: `#${q.position}` }))} /></div>
+			</div>
+		</section>
+
+		<footer class="mt-8 flex flex-wrap items-center justify-between gap-2 px-2 text-sm text-muted">
+			<p>{a.reportFooter}</p>
+			<p class="display text-xl text-ink">{a.name}</p>
+		</footer>
+	</article>
+</div>
