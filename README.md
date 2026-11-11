@@ -6,7 +6,7 @@ MVP built with SvelteKit 3 + Svelte 5 + Tailwind 4.
 
 - **Overview** — the agency's week: the 2 most urgent tasks per client, and every client with a health score and a status dot per area.
 - **Client** — *Summary* (health, one tile per area, one to-do list you tick off) → *Traffic* → *Search & Maps* → *SEO* (automatic audit) → *Heatmaps* → *App* → *Setup*. Tabs only appear for what the agency manages (website, app or both).
-- **Content ideas** — questions people ask, trends, pages that rank.
+- **Keywords** — keyword research: monthly searches + competition, questions people ask, trends, pages that rank, and where the client already ranks.
 - **Settings** — your agency, white-label client reports, connections.
 
 ## Run it
@@ -27,6 +27,8 @@ Open http://localhost:5173. Four example clients load with demo data straight aw
 | Client dashboard: visits, sources, pages, Google Search, Maps, contacts | ✅ demo data, live once Google is linked |
 | "What to do now": every number explained + one action | ✅ rule-based |
 | Weekly summary | ✅ rule-based, or Claude if `ANTHROPIC_API_KEY` is set |
+| **Fix it here (auto-fix)**: Undercut writes the fix (Google titles, descriptions, image alt texts, canonical tags, LocalBusiness structured data — with Claude if `ANTHROPIC_API_KEY` is set), the agency edits/approves, and it goes **live on the site through the snippet**. Undo anytime; "code for the CMS" for a permanent fix | ✅ **live** (tested end-to-end) |
+| **Lighthouse** (Performance, Accessibility, Best practices, SEO + failing audits) and **W3C HTML validation** on the homepage | ✅ live (PageSpeed API + validator.w3.org) |
 | **Automatic SEO audit** per client (no URL to type): homepage + sitemap pages — titles, descriptions, H1, canonical, noindex, alt texts, thin content, structured data, share image, speed, robots.txt, sitemap, HTTPS + Core Web Vitals via PageSpeed. Cached 24 h, "check again" button | ✅ **live** |
 | **Heatmaps** (Hotjar-style): one cookieless snippet → click map, scroll map, rage clicks, "clicks on things that are not links", drawn on a snapshot of the real page; desktop / mobile | ✅ **live** (tested end-to-end) |
 | **App analytics**: active users, new users, DAU/MAU, sessions, crash-free users, iOS vs Android, versions, screens (GA4/Firebase), retention cohorts, App Store rating + reviews (public, live) | ✅ usage live via GA4 · App Store live · Google Play & downloads demo |
@@ -70,6 +72,14 @@ src/lib/server/store.ts     MVP storage in ./.data (JSON). Swap for Supabase: su
 src/routes/app/...          agency app
 src/routes/r/[id]           white-label client report
 ```
+
+## Google connection: fast & stable
+
+- One refresh at a time, 15 s timeouts, 3 retries with backoff on 429/5xx/network errors, automatic refresh + retry on 401.
+- Answers cached 10 min (dashboards open instantly, quota spared); stale data served if Google is down.
+- A revoked/expired login disconnects cleanly with a clear message; Settings shows the connection status with **Test connection** and **Refresh data**.
+- Setup pre-selects the GA4 / Search Console / Maps / GTM property that matches the client's domain or name.
+- Note: while the Google Cloud app is in "Testing" mode, Google expires refresh tokens after 7 days — publish the OAuth app to avoid weekly reconnects.
 
 ## Heatmap snippet
 

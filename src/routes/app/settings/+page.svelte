@@ -80,6 +80,18 @@
 				<a href="/auth/google" class="btn btn-primary" data-sveltekit-reload>Connect with Google</a>
 			{/if}
 		</div>
+		{#if g.connected}
+			<div class="mt-5 flex flex-wrap items-center gap-2 rounded-[18px] p-3 text-sm {data.health.ok ? 'bg-good-bg text-good' : 'bg-bad-bg text-bad'}">
+				<span class="size-2 rounded-full {data.health.ok ? 'bg-good' : 'bg-bad'}"></span>
+				<span class="flex-1">{data.health.ok ? `Working${data.health.lastOk ? ` · last data ${new Date(data.health.lastOk).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ''}` : data.health.lastError}</span>
+				<form method="POST" action="?/test"><button class="rounded-full bg-white px-3 py-1 text-xs text-ink">Test connection</button></form>
+				<form method="POST" action="?/refresh"><button class="rounded-full bg-white px-3 py-1 text-xs text-ink">Refresh data</button></form>
+			</div>
+			{#if form?.test}<p class="mt-2 text-sm {form.test.ok ? 'text-good' : 'text-bad'}">{form.test.ok ? `Connection OK (${form.test.ms} ms)` : form.test.error}</p>{/if}
+			{#if form?.refreshed}<p class="mt-2 text-sm text-good">Cache cleared — dashboards will load fresh numbers.</p>{/if}
+		{:else if data.health.revoked}
+			<p class="mt-5 rounded-[18px] bg-bad-bg p-3 text-sm text-bad">{data.health.lastError}</p>
+		{/if}
 		<ul class="mt-5 space-y-1.5">
 			{#each sources as s (s.name)}
 				<li class="flex items-center justify-between gap-4 rounded-full bg-tile px-4 py-2.5 text-sm">

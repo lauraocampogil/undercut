@@ -21,6 +21,8 @@ export type IdeasResult = {
 		items: { title: string; url: string; domain: string; snippet: string; date?: string }[];
 	};
 	total: number;
+	keywords: { keyword: string; volume: number; competition: 'low' | 'medium' | 'high'; cpc?: number; trend: number }[];
+	volumeSource: 'dataforseo' | 'estimate';
 };
 
 const Q: Record<Lang, string[]> = {
@@ -79,6 +81,13 @@ async function pool<T, R>(items: T[], size: number, fn: (x: T) => Promise<R>): P
 const clean = (list: string[], kw: string) =>
 	[...new Set(list.map((s) => s.trim().toLowerCase()))].filter((s) => s && s !== kw.toLowerCase()).slice(0, 8);
 
+const AZ: Record<Lang, Record<string, string>> = {
+	en: { a: 'address', b: 'best', c: 'cheap', d: 'delivery', e: 'events', f: 'free', g: 'gift card', h: 'hours', i: 'ideas', j: 'jobs' },
+	fr: { a: 'avis', b: 'bio', c: 'centre', d: 'dimanche', e: 'emploi', f: 'fermé', g: 'gluten', h: 'horaires', i: 'ixelles', j: 'jette' },
+	nl: { a: 'adres', b: 'beste', c: 'centrum', d: 'zondag', e: 'eten', f: 'feest', g: 'glutenvrij', h: 'openingsuren', i: 'ideeën', j: 'jobs' },
+	es: { a: 'abierto', b: 'barato', c: 'centro', d: 'domingo', e: 'empleo', f: 'fiesta', g: 'gluten', h: 'horario', i: 'ideas', j: 'junto a mí' }
+};
+
 const PT: Record<Lang, string[]> = {
 	en: ['families', 'delivery', 'parking', 'students', 'home', 'a pro'],
 	fr: ['enfants', 'livraison', 'parking', 'étudiants', 'domicile', 'un pro'],
@@ -100,7 +109,7 @@ function demoSuggest(kw: string, lang: Lang) {
 		})),
 		prepositions: P[lang].map((w, i) => ({ group: w, items: [`${kw} ${w} ${PT[lang][i]}`, `${kw} ${w} ${PT[lang][(i + 3) % 6]}`] })),
 		comparisons: [`${kw} vs ${kw} pro`, `${kw} ${C[lang][1]} alternative`],
-		alphabet: 'abcdefghij'.split('').map((l) => ({ letter: l, items: [`${kw} ${l}${tails[lang][0].slice(1)}`] }))
+		alphabet: Object.entries(AZ[lang]).map(([l, w]) => ({ letter: l, items: [`${kw} ${w}`] }))
 	};
 }
 
@@ -129,6 +138,48 @@ function demoTrend(kw: string) {
 		points.push({ date: d.toISOString().slice(0, 10), value: Math.max(4, Math.min(100, Math.round(55 + season + (51 - i) * 0.35 + (r() - 0.5) * 16))) });
 	}
 	return points;
+}
+
+const LOC: Record<string, number> = { BE: 2056, FR: 2250, NL: 2528, LU: 2442, ES: 2724, GB: 2826, US: 2840 };
+
+// Monthly Google search volume + competition. Real numbers with DataForSEO, otherwise a clearly-labelled estimate.
+async function volumes(list: string[], lang: Lang, geo: string, trendAvg: number): Promise<{ source: 'dataforseo' | 'estimate'; rows: IdeasResult['keywords'] }> {
+	if (env.DATAFORSEO_LOGIN && env.DATAFORSEO_PASSWORD) {
+		try {
+			const r = await fetch('https://api.dataforseo.com/v3/keywords_data/google_ads/search_volume/live', {
+				method: 'POST',
+				headers: { authorization: 'Basic ' + Buffer.from(`${env.DATAFORSEO_LOGIN}:${env.DATAFORSEO_PASSWORD}`).toString('base64'), 'content-type': 'application/json' },
+				body: JSON.stringify([{ keywords: list.slice(0, 100), location_code: LOC[geo] ?? 2056, language_code: lang }]),
+				signal: AbortSignal.timeout(30_000)
+			});
+			const j = await r.json();
+			const items = j.tasks?.[0]?.result ?? [];
+			if (items.length)
+				return {
+					source: 'dataforseo',
+					rows: items.map((it: any) => ({
+						keyword: it.keyword,
+						volume: it.search_volume ?? 0,
+						competition: (String(it.competition ?? 'low').toLowerCase() as 'low' | 'medium' | 'high') || 'low',
+						cpc: it.cpc ?? undefined,
+						trend: 0
+					}))
+				};
+		} catch {
+			/* fall back to estimate */
+		}
+	}
+	return {
+		source: 'estimate',
+		rows: list.map((k, i) => {
+			const r = seeded(k);
+			const words = k.split(' ').length;
+			const base = Math.max(10, Math.round((trendAvg * 40) / (words * 0.9) / (1 + i * 0.08) * (0.4 + r())));
+			const rounded = base > 1000 ? Math.round(base / 100) * 100 : base > 100 ? Math.round(base / 10) * 10 : base;
+			const c = r();
+			return { keyword: k, volume: rounded, competition: c > 0.66 ? 'high' : c > 0.33 ? 'medium' : 'low', trend: Math.round((r() - 0.4) * 60) };
+		})
+	};
 }
 
 export async function getIdeas(keywordRaw: string, lang: Lang = 'fr', geo = 'BE'): Promise<IdeasResult> {
@@ -216,10 +267,24 @@ export async function getIdeas(keywordRaw: string, lang: Lang = 'fr', geo = 'BE'
 			comparisons.length +
 			alphabet.reduce((s, g) => s + g.items.length, 0);
 
+		const candidates = [
+			keyword,
+			...rising.map((r: { query: string }) => r.query),
+			...prepositions.flatMap((g) => g.items.slice(0, 2)),
+			...comparisons.slice(0, 2),
+			...alphabet.flatMap((g) => g.items.slice(0, 1)),
+			...questions.flatMap((g) => g.items.slice(0, 1))
+		].filter((k, i, a) => a.indexOf(k) === i).slice(0, 24);
+		const trendAvg = pts.reduce((s, p) => s + p.value, 0) / Math.max(1, pts.length);
+		const vol = await volumes(candidates, lang, geo, trendAvg);
+		const keywords = vol.rows.sort((a, b) => (a.keyword === keyword ? -1 : b.keyword === keyword ? 1 : b.volume - a.volume)).slice(0, 12);
+
 		return {
 			keyword,
 			lang,
 			geo,
+			keywords,
+			volumeSource: vol.source,
 			questions,
 			prepositions,
 			comparisons,

@@ -66,40 +66,157 @@ export async function exchangeCode(code: string, origin: string) {
 		email
 	};
 	saveTokens(tokens);
+	clearGoogleCache();
+	Object.assign(health, { ok: true, revoked: false, lastError: undefined, lastOk: Date.now() });
 	return tokens;
 }
 
-async function accessToken(): Promise<string | null> {
+// ---------- Robust token + request layer ----------
+// - one refresh at a time (no stampede when 20 requests start together)
+// - timeouts, retries with backoff on 429 / 5xx / network errors
+// - a 401 forces a token refresh and one retry
+// - a revoked login (invalid_grant) disconnects cleanly with a clear message
+// - GET-like reads are cached 10 min, so dashboards open instantly and quota is spared
+
+export type GoogleHealth = { ok: boolean; lastOk?: number; lastError?: string; lastErrorAt?: number; revoked?: boolean };
+const health: GoogleHealth = { ok: true };
+export const googleHealth = () => ({ ...health });
+
+let refreshing: Promise<string | null> | null = null;
+
+async function refreshToken(force = false): Promise<string | null> {
 	const t = getTokens();
 	if (!t) return null;
-	if (t.expires_at - 60_000 > Date.now()) return t.access_token;
+	if (!force && t.expires_at - 120_000 > Date.now()) return t.access_token;
 	if (!t.refresh_token) return null;
-	const res = await fetch('https://oauth2.googleapis.com/token', {
-		method: 'POST',
-		headers: { 'content-type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: env.GOOGLE_CLIENT_ID ?? '',
-			client_secret: env.GOOGLE_CLIENT_SECRET ?? '',
-			refresh_token: t.refresh_token,
-			grant_type: 'refresh_token'
-		})
-	});
-	if (!res.ok) return null;
-	const j = await res.json();
-	const next = { ...t, access_token: j.access_token, expires_at: Date.now() + j.expires_in * 1000 };
-	saveTokens(next);
-	return next.access_token;
+	refreshing ??= (async () => {
+		try {
+			const res = await fetch('https://oauth2.googleapis.com/token', {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded' },
+				body: new URLSearchParams({
+					client_id: env.GOOGLE_CLIENT_ID ?? '',
+					client_secret: env.GOOGLE_CLIENT_SECRET ?? '',
+					refresh_token: t.refresh_token!,
+					grant_type: 'refresh_token'
+				}),
+				signal: AbortSignal.timeout(10_000)
+			});
+			const j = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				if (j.error === 'invalid_grant') {
+					// the user revoked access or the refresh token expired (7 days in "testing" mode)
+					saveTokens(null);
+					Object.assign(health, { ok: false, revoked: true, lastError: 'Google access was revoked or expired — please reconnect.', lastErrorAt: Date.now() });
+				}
+				return null;
+			}
+			const next = { ...t, access_token: j.access_token, expires_at: Date.now() + j.expires_in * 1000 };
+			saveTokens(next);
+			return next.access_token as string;
+		} catch {
+			return null;
+		} finally {
+			setTimeout(() => (refreshing = null), 0);
+		}
+	})();
+	return refreshing;
 }
 
-async function g<T = any>(url: string, init: RequestInit = {}): Promise<T> {
-	const token = await accessToken();
-	if (!token) throw new Error('Google not connected');
-	const res = await fetch(url, {
-		...init,
-		headers: { ...(init.headers ?? {}), authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+async function accessToken() {
+	return refreshToken(false);
+}
+
+const cache = new Map<string, { at: number; value: unknown }>();
+const CACHE_MS = 10 * 60_000;
+let active = 0;
+const queue: (() => void)[] = [];
+async function slot<T>(fn: () => Promise<T>): Promise<T> {
+	if (active >= 8) await new Promise<void>((r) => queue.push(r));
+	active++;
+	try {
+		return await fn();
+	} finally {
+		active--;
+		queue.shift()?.();
+	}
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function g<T = any>(url: string, init: RequestInit = {}, opts: { cache?: boolean } = {}): Promise<T> {
+	const key = url + '|' + (typeof init.body === 'string' ? init.body : '');
+	const useCache = opts.cache !== false;
+	const hit = cache.get(key);
+	if (useCache && hit && Date.now() - hit.at < CACHE_MS) return hit.value as T;
+
+	return slot(async () => {
+		let token = await accessToken();
+		if (!token) throw new Error(health.revoked ? health.lastError! : 'Google not connected');
+		let lastErr = '';
+		for (let attempt = 0; attempt < 3; attempt++) {
+			try {
+				const res = await fetch(url, {
+					...init,
+					headers: { ...(init.headers ?? {}), authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+					signal: AbortSignal.timeout(15_000)
+				});
+				if (res.status === 401 && attempt === 0) {
+					token = await refreshToken(true);
+					if (!token) throw new Error(health.lastError ?? 'Google login expired — please reconnect.');
+					continue;
+				}
+				if (res.status === 429 || res.status >= 500) {
+					lastErr = `${res.status}`;
+					await sleep(500 * 2 ** attempt + Math.random() * 300);
+					continue;
+				}
+				if (!res.ok) {
+					const text = (await res.text()).slice(0, 200);
+					throw new Error(`${new URL(url).hostname.split('.')[0]}: ${res.status} ${humanError(res.status, text)}`);
+				}
+				const value = (await res.json()) as T;
+				if (useCache) cache.set(key, { at: Date.now(), value });
+				Object.assign(health, { ok: true, lastOk: Date.now(), revoked: false });
+				return value;
+			} catch (e) {
+				const err = e as Error;
+				if (err.name !== 'TimeoutError' && err.name !== 'TypeError') {
+					Object.assign(health, { ok: false, lastError: err.message, lastErrorAt: Date.now() });
+					throw err;
+				}
+				lastErr = err.name === 'TimeoutError' ? 'timeout' : 'network error';
+				await sleep(500 * 2 ** attempt);
+			}
+		}
+		const msg = `${new URL(url).hostname.split('.')[0]}: ${lastErr} after 3 tries`;
+		Object.assign(health, { ok: false, lastError: msg, lastErrorAt: Date.now() });
+		// serve stale data rather than nothing
+		if (hit) return hit.value as T;
+		throw new Error(msg);
 	});
-	if (!res.ok) throw new Error(`${new URL(url).hostname}: ${res.status} ${(await res.text()).slice(0, 160)}`);
-	return res.json();
+}
+
+function humanError(status: number, text: string) {
+	if (status === 403 && /has not been used|disabled/i.test(text)) return 'this API is not enabled in your Google Cloud project';
+	if (status === 403) return 'no access to this property with the connected Google account';
+	if (status === 404) return 'property not found — pick it again in Setup';
+	return text.replace(/\s+/g, ' ');
+}
+
+export function clearGoogleCache() {
+	cache.clear();
+}
+
+/** Quick check used by the "Test connection" button. */
+export async function testConnection() {
+	const started = Date.now();
+	try {
+		await g('https://www.googleapis.com/oauth2/v3/userinfo', {}, { cache: false });
+		return { ok: true, ms: Date.now() - started };
+	} catch (e) {
+		return { ok: false, ms: Date.now() - started, error: (e as Error).message };
+	}
 }
 
 export function isConnected() {

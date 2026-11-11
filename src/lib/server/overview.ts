@@ -8,6 +8,7 @@ import { getSeoAudit, seoTasks, type SeoAudit } from './seo-audit.ts';
 import { getHeatmap, behaviourTasks, type HeatmapData } from './tracking.ts';
 import { getAppMetrics, appTasks, type AppMetrics } from './app-analytics.ts';
 import { getDone, hasApp, hasWeb } from './store.ts';
+import { fixedIssues } from './fixes.ts';
 
 export type AreaKey = 'traffic' | 'search' | 'seo' | 'maps' | 'behaviour' | 'app';
 export type AreaTile = { key: AreaKey; label: string; href: string; level: Level; value: string; sub: string; delta?: number; deltaInvert?: boolean; open: number };
@@ -47,7 +48,7 @@ export async function getClientOverview(client: Client, days = 28): Promise<Clie
 	]);
 	const heat = web ? getHeatmap(client, '/', 'mobile', days) : null;
 
-	const extra: Draft[] = [...(audit ? seoTasks(audit) : []), ...(heat ? behaviourTasks(heat) : []), ...(app ? appTasks(app) : [])];
+	const extra: Draft[] = [...(audit ? seoTasks(audit, fixedIssues(client.id)) : []), ...(heat ? behaviourTasks(heat) : []), ...(app ? appTasks(app) : [])];
 	const insights = metrics ? buildInsights(metrics, null, extra) : sortInsights(withIds(extra));
 	const done = getDone(client.id);
 	const tasks: Task[] = insights.map((i) => ({ ...i, done: Boolean(done[i.id]) }));

@@ -6,7 +6,7 @@
 
 	const nav = [
 		{ href: '/app', label: 'Overview' },
-		{ href: '/app/ideas', label: 'Content ideas' },
+		{ href: '/app/ideas', label: 'Keywords' },
 		{ href: '/app/settings', label: 'Settings' }
 	];
 	const active = (href: string) =>

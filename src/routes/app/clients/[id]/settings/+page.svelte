@@ -85,7 +85,7 @@
 						{#if opts.length}
 							<select class="input" name={f.key}>
 								<option value="">Not used</option>
-								{#each opts as o (o.value)}<option value={o.value} selected={o.value === f.current()}>{o.label}</option>{/each}
+								{#each opts as o (o.value)}<option value={o.value} selected={o.value === (f.current() ?? data.suggested[f.key])}>{o.label}{!f.current() && o.value === data.suggested[f.key] ? ' (suggested)' : ''}</option>{/each}
 							</select>
 						{:else}
 							<input class="input text-sm" name={f.key} value={f.current() ?? ''} placeholder={f.placeholder} />

@@ -24,6 +24,8 @@ export type PageAudit = {
 	images: number;
 	imagesNoAlt: number;
 	words: number;
+	h1Text?: string;
+	noAltSrcs?: string[];
 };
 
 export type SeoIssue = {
@@ -35,12 +37,26 @@ export type SeoIssue = {
 	pages: string[];
 };
 
+export type Lighthouse = {
+	source: 'psi' | 'demo';
+	scores: { performance: number; accessibility: number; bestPractices: number; seo: number };
+	audits: { id: string; category: 'Performance' | 'Accessibility' | 'Best practices' | 'SEO'; title: string; value?: string; level: Level }[];
+};
+export type W3C = {
+	source: 'live' | 'demo';
+	errors: number;
+	warnings: number;
+	messages: { type: 'error' | 'warning'; message: string; line?: number; extract?: string; count: number }[];
+};
+
 export type SeoAudit = {
 	source: 'live' | 'demo';
 	checkedAt: string;
 	score: number;
 	site: { https: boolean; robotsTxt: boolean; sitemap: boolean; sitemapUrls: number };
 	speed: { source: 'psi' | 'demo'; performance: number; lcp: number; cls: number; tbt: number } | null;
+	lighthouse: Lighthouse | null;
+	w3c: W3C | null;
 	pages: PageAudit[];
 	issues: SeoIssue[];
 	passed: string[];
@@ -84,35 +100,92 @@ function auditPage(url: string, status: number, ms: number, html: string): PageA
 		schema: Boolean(root.querySelector('script[type="application/ld+json"]')),
 		images: imgs.length,
 		imagesNoAlt: imgs.filter((i) => !i.getAttribute('alt')?.trim()).length,
-		words: text ? text.split(' ').length : 0
+		words: text ? text.split(' ').length : 0,
+		h1Text: root.querySelector('h1')?.textContent.replace(/\s+/g, ' ').trim().slice(0, 90),
+		noAltSrcs: imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => i.getAttribute('src') ?? '').filter(Boolean).slice(0, 12)
 	};
 }
 
-async function pageSpeed(url: string): Promise<SeoAudit['speed']> {
-	const p = new URLSearchParams({ url, strategy: 'mobile', category: 'performance' });
+const CAT: Record<string, Lighthouse['audits'][number]['category']> = {
+	performance: 'Performance',
+	accessibility: 'Accessibility',
+	'best-practices': 'Best practices',
+	seo: 'SEO'
+};
+
+// Google Lighthouse through the PageSpeed Insights API: the same 4 scores as Chrome DevTools.
+async function lighthouse(url: string): Promise<{ speed: SeoAudit['speed']; lighthouse: Lighthouse | null }> {
+	const p = new URLSearchParams({ url, strategy: 'mobile' });
+	for (const c of ['PERFORMANCE', 'ACCESSIBILITY', 'BEST_PRACTICES', 'SEO']) p.append('category', c);
 	if (env.PAGESPEED_API_KEY) p.set('key', env.PAGESPEED_API_KEY);
-	const ctrl = new AbortController();
-	const t = setTimeout(() => ctrl.abort(), 30000);
 	try {
-		const r = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { signal: ctrl.signal });
-		if (!r.ok) return null;
+		const r = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { signal: AbortSignal.timeout(45_000) });
+		if (!r.ok) return { speed: null, lighthouse: null };
 		const j = await r.json();
-		const a = j.lighthouseResult?.audits ?? {};
+		const lr = j.lighthouseResult ?? {};
+		const a = lr.audits ?? {};
+		const cats = lr.categories ?? {};
+		const score = (k: string) => Math.round((cats[k]?.score ?? 0) * 100);
+		const audits: Lighthouse['audits'] = [];
+		for (const [catKey, cat] of Object.entries<any>(cats)) {
+			for (const ref of cat.auditRefs ?? []) {
+				const au = a[ref.id];
+				if (!au || au.score === null || au.score >= 0.9 || ['manual', 'notApplicable', 'informative'].includes(au.scoreDisplayMode)) continue;
+				if (ref.weight === 0 && catKey !== 'performance') continue;
+				audits.push({ id: ref.id, category: CAT[catKey], title: au.title, value: au.displayValue, level: au.score < 0.5 ? 'bad' : 'warn' });
+			}
+		}
+		const seen = new Set<string>();
 		return {
-			source: 'psi',
-			performance: Math.round((j.lighthouseResult?.categories?.performance?.score ?? 0) * 100),
-			lcp: +((a['largest-contentful-paint']?.numericValue ?? 0) / 1000).toFixed(1),
-			cls: +(a['cumulative-layout-shift']?.numericValue ?? 0).toFixed(2),
-			tbt: Math.round(a['total-blocking-time']?.numericValue ?? 0)
+			speed: {
+				source: 'psi',
+				performance: score('performance'),
+				lcp: +((a['largest-contentful-paint']?.numericValue ?? 0) / 1000).toFixed(1),
+				cls: +(a['cumulative-layout-shift']?.numericValue ?? 0).toFixed(2),
+				tbt: Math.round(a['total-blocking-time']?.numericValue ?? 0)
+			},
+			lighthouse: {
+				source: 'psi',
+				scores: { performance: score('performance'), accessibility: score('accessibility'), bestPractices: score('best-practices'), seo: score('seo') },
+				audits: audits.filter((x) => !seen.has(x.id) && seen.add(x.id)).slice(0, 14)
+			}
 		};
 	} catch {
-		return null;
-	} finally {
-		clearTimeout(t);
+		return { speed: null, lighthouse: null };
 	}
 }
 
-export function buildIssues(pages: PageAudit[], site: SeoAudit['site'], speed: SeoAudit['speed']) {
+// W3C Nu HTML Checker — the official validator, on the homepage HTML.
+async function w3c(html: string): Promise<W3C | null> {
+	if (!html) return null;
+	try {
+		const r = await fetch('https://validator.w3.org/nu/?out=json', {
+			method: 'POST',
+			headers: { 'content-type': 'text/html; charset=utf-8', 'user-agent': UA['user-agent'] },
+			body: html,
+			signal: AbortSignal.timeout(20_000)
+		});
+		if (!r.ok) return null;
+		const j = await r.json();
+		const groups = new Map<string, W3C['messages'][number]>();
+		let errors = 0,
+			warnings = 0;
+		for (const m of j.messages ?? []) {
+			const type = m.type === 'error' ? 'error' : m.subType === 'warning' ? 'warning' : null;
+			if (!type) continue;
+			type === 'error' ? errors++ : warnings++;
+			const key = type + m.message;
+			const g = groups.get(key);
+			if (g) g.count++;
+			else groups.set(key, { type, message: m.message, line: m.lastLine, extract: m.extract?.slice(0, 120), count: 1 });
+		}
+		return { source: 'live', errors, warnings, messages: [...groups.values()].sort((a, b) => (a.type === b.type ? b.count - a.count : a.type === 'error' ? -1 : 1)).slice(0, 15) };
+	} catch {
+		return null;
+	}
+}
+
+export function buildIssues(pages: PageAudit[], site: SeoAudit['site'], speed: SeoAudit['speed'], lh: Lighthouse | null = null, v: W3C | null = null) {
 	const issues: SeoIssue[] = [];
 	const passed: string[] = [];
 	const check = (id: string, level: Level, okLabel: string, bad: PageAudit[], title: string, why: string, fix: string) => {
@@ -153,6 +226,18 @@ export function buildIssues(pages: PageAudit[], site: SeoAudit['site'], speed: S
 			issues.push({ id: 'speed', level: 'warn', title: `Mobile speed can improve (${speed.performance}/100)`, why: `Main content appears after ${speed.lcp}s.`, fix: 'Serve images in WebP/AVIF and defer non-critical scripts.', pages: ['/'] });
 		else passed.push(`Fast on mobile (${speed.performance}/100)`);
 	}
+	if (lh) {
+		if (lh.scores.accessibility < 90)
+			issues.push({ id: 'a11y', level: lh.scores.accessibility < 70 ? 'bad' : 'warn', title: `Accessibility ${lh.scores.accessibility}/100`, why: 'Some visitors (screen readers, low vision, keyboard) cannot use parts of the site — and it is a legal requirement in the EU from 2025 (European Accessibility Act).', fix: 'See the Lighthouse list below: contrast, labels on buttons and fields, alt texts.', pages: ['/'] });
+		else passed.push(`Accessible (${lh.scores.accessibility}/100)`);
+		if (lh.scores.bestPractices < 90)
+			issues.push({ id: 'bp', level: 'warn', title: `Best practices ${lh.scores.bestPractices}/100`, why: 'Errors in the browser console, old libraries or insecure requests.', fix: 'See the Lighthouse list below.', pages: ['/'] });
+	}
+	if (v) {
+		if (v.errors > 0)
+			issues.push({ id: 'w3c', level: v.errors > 20 ? 'warn' : 'warn', title: `${v.errors} HTML error${v.errors > 1 ? 's' : ''} (W3C)`, why: 'Invalid HTML can break the layout in some browsers and confuse Google and screen readers.', fix: 'See the W3C list below — most come from a theme or plugin and are fixed once for all pages.', pages: ['/'] });
+		else passed.push('Valid HTML (W3C)');
+	}
 	const order = { bad: 0, warn: 1, good: 2 };
 	issues.sort((a, b) => order[a.level] - order[b.level]);
 	const score = Math.max(0, Math.min(100, 100 - issues.filter((i) => i.level === 'bad').length * 12 - issues.filter((i) => i.level === 'warn').length * 4));
@@ -181,11 +266,37 @@ function demoAudit(client: Client): SeoAudit {
 		schema: seed % 2 === 0,
 		images: 6,
 		imagesNoAlt: messy && i % 2 ? 2 : 0,
+		noAltSrcs: messy && i % 2 ? [`/images/${path.slice(1) || 'home'}-team-photo.jpg`, `/images/${path.slice(1) || 'home'}-shop-front.webp`] : [],
+		h1Text: path === '/' ? `${client.name}, right in Brussels` : path.slice(1).replace(/[-/]/g, ' '),
 		words: i === 2 ? 140 : 480 + i * 60
 	}));
 	const site = { https: true, robotsTxt: true, sitemap: true, sitemapUrls: 12 + ((seed * 7) % 40) };
 	const speed = { source: 'demo' as const, performance: messy ? 42 : 72 + (seed % 20), lcp: +(1.8 + (seed % 5) * 0.6).toFixed(1), cls: 0.04, tbt: 180 + (seed % 40) * 20 };
-	return { source: 'demo', checkedAt: new Date().toISOString(), site, speed, pages, ...buildIssues(pages, site, speed) };
+	const lh: Lighthouse = {
+		source: 'demo',
+		scores: { performance: speed.performance, accessibility: messy ? 74 : 92, bestPractices: messy ? 78 : 96, seo: messy ? 83 : 92 },
+		audits: [
+			{ id: 'uses-optimized-images', category: 'Performance', title: 'Efficiently encode images', value: 'Potential savings of 412 KiB', level: 'bad' },
+			{ id: 'render-blocking-resources', category: 'Performance', title: 'Eliminate render-blocking resources', value: 'Potential savings of 820 ms', level: 'warn' },
+			{ id: 'color-contrast', category: 'Accessibility', title: 'Background and foreground colors do not have a sufficient contrast ratio', level: 'warn' },
+			{ id: 'button-name', category: 'Accessibility', title: 'Buttons do not have an accessible name', level: messy ? 'bad' : 'warn' },
+			{ id: 'errors-in-console', category: 'Best practices', title: 'Browser errors were logged to the console', level: 'warn' },
+			{ id: 'meta-description', category: 'SEO', title: 'Document does not have a meta description', level: 'warn' }
+		].slice(0, messy ? 6 : 3) as Lighthouse['audits']
+	};
+	const v: W3C = {
+		source: 'demo',
+		errors: messy ? 23 : 4,
+		warnings: 7,
+		messages: [
+			{ type: 'error', message: 'Duplicate ID “menu”.', line: 48, extract: '<nav id="menu" class="mobile">', count: messy ? 2 : 1 },
+			{ type: 'error', message: 'Stray end tag “div”.', line: 212, extract: '</section></div></div>', count: messy ? 9 : 2 },
+			{ type: 'error', message: 'An “img” element must have an “alt” attribute, except under certain conditions.', line: 131, extract: '<img src="/img/hero.jpg">', count: messy ? 12 : 1 },
+			{ type: 'warning', message: 'The “type” attribute is unnecessary for JavaScript resources.', line: 20, extract: '<script type="text/javascript" src=…', count: 5 },
+			{ type: 'warning', message: 'Section lacks heading. Consider using “h2”-“h6” elements.', line: 160, count: 2 }
+		]
+	};
+	return { source: 'demo', checkedAt: new Date().toISOString(), site, speed, lighthouse: lh, w3c: v, pages, ...buildIssues(pages, site, speed, lh, v) };
 }
 
 const cache = new Map<string, SeoAudit>();
@@ -196,11 +307,14 @@ export async function getSeoAudit(client: Client, force = false): Promise<SeoAud
 	if (!force && hit && Date.now() - Date.parse(hit.checkedAt) < 24 * 3600_000) return hit;
 
 	const origin = normaliseSite(client.domain);
-	const [sm, robots, speed] = await Promise.all([
+	const [sm, robots, lhRes, home] = await Promise.all([
 		sitemapFor(client).catch(() => null),
 		timed(`${origin}/robots.txt`, 6000),
-		pageSpeed(origin)
+		lighthouse(origin),
+		timed(origin + '/')
 	]);
+	const speed = lhRes.speed;
+	const v = await w3c(home.body);
 	const urls = [origin + '/'];
 	try {
 		// Re-read the sitemap URLs (sitemapFor only keeps a sample) — homepage first, then up to 9 others
@@ -220,14 +334,14 @@ export async function getSeoAudit(client: Client, force = false): Promise<SeoAud
 		sitemap: Boolean(sm?.found),
 		sitemapUrls: sm?.urlCount ?? 0
 	};
-	const audit: SeoAudit = { source: 'live', checkedAt: new Date().toISOString(), site, speed, pages, ...buildIssues(pages, site, speed) };
+	const audit: SeoAudit = { source: 'live', checkedAt: new Date().toISOString(), site, speed, lighthouse: lhRes.lighthouse, w3c: v, pages, ...buildIssues(pages, site, speed, lhRes.lighthouse, v) };
 	cache.set(client.id, audit);
 	return audit;
 }
 
 // Top SEO issues become tasks on the client summary
-export function seoTasks(a: SeoAudit): Draft[] {
-	return a.issues.slice(0, 3).map((i) => ({
+export function seoTasks(a: SeoAudit, fixed: Set<string> = new Set()): Draft[] {
+	return a.issues.filter((i) => !fixed.has(i.id)).slice(0, 3).map((i) => ({
 		level: i.level,
 		area: 'SEO' as const,
 		title: i.title,

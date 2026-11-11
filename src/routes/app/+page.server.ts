@@ -11,8 +11,12 @@ export const load = async () => {
 				health: o.health,
 				areas: o.areas.map((a) => ({ key: a.key, label: a.label, level: a.level, value: a.value, sub: a.sub, delta: a.delta, deltaInvert: a.deltaInvert, href: a.href })),
 				tasks: o.tasks.filter((t) => !t.done && t.level !== 'good').map((t) => ({ id: t.id, level: t.level, area: t.area, title: t.title, action: t.action })),
-				visits: o.metrics?.visits ?? null,
-				appUsers: o.app?.active ?? null
+				// one headline number + its trend: website visits, or app users for app-only clients
+				main: o.metrics
+					? { value: o.metrics.visits.total, prev: o.metrics.visits.prev, label: 'visits', daily: o.metrics.visits.daily }
+					: o.app
+						? { value: o.app.active.total, prev: o.app.active.prev, label: 'app users', daily: o.app.dau }
+						: null
 			};
 		})
 	);

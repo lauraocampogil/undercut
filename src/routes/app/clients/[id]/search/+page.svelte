@@ -64,7 +64,10 @@
 </section>
 
 <section class="mt-10">
-	<h2 class="display text-[40px] sm:text-[48px]">Quick <em>wins</em></h2>
+	<div class="flex flex-wrap items-end justify-between gap-3">
+		<h2 class="display text-[40px] sm:text-[48px]">Quick <em>wins</em></h2>
+		<a href="/app/ideas?client={data.client.id}" class="btn btn-ghost">Find new keywords →</a>
+	</div>
 	<p class="text-sm text-muted">Searches where a small change brings the most new clicks.</p>
 	<div class="mt-5 grid gap-4 lg:grid-cols-3">
 		{#each opp as o (o.title)}

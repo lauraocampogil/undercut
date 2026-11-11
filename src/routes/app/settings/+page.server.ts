@@ -1,12 +1,13 @@
 import { redirect } from '@sveltejs/kit';
 import * as env from '$app/env/private';
 import { getAgency, listClients, saveAgency, saveTokens } from '#lib/server/store.ts';
-import { SCOPES } from '#lib/server/google.ts';
+import { SCOPES, clearGoogleCache, googleHealth, testConnection } from '#lib/server/google.ts';
 
 export const load = ({ url }) => ({
 	scopes: SCOPES,
 	redirectUri: `${url.origin}/auth/google/callback`,
 	exampleClient: listClients()[0]?.id ?? null,
+	health: googleHealth(),
 	keys: {
 		serpapi: Boolean(env.SERPAPI_KEY),
 		pagespeed: Boolean(env.PAGESPEED_API_KEY),
@@ -24,6 +25,11 @@ export const actions = {
 			reportFooter: String(f.get('reportFooter') ?? a.reportFooter)
 		});
 		return { saved: true };
+	},
+	test: async () => ({ test: await testConnection() }),
+	refresh: () => {
+		clearGoogleCache();
+		return { refreshed: true };
 	},
 	disconnect: () => {
 		saveTokens(null);

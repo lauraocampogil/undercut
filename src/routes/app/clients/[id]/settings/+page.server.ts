@@ -11,9 +11,19 @@ export const load = async ({ params, url }) => {
 	const connected = isConnected() && googleConfigured();
 	const options = connected ? await listAccounts() : null;
 	const base = env.PUBLIC_BASE_URL || url.origin;
+	// Auto-match: pre-select the Google properties that look like this client (domain / name)
+	const host = client.domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '').toLowerCase();
+	const words = client.name.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+	const guess = (list: { value: string; label: string }[] = []) =>
+		list.find((o) => host && (o.value + o.label).toLowerCase().includes(host))?.value ??
+		list.find((o) => words.some((w) => o.label.toLowerCase().includes(w)))?.value;
+	const suggested = options
+		? { ga4: guess(options.ga4), gsc: guess(options.gsc), gbp: guess(options.gbp), gtm: guess(options.gtm) }
+		: { ga4: undefined, gsc: undefined, gbp: undefined, gtm: undefined };
 	return {
 		connected,
 		options,
+		suggested,
 		snippet: `<script defer src="${base}/u.js" data-site="${client.id}"></script>`,
 		trackingInstalled: getHeatmap(client).installed
 	};

@@ -10,5 +10,7 @@ export const variables = defineEnvVars({
 	SERPAPI_KEY: { schema: optional, description: 'Optional: Google Trends + top content (serpapi.com)' },
 	PAGESPEED_API_KEY: { schema: optional, description: 'Optional: higher quota for PageSpeed Insights (works without)' },
 	PUBLIC_BASE_URL: { schema: optional, description: 'Public URL of this app, used in the tracking snippet (e.g. https://app.undercut.be)' },
+	DATAFORSEO_LOGIN: { schema: optional, description: 'Optional: real search volumes in Keyword research (dataforseo.com)' },
+	DATAFORSEO_PASSWORD: { schema: optional, description: 'Optional: DataForSEO API password' },
 	ANTHROPIC_MODEL: { schema: optional, description: 'Optional: Claude model id' }
 });

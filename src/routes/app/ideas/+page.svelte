@@ -30,14 +30,18 @@
 	const flagged = $derived(r ? r.questions.reduce((s, g) => s + g.items.length, 0) : 0);
 </script>
 
-<svelte:head><title>{r ? `${r.keyword} · Ideas` : 'Content ideas'} · Undercut</title></svelte:head>
+<svelte:head><title>{r ? `${r.keyword} · Keywords` : 'Keyword research'} · Undercut</title></svelte:head>
 
 <section class="card-dark relative overflow-hidden p-6 sm:p-10">
 	<div class="pointer-events-none absolute -right-20 -bottom-32 size-[380px] rounded-full bg-accent/90 blur-[2px]"></div>
 	<div class="relative max-w-3xl">
-		<p class="label text-white/50!">{data.client ? `Ideas for ${data.client.name}` : 'Content ideas'}</p>
-		<h1 class="display mt-3 text-[48px] sm:text-[80px]">Find what people <em>ask</em>.</h1>
-		<p class="mt-3 max-w-xl text-white/60">Type a topic. Get the real questions people search on Google, whether interest is rising, and the pages that already rank — ready to turn into blog posts and pages.</p>
+		<p class="label text-white/50!">Keyword research{data.client ? ` · ${data.client.name}` : ''}</p>
+		<h1 class="display mt-3 text-[48px] sm:text-[80px]">What do people <em>search</em>?</h1>
+		<div class="mt-4 flex flex-wrap gap-2 text-sm">
+			<span class="rounded-full bg-white/10 px-3 py-1.5">1 · Type a topic</span>
+			<span class="rounded-full bg-white/10 px-3 py-1.5">2 · See searches, volume &amp; questions</span>
+			<span class="rounded-full bg-white/10 px-3 py-1.5">3 · Use them in titles, pages &amp; posts</span>
+		</div>
 
 		<form method="GET" class="mt-7">
 			{#if data.client}<input type="hidden" name="client" value={data.client.id} />{/if}
@@ -69,6 +73,50 @@
 </section>
 
 {#if r}
+	<!-- Keywords table -->
+	<section class="card mt-4 p-4 sm:p-6">
+		<div class="flex flex-wrap items-center justify-between gap-3 px-2">
+			<div>
+				<h2 class="text-lg font-medium">Best keywords</h2>
+				<p class="text-sm text-muted">Monthly Google searches in {r.geo}. Pick high volume + low competition.</p>
+			</div>
+			<span class="rounded-full px-2.5 py-1 text-[11px] {r.volumeSource === 'dataforseo' ? 'bg-good-bg text-good' : 'bg-tile text-muted'}">{r.volumeSource === 'dataforseo' ? 'Live volumes' : 'Estimated volumes'}</span>
+		</div>
+		<div class="mt-4 overflow-x-auto">
+			<table class="w-full min-w-[560px] text-sm">
+				<thead>
+					<tr class="text-left text-xs text-muted">
+						<th class="px-3 pb-3 font-medium">Keyword</th>
+						<th class="px-3 pb-3 font-medium">Searches / month</th>
+						<th class="px-3 pb-3 font-medium">Competition</th>
+						{#if data.client}<th class="px-3 pb-3 text-center font-medium">{data.client.name}</th>{/if}
+						<th class="px-3 pb-3"></th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each r.keywords as k, i (k.keyword)}
+						{@const maxV = Math.max(...r.keywords.map((x) => x.volume), 1)}
+						{@const pos = data.positions[k.keyword]}
+						<tr class="border-t border-line">
+							<td class="px-3 py-2.5 font-medium {i === 0 ? '' : 'font-normal'}">{k.keyword}</td>
+							<td class="px-3 py-2.5">
+								<div class="flex items-center gap-3">
+									<span class="w-14 shrink-0 text-right">{k.volume.toLocaleString('en-US')}</span>
+									<span class="h-2 rounded-full {i === 0 ? 'bg-accent' : 'bg-ink'}" style="width:{Math.max(4, (k.volume / maxV) * 120)}px"></span>
+								</div>
+							</td>
+							<td class="px-3 py-2.5"><span class="rounded-full px-2.5 py-0.5 text-xs {k.competition === 'low' ? 'bg-good-bg text-good' : k.competition === 'medium' ? 'bg-warn-bg text-warn' : 'bg-bad-bg text-bad'}">{k.competition}</span></td>
+							{#if data.client}
+								<td class="px-3 py-2.5 text-center">{#if pos}<span class="rounded-full px-2.5 py-0.5 text-xs {pos <= 3 ? 'bg-accent text-accent-ink' : pos <= 10 ? 'bg-tile' : 'bg-warn-bg text-warn'}">#{pos}</span>{:else}<span class="text-xs text-muted">not ranking</span>{/if}</td>
+							{/if}
+							<td class="px-3 py-2.5 text-right"><button class="pill py-1 text-xs" onclick={() => copy(k.keyword)}>{copied === k.keyword ? 'Copied ✓' : 'Copy'}</button></td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	</section>
+
 	<!-- Trend + rising + totals -->
 	<section class="mt-4 grid gap-4 lg:grid-cols-[1.7fr_1fr]">
 		<div class="card-dark p-6 sm:p-7">

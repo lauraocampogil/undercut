@@ -19,6 +19,13 @@ if(q.length>20)send()},true);
 var maxD=0;setTimeout(function(){if(!maxD)maxD=Math.min(1,innerHeight/docH())},1000);addEventListener('scroll',function(){var d=(scrollY+innerHeight)/docH();if(d>maxD)maxD=Math.min(1,d)},{passive:true});
 function leave(){if(!maxD)maxD=Math.min(1,innerHeight/docH());send()}
 addEventListener('pagehide',leave);setInterval(send,4000);setTimeout(send,1200);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')send()});
+fetch(api+'/api/fixes?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(f){
+function meta(n,v){var m=document.querySelector('meta[name="'+n+'"]');if(!m){m=document.createElement('meta');m.setAttribute('name',n);document.head.appendChild(m)}m.setAttribute('content',v)}
+function run(){if(f.title)document.title=f.title;if(f.description)meta('description',f.description);
+if(f.canonical){var c=document.querySelector('link[rel=canonical]');if(!c){c=document.createElement('link');c.rel='canonical';document.head.appendChild(c)}c.href=f.canonical}
+(f.schema||[]).forEach(function(j,i){if(document.getElementById('uc-ld-'+i))return;var s2=document.createElement('script');s2.type='application/ld+json';s2.id='uc-ld-'+i;s2.text=j;document.head.appendChild(s2)});
+var a=f.alts||{};document.querySelectorAll('img').forEach(function(im){var src=im.getAttribute('src')||'';for(var k in a){if(src===k||im.src.split('?')[0].slice(-k.length)===k.split('?')[0]){if(!im.getAttribute('alt'))im.alt=a[k]}}})}
+run();setTimeout(run,2000)}).catch(function(){});
 setTimeout(function(){fetch(api+'/api/snapshot?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)+'&device='+dev).then(function(r){return r.json()}).then(function(j){if(!j.need)return;
 var c=document.documentElement.cloneNode(true);c.querySelectorAll('script,noscript,iframe').forEach(function(n){n.remove()});
 c.querySelectorAll('input,textarea,select').forEach(function(n){n.removeAttribute('value');n.textContent=''});
