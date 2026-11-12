@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Client } from '#lib/types.ts';
 import type { Draft } from './insights.ts';
+import { track } from './usage.ts';
 
 const DIR = join(process.cwd(), '.data');
 export type Device = 'desktop' | 'mobile';
@@ -28,7 +29,10 @@ export function record(site: string, events: TrackEvent[]) {
 		.slice(0, 200)
 		.map((e) => JSON.stringify({ ...e, p: e.p.slice(0, 300), ts: Date.now() }))
 		.join('\n');
-	if (lines) appendFileSync(join(dir, `${day()}.jsonl`), lines + '\n');
+	if (lines) {
+		appendFileSync(join(dir, `${day()}.jsonl`), lines + '\n');
+		track('events', lines.split('\n').length);
+	}
 }
 
 export function needSnapshot(site: string, path: string, device: Device) {

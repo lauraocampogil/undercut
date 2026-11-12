@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import Delta from '#lib/components/Delta.svelte';
 	import HealthRing from '#lib/components/HealthRing.svelte';
+	import FixButton from '#lib/components/FixButton.svelte';
 	let { data } = $props();
 	const c = $derived(data.client);
 	const open = $derived(data.tasks.filter((t) => !t.done && t.level !== 'good'));
@@ -11,6 +12,16 @@
 	let showGood = $state(false);
 	const dot = { good: 'bg-good', warn: 'bg-[#E3A21A]', bad: 'bg-bad' };
 	const word = { good: 'On track', warn: 'Watch', bad: 'Act now' };
+	import { canAutoFix } from '#lib/fixable.ts';
+	import { invalidateAll } from '$app/navigation';
+	const autoCount = $derived(open.filter((t) => canAutoFix(t.issueId)).length);
+	let fixingAll = $state(false);
+	async function fixEverything() {
+		fixingAll = true;
+		await fetch('/api/fix', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: c.id, action: 'all' }) });
+		await invalidateAll();
+		fixingAll = false;
+	}
 	const areaOf: Record<string, string> = { Traffic: 'Traffic', Conversions: 'Traffic', 'Google Search': 'Search', 'Google Maps': 'Maps', SEO: 'SEO', Sitemap: 'SEO', Tracking: 'Tracking', Behaviour: 'Behaviour', App: 'App' };
 </script>
 
@@ -54,30 +65,27 @@
 <section class="mt-10">
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
-			<h2 class="display text-[40px] sm:text-[48px]">To do <em>this week</em></h2>
-			<p class="text-sm text-muted">Every area in one list, most urgent first. Tick a task when it is handled.</p>
+			<h2 class="display text-[40px] sm:text-[48px]">To <em>fix</em></h2>
+			<p class="text-sm text-muted">⚡ Fix = Undercut does it for you · How to fix = steps for the developer · ✓ = done</p>
 		</div>
+		{#if autoCount}
+			<button class="btn btn-accent" onclick={fixEverything} disabled={fixingAll}>⚡ {fixingAll ? 'Fixing…' : `Fix ${autoCount} automatically`}</button>
+		{/if}
 	</div>
 
 	<ul class="card mt-5 divide-y divide-line">
 		{#each open as t (t.id)}
-			<li class="grid gap-4 p-5 sm:grid-cols-[auto_1fr_1fr] sm:items-start sm:p-6">
+			<li class="flex items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-6">
+				<span class="size-2.5 shrink-0 rounded-full {dot[t.level]}" title={t.level === 'bad' ? 'Urgent' : 'This week'}></span>
+				<div class="min-w-0 flex-1">
+					<p class="truncate font-medium">{t.title}</p>
+					<p class="truncate text-xs text-muted">{areaOf[t.area]} · {t.meaning}</p>
+				</div>
+				<FixButton clientId={c.id} issueId={t.issueId} problem={t.title} detail={t.meaning} size="sm" />
 				<form method="POST" action="?/toggle" use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
 					<input type="hidden" name="id" value={t.id} />
-					<button class="grid size-7 place-items-center rounded-full border-2 border-[#cfcfc9] hover:border-ink" aria-label="Mark “{t.title}” as done"></button>
+					<button class="grid size-8 shrink-0 place-items-center rounded-full border-2 border-[#cfcfc9] text-xs text-transparent hover:border-ink hover:text-ink" aria-label="Mark “{t.title}” as done" title="Mark as done">✓</button>
 				</form>
-				<div>
-					<div class="flex flex-wrap items-center gap-2">
-						<span class="inline-flex items-center gap-1.5 rounded-full bg-tile px-2.5 py-0.5 text-[11px] font-medium"><span class="size-1.5 rounded-full {dot[t.level]}"></span>{areaOf[t.area]}</span>
-						{#if t.level === 'bad'}<span class="text-[11px] font-medium text-bad">Urgent</span>{/if}
-					</div>
-					<h3 class="mt-2 text-[17px] font-medium leading-snug">{t.title}</h3>
-					<p class="mt-1 text-sm text-ink-2">{t.meaning}</p>
-				</div>
-				<div class="flex items-start gap-3 rounded-[18px] bg-tile p-4 text-sm">
-					<span class="grid size-6 shrink-0 place-items-center rounded-full bg-ink text-xs text-white">→</span>
-					<p>{t.action}</p>
-				</div>
 			</li>
 		{:else}
 			<li class="p-8 text-center">

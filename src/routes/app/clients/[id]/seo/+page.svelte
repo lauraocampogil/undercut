@@ -3,9 +3,11 @@
 	import HealthRing from '#lib/components/HealthRing.svelte';
 	import Gauge from '#lib/components/Gauge.svelte';
 	import SourceBadge from '#lib/components/SourceBadge.svelte';
+	import FixButton from '#lib/components/FixButton.svelte';
 	let { data } = $props();
 	const a = $derived(data.audit);
-	const lh = $derived(a.lighthouse);
+	let device = $state<'mobile' | 'desktop'>('mobile');
+	const lh = $derived(device === 'mobile' ? a.lighthouse : (a.lighthouseDesktop ?? a.lighthouse));
 	const w = $derived(a.w3c);
 	let running = $state(false);
 	let showCode = $state<string | null>(null);
@@ -53,8 +55,14 @@
 
 	<div class="card flex flex-col p-6">
 		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-medium">Lighthouse <span class="text-sm font-normal text-muted">· mobile</span></h2>
-			{#if lh}<SourceBadge state={lh.source === 'psi' ? 'google' : 'demo'} />{/if}
+			<h2 class="text-lg font-medium">Lighthouse</h2>
+			<div class="flex items-center gap-2">
+				<div class="flex rounded-full bg-tile p-1 text-xs">
+					<button class="rounded-full px-3 py-1 {device === 'mobile' ? 'bg-ink text-white' : ''}" onclick={() => (device = 'mobile')}>Mobile</button>
+					<button class="rounded-full px-3 py-1 {device === 'desktop' ? 'bg-ink text-white' : ''}" onclick={() => (device = 'desktop')}>Desktop</button>
+				</div>
+				{#if lh}<SourceBadge state={lh.source === 'psi' ? 'google' : 'demo'} />{/if}
+			</div>
 		</div>
 		{#if lh}
 			<div class="my-auto grid grid-cols-2 gap-4 pt-5 sm:grid-cols-4">
@@ -168,9 +176,12 @@
 	<div class="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
 		{#each a.issues as i (i.id)}
 			{@const done = fixedSet.has(i.id)}
-			<div class="flex flex-col gap-2 rounded-[22px] p-4 {done ? 'bg-[#E4F5B8]' : 'bg-white'}">
+			<div class="flex flex-col gap-3 rounded-[22px] p-4 {done ? 'bg-[#E4F5B8]' : 'bg-white'}">
 				<p class="flex items-start gap-2 font-medium leading-snug"><span class="mt-1.5 size-2 shrink-0 rounded-full {done ? 'bg-good' : dot[i.level]}"></span>{i.title}</p>
-				<p class="text-xs text-ink-2">{done ? 'Fixed by Undercut — live on the site.' : i.fix}</p>
+				<div class="mt-auto flex items-center justify-between gap-2">
+					<p class="truncate text-xs text-muted">{done ? 'Live on the site' : i.pages.slice(0, 2).join(', ')}</p>
+					{#if !done}<FixButton clientId={data.client.id} issueId={i.id} problem={i.title} detail={i.why} size="sm" />{/if}
+				</div>
 			</div>
 		{/each}
 		{#each a.passed as p (p)}
@@ -178,6 +189,20 @@
 		{/each}
 	</div>
 </section>
+
+{#if a.console?.items.length}
+	<section class="card-dark mt-10 p-6">
+		<div class="flex flex-wrap items-center justify-between gap-3">
+			<h2 class="text-lg font-medium">Browser console · {a.console.items.length} error{a.console.items.length > 1 ? 's' : ''}</h2>
+			<FixButton clientId={data.client.id} problem="JavaScript errors in the browser console" detail={a.console.items.map((x) => x.message).join(' | ')} dark size="sm" />
+		</div>
+		<ul class="mt-4 space-y-2">
+			{#each a.console.items as e, i (i)}
+				<li class="rounded-[16px] bg-white/[.07] px-4 py-3 font-mono text-xs"><span class="text-[#ff8a80]">{e.message}</span>{#if e.source}<span class="mt-1 block text-white/40">{e.source}</span>{/if}</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
 
 <!-- 4 · Details -->
 <section class="card mt-10 p-4 sm:p-6">
@@ -195,6 +220,7 @@
 					<span class="flex-1">{x.title}</span>
 					{#if x.value}<span class="text-xs text-muted">{x.value}</span>{/if}
 					<span class="rounded-full bg-tile px-2.5 py-0.5 text-[11px]">{x.category}</span>
+					<FixButton clientId={data.client.id} issueId={x.id === 'meta-description' ? 'desc' : x.id === 'image-alt' ? 'alt' : x.id === 'document-title' ? 'title-missing' : x.id === 'canonical' ? 'canonical' : undefined} problem={x.title} detail={x.value ?? ''} size="sm" />
 				</li>
 			{:else}
 				<li class="p-4 text-sm text-muted">No failing audits.</li>
@@ -204,7 +230,7 @@
 		<ul class="mt-4 divide-y divide-line">
 			{#each w?.messages ?? [] as m, i (i)}
 				<li class="px-2 py-3 text-sm">
-					<p class="flex items-start gap-2"><span class="mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase {m.type === 'error' ? 'bg-bad-bg text-bad' : 'bg-warn-bg text-warn'}">{m.type}</span><span class="flex-1">{m.message}</span>{#if m.count > 1}<span class="text-xs text-muted">×{m.count}</span>{/if}</p>
+					<div class="flex items-start gap-2"><span class="mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase {m.type === 'error' ? 'bg-bad-bg text-bad' : 'bg-warn-bg text-warn'}">{m.type}</span><span class="flex-1">{m.message}</span>{#if m.count > 1}<span class="text-xs text-muted">×{m.count}</span>{/if}<FixButton clientId={data.client.id} problem={`W3C: ${m.message}`} detail={m.extract ?? ''} size="sm" /></div>
 					{#if m.extract}<code class="mt-1.5 block overflow-x-auto rounded-[10px] bg-tile px-3 py-1.5 text-xs text-ink-2">{m.line ? `L${m.line}  ` : ''}{m.extract}</code>{/if}
 				</li>
 			{:else}

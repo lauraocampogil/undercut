@@ -9,6 +9,13 @@ MVP built with SvelteKit 3 + Svelte 5 + Tailwind 4.
 - **Keywords** — keyword research: monthly searches + competition, questions people ask, trends, pages that rank, and where the client already ranks.
 - **Settings** — your agency, white-label client reports, connections.
 
+## Undercut AI & one-button fixes
+
+- **⚡ Fix** appears wherever Undercut can fix a problem itself (titles, descriptions, image texts, canonicals, business info, keywords) — published live through the snippet.
+- **How to fix** appears for everything else (speed, console errors, W3C errors, accessibility, tracking…): clear steps + code, "Copy for the developer", or ask the AI.
+- **Undercut AI** (button bottom-right, `⌘J`): chat about the client you are looking at. It reads the real data and proposes actions as buttons — nothing changes on a site until you click. Uses Claude with tools when `ANTHROPIC_API_KEY` is set; otherwise a built-in assistant handles status, "fix everything", keywords and how-to questions (EN/FR/ES).
+- **Account menu** (top-right): client setup & invite, Team, Billing & usage (plans, usage meters, Stripe checkout + portal when `STRIPE_*` keys are set), Agency settings, Connections, My account.
+
 ## Run it
 
 ```bash
@@ -32,6 +39,7 @@ Open http://localhost:5173. Four example clients load with demo data straight aw
 | **Automatic SEO audit** per client (no URL to type): homepage + sitemap pages — titles, descriptions, H1, canonical, noindex, alt texts, thin content, structured data, share image, speed, robots.txt, sitemap, HTTPS + Core Web Vitals via PageSpeed. Cached 24 h, "check again" button | ✅ **live** |
 | **Heatmaps** (Hotjar-style): one cookieless snippet → click map, scroll map, rage clicks, "clicks on things that are not links", drawn on a snapshot of the real page; desktop / mobile | ✅ **live** (tested end-to-end) |
 | **App analytics**: active users, new users, DAU/MAU, sessions, crash-free users, iOS vs Android, versions, screens (GA4/Firebase), retention cohorts, App Store rating + reviews (public, live) | ✅ usage live via GA4 · App Store live · Google Play & downloads demo |
+| Lighthouse **mobile + desktop**, browser **console errors** | ✅ |
 | Tasks: every finding becomes a task you can tick off, per client and across clients | ✅ |
 | Add client → its sitemap is checked live | ✅ |
 | One "Connect with Google" → GA4, Search Console, Business Profile, Tag Manager | ✅ code ready, needs your Google Cloud keys |

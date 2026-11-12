@@ -59,6 +59,7 @@ export type Area = 'Traffic' | 'Google Search' | 'Google Maps' | 'Conversions' |
 
 export type Insight = {
 	id: string; // stable rule id, used to tick tasks off
+	issueId?: string; // SEO audit issue it comes from (to fix it in one click)
 	level: Level;
 	area: Area;
 	title: string;

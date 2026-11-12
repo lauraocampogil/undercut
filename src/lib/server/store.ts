@@ -153,3 +153,30 @@ export function toggleDone(clientId: string, insightId: string) {
 export const clientType = (c: Client) => c.type ?? 'web';
 export const hasWeb = (c: Client) => clientType(c) !== 'app';
 export const hasApp = (c: Client) => clientType(c) !== 'web';
+
+// The signed-in person (MVP: one local account; production: Supabase Auth)
+export type Account = { name: string; email: string; language: 'en' | 'fr' | 'nl' | 'es' };
+export function getAccount(): Account {
+	return read<Account>('account.json', { name: 'Agency owner', email: '', language: 'en' });
+}
+export function saveAccount(a: Account) {
+	write('account.json', a);
+}
+
+// Team members & invitations
+export type Member = { email: string; name?: string; role: 'owner' | 'admin' | 'member' | 'client'; status: 'active' | 'invited'; clientId?: string; invitedAt: string };
+export function listMembers(): Member[] {
+	return read<Member[]>('team.json', []);
+}
+export function saveMembers(m: Member[]) {
+	write('team.json', m);
+}
+
+// Billing (MVP: plan stored locally; production: Stripe customer + subscription)
+export type Billing = { plan: 'trial' | 'freelance' | 'agency' | 'studio'; trialEnds: string; customerId?: string };
+export function getBilling(): Billing {
+	return read<Billing>('billing.json', { plan: 'trial', trialEnds: new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10) });
+}
+export function saveBilling(b: Billing) {
+	write('billing.json', b);
+}

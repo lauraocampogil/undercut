@@ -6,6 +6,7 @@ import * as env from '$app/env/private';
 import type { Client, Level } from '#lib/types.ts';
 import { normaliseSite, sitemapFor } from './sitemap.ts';
 import type { Draft } from './insights.ts';
+import { track } from './usage.ts';
 
 export type PageAudit = {
 	url: string;
@@ -55,7 +56,9 @@ export type SeoAudit = {
 	score: number;
 	site: { https: boolean; robotsTxt: boolean; sitemap: boolean; sitemapUrls: number };
 	speed: { source: 'psi' | 'demo'; performance: number; lcp: number; cls: number; tbt: number } | null;
-	lighthouse: Lighthouse | null;
+	lighthouse: Lighthouse | null; // mobile
+	lighthouseDesktop: Lighthouse | null;
+	console: { source: 'psi' | 'demo'; items: { message: string; source?: string }[] } | null;
 	w3c: W3C | null;
 	pages: PageAudit[];
 	issues: SeoIssue[];
@@ -114,13 +117,13 @@ const CAT: Record<string, Lighthouse['audits'][number]['category']> = {
 };
 
 // Google Lighthouse through the PageSpeed Insights API: the same 4 scores as Chrome DevTools.
-async function lighthouse(url: string): Promise<{ speed: SeoAudit['speed']; lighthouse: Lighthouse | null }> {
-	const p = new URLSearchParams({ url, strategy: 'mobile' });
+async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<{ speed: SeoAudit['speed']; lighthouse: Lighthouse | null; console: SeoAudit['console'] }> {
+	const p = new URLSearchParams({ url, strategy });
 	for (const c of ['PERFORMANCE', 'ACCESSIBILITY', 'BEST_PRACTICES', 'SEO']) p.append('category', c);
 	if (env.PAGESPEED_API_KEY) p.set('key', env.PAGESPEED_API_KEY);
 	try {
 		const r = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { signal: AbortSignal.timeout(45_000) });
-		if (!r.ok) return { speed: null, lighthouse: null };
+		if (!r.ok) return { speed: null, lighthouse: null, console: null };
 		const j = await r.json();
 		const lr = j.lighthouseResult ?? {};
 		const a = lr.audits ?? {};
@@ -148,10 +151,14 @@ async function lighthouse(url: string): Promise<{ speed: SeoAudit['speed']; ligh
 				source: 'psi',
 				scores: { performance: score('performance'), accessibility: score('accessibility'), bestPractices: score('best-practices'), seo: score('seo') },
 				audits: audits.filter((x) => !seen.has(x.id) && seen.add(x.id)).slice(0, 14)
+			},
+			console: {
+				source: 'psi',
+				items: (a['errors-in-console']?.details?.items ?? []).slice(0, 10).map((it: any) => ({ message: String(it.description ?? '').slice(0, 300), source: it.sourceLocation?.url ?? it.source }))
 			}
 		};
 	} catch {
-		return { speed: null, lighthouse: null };
+		return { speed: null, lighthouse: null, console: null };
 	}
 }
 
@@ -185,7 +192,7 @@ async function w3c(html: string): Promise<W3C | null> {
 	}
 }
 
-export function buildIssues(pages: PageAudit[], site: SeoAudit['site'], speed: SeoAudit['speed'], lh: Lighthouse | null = null, v: W3C | null = null) {
+export function buildIssues(pages: PageAudit[], site: SeoAudit['site'], speed: SeoAudit['speed'], lh: Lighthouse | null = null, v: W3C | null = null, con: SeoAudit['console'] = null) {
 	const issues: SeoIssue[] = [];
 	const passed: string[] = [];
 	const check = (id: string, level: Level, okLabel: string, bad: PageAudit[], title: string, why: string, fix: string) => {
@@ -232,6 +239,11 @@ export function buildIssues(pages: PageAudit[], site: SeoAudit['site'], speed: S
 		else passed.push(`Accessible (${lh.scores.accessibility}/100)`);
 		if (lh.scores.bestPractices < 90)
 			issues.push({ id: 'bp', level: 'warn', title: `Best practices ${lh.scores.bestPractices}/100`, why: 'Errors in the browser console, old libraries or insecure requests.', fix: 'See the Lighthouse list below.', pages: ['/'] });
+	}
+	if (con) {
+		if (con.items.length)
+			issues.push({ id: 'console', level: 'warn', title: `${con.items.length} error${con.items.length > 1 ? 's' : ''} in the browser console`, why: 'JavaScript errors can break menus, forms or tracking for some visitors.', fix: 'See the console list: usually a broken script or a missing file after an update.', pages: ['/'] });
+		else passed.push('No console errors');
 	}
 	if (v) {
 		if (v.errors > 0)
@@ -296,7 +308,17 @@ function demoAudit(client: Client): SeoAudit {
 			{ type: 'warning', message: 'Section lacks heading. Consider using “h2”-“h6” elements.', line: 160, count: 2 }
 		]
 	};
-	return { source: 'demo', checkedAt: new Date().toISOString(), site, speed, lighthouse: lh, w3c: v, pages, ...buildIssues(pages, site, speed, lh, v) };
+	const lhd: Lighthouse = { ...lh, scores: { ...lh.scores, performance: Math.min(99, lh.scores.performance + 31) }, audits: lh.audits.filter((x) => x.category !== 'Performance') };
+	const consoleErr: SeoAudit['console'] = {
+		source: 'demo',
+		items: messy
+			? [
+					{ message: "Uncaught TypeError: Cannot read properties of null (reading 'addEventListener')", source: '/wp-content/themes/main/js/menu.js' },
+					{ message: 'Failed to load resource: the server responded with a status of 404 ()', source: '/fonts/brand.woff2' }
+				]
+			: []
+	};
+	return { source: 'demo', checkedAt: new Date().toISOString(), site, speed, lighthouse: lh, lighthouseDesktop: lhd, console: consoleErr, w3c: v, pages, ...buildIssues(pages, site, speed, lh, v, consoleErr) };
 }
 
 const cache = new Map<string, SeoAudit>();
@@ -307,10 +329,11 @@ export async function getSeoAudit(client: Client, force = false): Promise<SeoAud
 	if (!force && hit && Date.now() - Date.parse(hit.checkedAt) < 24 * 3600_000) return hit;
 
 	const origin = normaliseSite(client.domain);
-	const [sm, robots, lhRes, home] = await Promise.all([
+	const [sm, robots, lhRes, lhDesk, home] = await Promise.all([
 		sitemapFor(client).catch(() => null),
 		timed(`${origin}/robots.txt`, 6000),
-		lighthouse(origin),
+		lighthouse(origin, 'mobile'),
+		lighthouse(origin, 'desktop'),
 		timed(origin + '/')
 	]);
 	const speed = lhRes.speed;
@@ -334,8 +357,9 @@ export async function getSeoAudit(client: Client, force = false): Promise<SeoAud
 		sitemap: Boolean(sm?.found),
 		sitemapUrls: sm?.urlCount ?? 0
 	};
-	const audit: SeoAudit = { source: 'live', checkedAt: new Date().toISOString(), site, speed, lighthouse: lhRes.lighthouse, w3c: v, pages, ...buildIssues(pages, site, speed, lhRes.lighthouse, v) };
+	const audit: SeoAudit = { source: 'live', checkedAt: new Date().toISOString(), site, speed, lighthouse: lhRes.lighthouse, lighthouseDesktop: lhDesk.lighthouse, console: lhRes.console, w3c: v, pages, ...buildIssues(pages, site, speed, lhRes.lighthouse, v, lhRes.console) };
 	cache.set(client.id, audit);
+	track('audits');
 	return audit;
 }
 
@@ -344,6 +368,7 @@ export function seoTasks(a: SeoAudit, fixed: Set<string> = new Set()): Draft[] {
 	return a.issues.filter((i) => !fixed.has(i.id)).slice(0, 3).map((i) => ({
 		level: i.level,
 		area: 'SEO' as const,
+		issueId: i.id,
 		title: i.title,
 		meaning: i.why + (i.pages.length ? ` (${i.pages.slice(0, 3).join(', ')}${i.pages.length > 3 ? '…' : ''})` : ''),
 		action: i.fix

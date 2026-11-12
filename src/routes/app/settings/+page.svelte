@@ -23,17 +23,11 @@
 
 <svelte:head><title>Settings · Undercut</title></svelte:head>
 
-<h1 class="display text-[56px] sm:text-[72px]">Settings</h1>
-<nav class="mt-4 flex flex-wrap gap-2 text-sm">
-	<a href="#agency" class="pill">Your agency</a>
-	<a href="#reports" class="pill">Client reports</a>
-	<a href="#connections" class="pill">Connections</a>
-</nav>
 
 {#if page.url.searchParams.get('ok')}<p class="mt-5 rounded-[20px] bg-good-bg p-4 text-sm text-good">Google connected. Open a client → Setup to pick its properties.</p>{/if}
 {#if page.url.searchParams.get('error')}<p class="mt-5 rounded-[20px] bg-bad-bg p-4 text-sm text-bad">{errors[page.url.searchParams.get('error') ?? ''] ?? 'Something went wrong.'}</p>{/if}
 
-<form method="POST" action="?/save" class="mt-6 grid gap-4 lg:grid-cols-2">
+<form method="POST" action="?/save" class="grid gap-4 lg:grid-cols-2">
 	<section id="agency" class="card scroll-mt-6 space-y-5 p-6 sm:p-7">
 		<div>
 			<h2 class="display text-[34px] leading-none">Your agency</h2>

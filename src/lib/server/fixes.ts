@@ -223,3 +223,22 @@ export function fixedIssues(clientId: string): Set<string> {
 	for (const f of all) byIssue.set(f.issue, [...(byIssue.get(f.issue) ?? []), f]);
 	return new Set([...byIssue].filter(([, list]) => list.length && list.every((f) => f.status === 'live')).map(([k]) => k));
 }
+
+export function upsertFix(clientId: string, f: Omit<Fix, 'updatedAt' | 'status'> & { status?: Fix['status'] }) {
+	const all = listFixes(clientId).filter((x) => x.id !== f.id);
+	all.push({ ...f, status: f.status ?? 'suggested', updatedAt: new Date().toISOString() });
+	saveFixes(clientId, all);
+}
+
+export function publishIssue(clientId: string, issue: string) {
+	const all = listFixes(clientId);
+	let n = 0;
+	for (const f of all)
+		if (f.issue === issue && f.status !== 'live') {
+			f.status = 'live';
+			f.updatedAt = new Date().toISOString();
+			n++;
+		}
+	saveFixes(clientId, all);
+	return n;
+}

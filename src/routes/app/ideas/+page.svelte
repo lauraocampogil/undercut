@@ -5,6 +5,14 @@
 	let { data } = $props();
 	const r = $derived(data.ideas);
 	let showAlpha = $state(false);
+	let used = $state<Record<string, string>>({});
+	async function useKeyword(k: string) {
+		if (!data.client) return;
+		used[k] = '…';
+		const res = await fetch('/api/fix', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: data.client.id, action: 'keyword', keyword: k, publish: true }) });
+		const j = await res.json().catch(() => ({}));
+		used[k] = j.path ? `Live on ${j.path}` : 'Failed';
+	}
 	let copied = $state<string | null>(null);
 
 	function copy(text: string) {
@@ -78,7 +86,7 @@
 		<div class="flex flex-wrap items-center justify-between gap-3 px-2">
 			<div>
 				<h2 class="text-lg font-medium">Best keywords</h2>
-				<p class="text-sm text-muted">Monthly Google searches in {r.geo}. Pick high volume + low competition.</p>
+				<p class="text-sm text-muted">Monthly Google searches in {r.geo}. Pick high volume + low competition.{data.client ? ' ⚡ Use = publish a Google title + description with this keyword on the site.' : ' Open from a client to apply keywords in one click.'}</p>
 			</div>
 			<span class="rounded-full px-2.5 py-1 text-[11px] {r.volumeSource === 'dataforseo' ? 'bg-good-bg text-good' : 'bg-tile text-muted'}">{r.volumeSource === 'dataforseo' ? 'Live volumes' : 'Estimated volumes'}</span>
 		</div>
@@ -109,7 +117,16 @@
 							{#if data.client}
 								<td class="px-3 py-2.5 text-center">{#if pos}<span class="rounded-full px-2.5 py-0.5 text-xs {pos <= 3 ? 'bg-accent text-accent-ink' : pos <= 10 ? 'bg-tile' : 'bg-warn-bg text-warn'}">#{pos}</span>{:else}<span class="text-xs text-muted">not ranking</span>{/if}</td>
 							{/if}
-							<td class="px-3 py-2.5 text-right"><button class="pill py-1 text-xs" onclick={() => copy(k.keyword)}>{copied === k.keyword ? 'Copied ✓' : 'Copy'}</button></td>
+							<td class="px-3 py-2.5 text-right whitespace-nowrap">
+								{#if data.client}
+									{#if used[k.keyword]}
+										<span class="rounded-full bg-accent px-3 py-1 text-xs text-accent-ink">✓ {used[k.keyword]}</span>
+									{:else}
+										<button class="btn btn-accent px-3 py-1 text-xs" onclick={() => useKeyword(k.keyword)} title="Publish a Google title + description targeting this keyword">⚡ Use</button>
+									{/if}
+								{/if}
+								<button class="pill ml-1 py-1 text-xs" onclick={() => copy(k.keyword)}>{copied === k.keyword ? 'Copied ✓' : 'Copy'}</button>
+							</td>
 						</tr>
 					{/each}
 				</tbody>
