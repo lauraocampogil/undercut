@@ -539,3 +539,48 @@ export const googleReady = () => isConnected() && googleConfigured();
 export function gaReport(property: string, body: object) {
 	return g(`https://analyticsdata.googleapis.com/v1beta/${property}:runReport`, { method: 'POST', body: JSON.stringify(body) });
 }
+
+// ---------- segments for "why did this change?" ----------
+export type Seg = { key: string; cur: number; prev: number };
+const GA_DIM = { channel: 'sessionDefaultChannelGroup', page: 'landingPage', country: 'country', device: 'deviceCategory' } as const;
+
+export async function gaSegments(property: string, metric: 'sessions' | 'keyEvents', dim: keyof typeof GA_DIM, days: number): Promise<Seg[]> {
+	const cur = dateRange(days);
+	const prev = prevRange(days);
+	const j = await gaReport(property, {
+		dateRanges: [
+			{ startDate: cur.start, endDate: cur.end, name: 'cur' },
+			{ startDate: prev.start, endDate: prev.end, name: 'prev' }
+		],
+		dimensions: [{ name: GA_DIM[dim] }],
+		metrics: [{ name: metric }],
+		limit: 50
+	});
+	const m = new Map<string, Seg>();
+	for (const r of j.rows ?? []) {
+		const key = r.dimensionValues[0].value || '(not set)';
+		const which = r.dimensionValues[1]?.value;
+		const s = m.get(key) ?? { key, cur: 0, prev: 0 };
+		if (which === 'prev') s.prev += Number(r.metricValues[0].value);
+		else s.cur += Number(r.metricValues[0].value);
+		m.set(key, s);
+	}
+	return [...m.values()];
+}
+
+const GSC_DIM = { channel: 'query', page: 'page', country: 'country', device: 'device' } as const;
+export async function gscSegments(site: string, dim: keyof typeof GSC_DIM, days: number): Promise<Seg[]> {
+	const base = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`;
+	const cur = dateRange(days);
+	const prev = prevRange(days);
+	const q = (r: { start: string; end: string }) => g(base, { method: 'POST', body: JSON.stringify({ startDate: r.start, endDate: r.end, dimensions: [GSC_DIM[dim]], rowLimit: 50 }) });
+	const [a, b] = await Promise.all([q(cur), q(prev)]);
+	const m = new Map<string, Seg>();
+	for (const r of a.rows ?? []) m.set(r.keys[0], { key: r.keys[0], cur: r.clicks, prev: 0 });
+	for (const r of b.rows ?? []) {
+		const s = m.get(r.keys[0]) ?? { key: r.keys[0], cur: 0, prev: 0 };
+		s.prev = r.clicks;
+		m.set(r.keys[0], s);
+	}
+	return [...m.values()];
+}

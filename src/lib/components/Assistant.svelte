@@ -20,7 +20,7 @@
 	const messages = $derived(threads[key] ?? []);
 	const suggestions = $derived(
 		client
-			? ['What should I fix first?', 'Fix everything you can automatically', `Keywords for "${client.name.split(' ')[0].toLowerCase()} bruxelles"`, 'How do I make the site faster?']
+			? ['What should I fix first?', 'Why did leads change?', 'Fix everything you can automatically', `Keywords for "${client.name.split(' ')[0].toLowerCase()} bruxelles"`, 'How do I make the site faster?']
 			: ['Which client needs me most?', 'Keywords for "site web restaurant"']
 	);
 

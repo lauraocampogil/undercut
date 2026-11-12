@@ -3,6 +3,7 @@
 	let { children } = $props();
 	const tabs = [
 		{ href: '/app/settings', label: 'Agency' },
+		{ href: '/app/settings/alerts', label: 'Alerts' },
 		{ href: '/app/settings/team', label: 'Team' },
 		{ href: '/app/settings/billing', label: 'Billing & usage' },
 		{ href: '/app/settings/account', label: 'My account' }

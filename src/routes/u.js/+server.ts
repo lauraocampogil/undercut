@@ -4,17 +4,33 @@
 const SCRIPT = `(()=>{try{
 var s=document.currentScript,site=s&&s.dataset.site;if(!site||navigator.webdriver)return;
 var api=new URL(s.src).origin,q=[],vid=Math.random().toString(36).slice(2,10),sent=0,dev=innerWidth<768?'mobile':'desktop',path=location.pathname;
+var S=null,ent=false;try{S=JSON.parse(sessionStorage.getItem('uc_s')||'null')}catch(e){}
+if(!S||Date.now()-S.ts>18e5){var u=new URLSearchParams(location.search),rf=document.referrer?new URL(document.referrer).hostname:'';if(rf===location.hostname)rf='';
+S={id:vid,src:u.get('utm_source')||(u.get('gclid')?'google':u.get('fbclid')?'facebook':rf)||'',med:u.get('utm_medium')||(u.get('gclid')?'cpc':u.get('fbclid')?'social':rf?'referral':'none'),camp:u.get('utm_campaign')||'',land:path};ent=true}
+S.ts=Date.now();try{sessionStorage.setItem('uc_s',JSON.stringify(S))}catch(e){}
+var ctx={sid:S.id,src:S.src,med:S.med,camp:S.camp,land:S.land};
+function ev(o){for(var k in ctx)o[k]=ctx[k];o.p=path;o.d=dev;q.push(o)}
+var leadSeen={};function lead(kind,label){var k=kind+label;if(leadSeen[k]&&Date.now()-leadSeen[k]<5000)return;leadSeen[k]=Date.now();ev({t:'l',kind:kind,label:(label||'').slice(0,80)});send()}
 function docH(){return Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0)}
 function send(){if(maxD>sent+0.02){sent=maxD;q.push({t:'s',v:vid,p:path,d:dev,depth:+maxD.toFixed(3),h:docH()})}if(!q.length)return;var b=JSON.stringify({site:site,events:q.splice(0)});
 fetch(api+'/api/collect',{method:'POST',body:b,keepalive:true,headers:{'content-type':'application/json'}}).catch(function(){})}
-q.push({t:'pv',v:vid,p:path,d:dev,r:document.referrer?new URL(document.referrer).hostname:'',w:innerWidth,h:innerHeight});
+ev({t:'pv',v:vid,ent:ent,r:document.referrer?new URL(document.referrer).hostname:'',w:innerWidth,h:innerHeight,lang:(navigator.language||'').slice(0,5)});
+// leads & outbound clicks, detected automatically — no events to configure
+addEventListener('click',function(e){var l=e.target&&e.target.closest&&e.target.closest('a[href]');if(!l)return;var h=l.getAttribute('href')||'';
+if(/^tel:/i.test(h))return lead('phone',h.slice(4));if(/^mailto:/i.test(h))return lead('email',h.slice(7).split('?')[0]);
+if(/wa\.me|whatsapp\.com|^whatsapp:/i.test(h))return lead('whatsapp','WhatsApp');
+var url;try{url=new URL(l.href)}catch(x){return}
+if(/\.(pdf|zip|docx?|xlsx?|pptx?|csv)$/i.test(url.pathname))return ev({t:'o',kind:'download',label:url.pathname.split('/').pop().slice(0,80)});
+if(url.hostname&&url.hostname!==location.hostname&&/^https?:/.test(url.protocol))ev({t:'o',kind:'out',label:url.hostname})},true);
+addEventListener('submit',function(e){var f=e.target;if(!f||f.matches('[role=search],[data-undercut-ignore]'))return;var fields=f.querySelectorAll('input:not([type=hidden]):not([type=submit]),textarea,select');
+if(fields.length<2&&f.querySelector('input[type=search],input[name=q],input[name=s]'))return;lead('form',f.getAttribute('name')||f.id||f.getAttribute('action')||'form')},true);
 var last=[];
 addEventListener('click',function(e){var el=e.target&&e.target.closest?e.target:null;if(!el)return;
 var a=el.closest('a,button,input,select,textarea,label,[role=button],[onclick]');
 var now=Date.now();last=last.filter(function(c){return now-c.t<700&&Math.abs(c.x-e.pageX)<30&&Math.abs(c.y-e.pageY)<30});last.push({t:now,x:e.pageX,y:e.pageY});
 var txt=((a||el).innerText||(a||el).getAttribute('aria-label')||(a||el).getAttribute('alt')||'').trim().replace(/\\s+/g,' ').slice(0,40);
 if((a||el).closest('[data-undercut-mask]')||(a||el).matches('input,textarea'))txt='';
-q.push({t:'c',p:path,d:dev,x:+(e.pageX/document.documentElement.scrollWidth).toFixed(4),y:Math.round(e.pageY),w:innerWidth,s:(a||el).tagName.toLowerCase(),txt:txt,i:!!a,rage:last.length>=3});
+q.push({t:'c',sid:S.id,p:path,d:dev,x:+(e.pageX/document.documentElement.scrollWidth).toFixed(4),y:Math.round(e.pageY),w:innerWidth,s:(a||el).tagName.toLowerCase(),txt:txt,i:!!a,rage:last.length>=3});
 if(q.length>20)send()},true);
 var maxD=0;setTimeout(function(){if(!maxD)maxD=Math.min(1,innerHeight/docH())},1000);addEventListener('scroll',function(){var d=(scrollY+innerHeight)/docH();if(d>maxD)maxD=Math.min(1,d)},{passive:true});
 function leave(){if(!maxD)maxD=Math.min(1,innerHeight/docH());send()}

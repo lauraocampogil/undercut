@@ -16,5 +16,8 @@ export const variables = defineEnvVars({
 	STRIPE_PRICE_FREELANCE: { schema: optional, description: 'Stripe price id, Freelance plan' },
 	STRIPE_PRICE_AGENCY: { schema: optional, description: 'Stripe price id, Agency plan' },
 	STRIPE_PRICE_STUDIO: { schema: optional, description: 'Stripe price id, Studio plan' },
+	RESEND_API_KEY: { schema: optional, description: 'Optional: send alert & weekly digest emails (resend.com)' },
+	ALERTS_FROM: { schema: optional, description: 'Sender for alert emails, e.g. Undercut <alerts@yourdomain.be>' },
+	CRON_SECRET: { schema: optional, description: 'Protects /api/cron (Vercel Cron sends it automatically)' },
 	ANTHROPIC_MODEL: { schema: optional, description: 'Optional: Claude model id' }
 });

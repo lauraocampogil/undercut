@@ -9,6 +9,12 @@ MVP built with SvelteKit 3 + Svelte 5 + Tailwind 4.
 - **Keywords** — keyword research: monthly searches + competition, questions people ask, trends, pages that rank, and where the client already ranks.
 - **Settings** — your agency, white-label client reports, connections.
 
+## Leads, "why?" and alerts
+
+- **Leads, automatically**: the snippet counts form submissions, phone taps, email clicks and WhatsApp (plus outbound links and downloads) — no events to configure. Each lead is credited to the channel (Google Search, Google Maps, Paid ads, Social, Email, Direct…) and the landing page of the visit, cookieless (sessionStorage only, country from the host's geo header, no IP).
+- **Why did this change?**: every number that moves has a *Why?* button that splits the change across channel, landing page, device and country and says it in one sentence (GA4 / Search Console / snippet data, pure arithmetic).
+- **Alerts instead of dashboards**: daily check of every client (leads drop with the channel responsible, no leads, traffic drop, site down, JavaScript errors, SEO health drop, app crashes, bad reviews) → bell in the app + Slack webhook and/or email (Resend). Weekly summary every Monday. `vercel.json` schedules `/api/cron` (protect it with `CRON_SECRET`).
+
 ## Undercut AI & one-button fixes
 
 - **⚡ Fix** appears wherever Undercut can fix a problem itself (titles, descriptions, image texts, canonicals, business info, keywords) — published live through the snippet.

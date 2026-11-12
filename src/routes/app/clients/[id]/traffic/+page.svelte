@@ -4,6 +4,7 @@
 	import Delta from '#lib/components/Delta.svelte';
 	import Heatmap from '#lib/components/Heatmap.svelte';
 	import SourceBadge from '#lib/components/SourceBadge.svelte';
+	import WhyButton from '#lib/components/WhyButton.svelte';
 	import { n, pct, secs } from '#lib/format.ts';
 	let { data } = $props();
 	const m = $derived(data.metrics);
@@ -29,7 +30,7 @@
 			</div>
 			<div>
 				<p class="big text-[40px] sm:text-[52px]">{k.v}</p>
-				<div class="mt-2"><Delta value={k.d} /></div>
+				<div class="mt-2 flex items-center gap-2"><Delta value={k.d} />{#if k.label === 'Visits'}<WhyButton clientId={data.client.id} metric="visits" days={data.days} />{/if}</div>
 			</div>
 		</div>
 	{/each}

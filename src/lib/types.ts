@@ -19,7 +19,15 @@ export type Agency = {
 	name: string;
 	color: string;
 	reportFooter: string;
+	alerts?: {
+		email?: string;
+		slackWebhook?: string;
+		digest?: boolean; // weekly summary every Monday
+		rules?: Partial<Record<AlertRule, boolean>>;
+	};
 };
+
+export type AlertRule = 'leads_drop' | 'no_leads' | 'traffic_drop' | 'site_down' | 'console_errors' | 'seo_drop' | 'app_crashes' | 'bad_reviews';
 
 export type Point = { date: string; value: number };
 
@@ -55,7 +63,7 @@ export type Metrics = {
 
 export type Level = 'good' | 'warn' | 'bad';
 
-export type Area = 'Traffic' | 'Google Search' | 'Google Maps' | 'Conversions' | 'Tracking' | 'Sitemap' | 'SEO' | 'App' | 'Behaviour';
+export type Area = 'Leads' | 'Traffic' | 'Google Search' | 'Google Maps' | 'Conversions' | 'Tracking' | 'Sitemap' | 'SEO' | 'App' | 'Behaviour';
 
 export type Insight = {
 	id: string; // stable rule id, used to tick tasks off

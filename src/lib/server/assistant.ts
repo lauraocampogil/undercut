@@ -12,6 +12,8 @@ import { getIdeas } from './ideas.ts';
 import { howToFix } from './fix-engine.ts';
 import { AUTO_FIX_ISSUES } from '#lib/fixable.ts';
 import { track } from './usage.ts';
+import { explain } from './why.ts';
+import { getLeads } from './leads.ts';
 
 export type Msg = { role: 'user' | 'assistant'; content: string };
 export type Action =
@@ -59,6 +61,8 @@ const TOOLS = [
 	{ name: 'get_seo_problems', description: 'SEO audit of the current client: score, Lighthouse mobile/desktop, console errors, W3C, issues (with autoFixable flag), fixes.', input_schema: { type: 'object', properties: {} } },
 	{ name: 'keyword_research', description: 'Keyword research for a topic in Belgium: volumes, competition, questions people ask, trend.', input_schema: { type: 'object', properties: { keyword: { type: 'string' } }, required: ['keyword'] } },
 	{ name: 'how_to_fix', description: 'Step-by-step fix + code for a problem that cannot be fixed automatically (speed, console errors, HTML errors, contrast…).', input_schema: { type: 'object', properties: { problem: { type: 'string' } }, required: ['problem'] } },
+	{ name: 'explain_change', description: 'Why did a number change? Splits the change of visits, leads or Google clicks across channel, landing page, device and country.', input_schema: { type: 'object', properties: { metric: { type: 'string', enum: ['visits', 'leads', 'clicks'] } }, required: ['metric'] } },
+	{ name: 'get_leads', description: 'Leads of the current client (forms, calls, emails, WhatsApp) by channel and landing page.', input_schema: { type: 'object', properties: {} } },
 	{ name: 'list_clients', description: 'All clients of the agency with health score.', input_schema: { type: 'object', properties: {} } },
 	{
 		name: 'propose_action',
@@ -100,6 +104,8 @@ Answer in the user's language, short and concrete (max ~120 words, plain sentenc
 				else if (u.name === 'get_seo_problems' && client) out = await seoProblems(client);
 				else if (u.name === 'keyword_research') out = await keywords(String(u.input.keyword));
 				else if (u.name === 'how_to_fix' && client) out = await howToFix(client, String(u.input.problem));
+				else if (u.name === 'explain_change' && client) out = await explain(client, u.input.metric, 28);
+				else if (u.name === 'get_leads' && client) out = getLeads(client, 28);
 				else if (u.name === 'list_clients') out = await Promise.all(listClients().map(async (c) => ({ id: c.id, name: c.name, health: (await getClientOverview(c)).health.score })));
 				else if (u.name === 'propose_action') {
 					actions.push(u.input as Action);
@@ -150,6 +156,11 @@ async function fallback(client: Client | null, messages: Msg[]): Promise<Reply> 
 		const rows = await Promise.all(listClients().map(async (c) => ({ c, h: (await getClientOverview(c)).health.score })));
 		rows.sort((a, b) => a.h - b.h);
 		return { reply: `${T.overview[L]}\n${rows.slice(0, 3).map((r) => `• ${r.c.name} — ${r.h}/100`).join('\n')}`, actions: rows.slice(0, 3).map((r) => ({ type: 'open' as const, label: `Open ${r.c.name}`, href: `/app/clients/${r.c.id}` })), ai: false };
+	}
+	if (/\b(why|por qué|porque|pourquoi)\b/i.test(lower)) {
+		const metric = /lead|contact|call|llamad|formul/i.test(lower) ? 'leads' : /google|search|click|clic|seo/i.test(lower) ? 'clicks' : 'visits';
+		const w = await explain(client, metric, 28);
+		return { reply: w.sentence, actions: [{ type: 'open', label: metric === 'leads' ? 'Open Leads' : metric === 'clicks' ? 'Open Search' : 'Open Traffic', href: `/app/clients/${client.id}/${metric === 'leads' ? 'leads' : metric === 'clicks' ? 'search' : 'traffic'}` }], ai: false };
 	}
 	if (/(how|cómo|como|comment).*(fix|arregl|corrig|répar)/i.test(lower)) {
 		const h = await howToFix(client, q);

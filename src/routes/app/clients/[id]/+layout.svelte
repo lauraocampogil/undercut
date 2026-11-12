@@ -11,6 +11,7 @@
 			{ href: base, label: 'Summary' },
 			...(data.web
 				? [
+						{ href: `${base}/leads`, label: 'Leads', group: 'Website' },
 						{ href: `${base}/traffic`, label: 'Traffic', group: 'Website' },
 						{ href: `${base}/search`, label: 'Search & Maps', group: 'Website' },
 						{ href: `${base}/seo`, label: 'SEO', group: 'Website' },

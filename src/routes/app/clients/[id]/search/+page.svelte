@@ -2,6 +2,7 @@
 	import BarChart from '#lib/components/BarChart.svelte';
 	import Delta from '#lib/components/Delta.svelte';
 	import SourceBadge from '#lib/components/SourceBadge.svelte';
+	import WhyButton from '#lib/components/WhyButton.svelte';
 	import { n, pct } from '#lib/format.ts';
 	import type { GscRow } from '#lib/types.ts';
 	let { data } = $props();
@@ -44,7 +45,7 @@
 			<div class="bg-white p-5">
 				<p class="text-sm text-muted">{k.l}</p>
 				<p class="big mt-4 text-[40px]">{k.v}</p>
-				{#if k.d}<div class="mt-2"><Delta value={k.d} invert={k.inv} suffix={k.s} /></div>{/if}
+				{#if k.d}<div class="mt-2 flex items-center gap-2"><Delta value={k.d} invert={k.inv} suffix={k.s} />{#if k.l === 'Clicks'}<WhyButton clientId={data.client.id} metric="clicks" days={data.days} />{/if}</div>{/if}
 			</div>
 		{/each}
 	</div>

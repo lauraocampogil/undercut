@@ -3,6 +3,7 @@
 	import Delta from '#lib/components/Delta.svelte';
 	import HealthRing from '#lib/components/HealthRing.svelte';
 	import FixButton from '#lib/components/FixButton.svelte';
+	import WhyButton from '#lib/components/WhyButton.svelte';
 	let { data } = $props();
 	const c = $derived(data.client);
 	const open = $derived(data.tasks.filter((t) => !t.done && t.level !== 'good'));
@@ -22,7 +23,7 @@
 		await invalidateAll();
 		fixingAll = false;
 	}
-	const areaOf: Record<string, string> = { Traffic: 'Traffic', Conversions: 'Traffic', 'Google Search': 'Search', 'Google Maps': 'Maps', SEO: 'SEO', Sitemap: 'SEO', Tracking: 'Tracking', Behaviour: 'Behaviour', App: 'App' };
+	const areaOf: Record<string, string> = { Leads: 'Leads', Traffic: 'Traffic', Conversions: 'Traffic', 'Google Search': 'Search', 'Google Maps': 'Maps', SEO: 'SEO', Sitemap: 'SEO', Tracking: 'Tracking', Behaviour: 'Behaviour', App: 'App' };
 </script>
 
 <svelte:head><title>{c.name} · Undercut</title></svelte:head>
@@ -43,20 +44,22 @@
 
 	<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
 		{#each data.areas as a (a.key)}
-			<a href={a.href + (data.days !== 28 ? `?days=${data.days}` : '')} class="card group flex flex-col justify-between gap-5 p-5 transition-transform hover:-translate-y-0.5">
+			{@const metric = a.key === 'traffic' ? 'visits' : a.key === 'search' ? 'clicks' : a.key === 'leads' ? 'leads' : null}
+			<div class="group relative flex flex-col justify-between gap-5 p-5 transition-transform hover:-translate-y-0.5 {a.key === 'leads' ? 'card-dark' : 'card'}">
+				<a href={a.href + (data.days !== 28 ? `?days=${data.days}` : '')} class="absolute inset-0 rounded-[28px]" aria-label="Open {a.label}"></a>
 				<div class="flex items-center justify-between gap-2">
 					<p class="text-sm font-medium">{a.label}</p>
-					<span class="inline-flex items-center gap-1.5 rounded-full bg-tile px-2 py-0.5 text-[11px]"><span class="size-1.5 rounded-full {dot[a.level]}"></span>{word[a.level]}</span>
+					<span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] {a.key === 'leads' ? 'bg-white/10' : 'bg-tile'}"><span class="size-1.5 rounded-full {dot[a.level]}"></span>{word[a.level]}</span>
 				</div>
 				<div>
-					<p class="flex items-start gap-1.5"><span class="big text-[40px]">{a.value}</span>{#if a.delta !== undefined}<Delta value={a.delta} invert={a.deltaInvert} suffix={a.deltaInvert ? '' : '%'} />{/if}</p>
-					<p class="mt-1 truncate text-xs text-muted">{a.sub}</p>
+					<p class="flex items-start gap-1.5"><span class="big text-[40px] {a.key === 'leads' ? 'text-accent' : ''}">{a.value}</span>{#if a.delta !== undefined}<Delta value={a.delta} invert={a.deltaInvert} suffix={a.deltaInvert ? '' : '%'} dark={a.key === 'leads'} />{/if}</p>
+					<p class="mt-1 truncate text-xs {a.key === 'leads' ? 'text-white/50' : 'text-muted'}">{a.sub}</p>
 				</div>
-				<p class="flex items-center justify-between text-xs text-muted">
-					<span>{a.open ? `${a.open} to do` : 'Nothing to do'}</span>
-					<span class="transition-transform group-hover:translate-x-0.5">→</span>
-				</p>
-			</a>
+				<div class="relative flex items-center justify-between gap-2 text-xs {a.key === 'leads' ? 'text-white/50' : 'text-muted'}">
+					<span>{a.open ? `${a.open} to fix` : 'Nothing to fix'}</span>
+					{#if metric && a.delta !== undefined && a.delta !== 0}<WhyButton clientId={c.id} {metric} days={data.days} dark={a.key === 'leads'} />{:else}<span class="transition-transform group-hover:translate-x-0.5">→</span>{/if}
+				</div>
+			</div>
 		{/each}
 	</div>
 </section>

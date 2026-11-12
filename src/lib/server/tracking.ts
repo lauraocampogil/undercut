@@ -12,8 +12,12 @@ import { track } from './usage.ts';
 const DIR = join(process.cwd(), '.data');
 export type Device = 'desktop' | 'mobile';
 
+type Ctx = { sid?: string; src?: string; med?: string; camp?: string; land?: string; cc?: string };
+export type LeadKind = 'form' | 'phone' | 'email' | 'whatsapp';
 export type TrackEvent =
-	| { t: 'pv'; v?: string; p: string; d: Device; r?: string; w: number; h: number; ts: number }
+	| ({ t: 'pv'; v?: string; p: string; d: Device; r?: string; w: number; h: number; ent?: boolean; lang?: string; ts: number } & Ctx)
+	| ({ t: 'l'; p: string; d: Device; kind: LeadKind; label?: string; ts: number } & Ctx)
+	| ({ t: 'o'; p: string; d: Device; kind: 'out' | 'download'; label: string; ts: number } & Ctx)
 	| { t: 'c'; p: string; d: Device; x: number; y: number; w: number; s?: string; txt?: string; i?: boolean; rage?: boolean; ts: number }
 	| { t: 's'; v?: string; p: string; d: Device; depth: number; h: number; ts: number };
 
@@ -21,13 +25,13 @@ const day = (ts = Date.now()) => new Date(ts).toISOString().slice(0, 10);
 const safe = (s: string) => s.replace(/[^a-z0-9-]/gi, '').slice(0, 60);
 const snapKey = (path: string, device: Device) => createHash('sha1').update(path + '|' + device).digest('hex').slice(0, 16);
 
-export function record(site: string, events: TrackEvent[]) {
+export function record(site: string, events: TrackEvent[], country = '') {
 	const dir = join(DIR, 'events', safe(site));
 	mkdirSync(dir, { recursive: true });
 	const lines = events
-		.filter((e) => e && typeof e.p === 'string' && ['pv', 'c', 's'].includes(e.t))
+		.filter((e) => e && typeof e.p === 'string' && ['pv', 'c', 's', 'l', 'o'].includes(e.t))
 		.slice(0, 200)
-		.map((e) => JSON.stringify({ ...e, p: e.p.slice(0, 300), ts: Date.now() }))
+		.map((e) => JSON.stringify({ ...e, p: e.p.slice(0, 300), cc: country.slice(0, 2).toUpperCase() || undefined, ts: Date.now() }))
 		.join('\n');
 	if (lines) {
 		appendFileSync(join(dir, `${day()}.jsonl`), lines + '\n');
@@ -61,7 +65,7 @@ export function readSnapshot(site: string, path: string, device: Device): { html
 	return { html: readFileSync(join(dir, k + '.html'), 'utf8'), height: meta.height };
 }
 
-function readEvents(site: string, days: number): TrackEvent[] {
+export function readEvents(site: string, days: number): TrackEvent[] {
 	const dir = join(DIR, 'events', safe(site));
 	if (!existsSync(dir)) return [];
 	const from = day(Date.now() - days * 864e5);

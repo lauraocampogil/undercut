@@ -49,6 +49,11 @@
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="#C6F432"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>Ask AI
 			</button>
 
+			<a href="/app/alerts" class="relative grid size-11 place-items-center rounded-full bg-white" aria-label="Alerts{data.unread ? ` (${data.unread} new)` : ''}" title="Alerts">
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0" /></svg>
+				{#if data.unread}<span class="absolute -top-0.5 -right-0.5 grid min-w-5 place-items-center rounded-full bg-bad px-1 text-[10px] font-semibold text-white">{data.unread}</span>{/if}
+			</a>
+
 			<!-- account menu -->
 			<button class="grid size-11 place-items-center rounded-full bg-white" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
 				<span class="relative grid size-8 place-items-center rounded-full bg-[#E4F5B8] text-xs font-semibold text-accent-ink">
