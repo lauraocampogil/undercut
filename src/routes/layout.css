@@ -338,3 +338,53 @@ html {
 		opacity: 1;
 	}
 }
+
+/* ---------- brand voice ---------- */
+.shout {
+	font-family: var(--font-sans);
+	font-weight: 850;
+	text-transform: uppercase;
+	letter-spacing: -0.055em;
+	line-height: 0.86;
+}
+/* the signature cut: a lime slash drawn through a word */
+.cut-bar {
+	transform-origin: left center;
+	transform: scaleX(0) rotate(-4deg);
+	transition: transform 0.7s cubic-bezier(0.7, 0, 0.2, 1) calc(var(--d, 0ms) + 750ms);
+}
+.in > .cut-bar,
+.in.cut-bar {
+	transform: scaleX(1) rotate(-4deg);
+}
+.marquee-rev {
+	animation: marquee 40s linear infinite reverse;
+}
+@keyframes draw {
+	from {
+		stroke-dashoffset: 100;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+@keyframes fade-in {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes fade-up {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.cut-bar {
+		transform: scaleX(1) rotate(-4deg);
+		transition: none;
+	}
+	.marquee-rev {
+		animation: none !important;
+	}
+}
