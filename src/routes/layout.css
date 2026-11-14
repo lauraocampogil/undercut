@@ -195,3 +195,146 @@ select.input {
 		break-inside: avoid;
 	}
 }
+
+/* ---------- motion (marketing pages) ---------- */
+html {
+	scroll-behavior: smooth;
+}
+:root {
+	--ease-out: cubic-bezier(0.2, 0.75, 0.15, 1);
+}
+.js .reveal {
+	opacity: 0;
+	transform: translateY(28px);
+	transition:
+		opacity 0.8s var(--ease-out) var(--d, 0ms),
+		transform 0.9s var(--ease-out) var(--d, 0ms);
+}
+.js .reveal.in {
+	opacity: 1;
+	transform: none;
+}
+.js .reveal [data-stagger] {
+	opacity: 0;
+	transform: translateY(24px) scale(0.98);
+	transition:
+		opacity 0.7s var(--ease-out) var(--d, 0ms),
+		transform 0.8s var(--ease-out) var(--d, 0ms);
+}
+.js .reveal.in [data-stagger] {
+	opacity: 1;
+	transform: none;
+}
+.js .reveal.reveal-only {
+	transform: none;
+}
+
+/* split headline: each word rises out of a mask */
+.split .w {
+	display: inline-block;
+	overflow: hidden;
+	vertical-align: top;
+	padding: 0 0.06em 0.12em 0;
+	margin: 0 -0.06em -0.12em 0;
+}
+.split .w > span {
+	display: inline-block;
+}
+.js .split .w > span {
+	transform: translateY(115%) rotate(5deg);
+	transform-origin: left bottom;
+	transition: transform 1.05s var(--ease-out) calc(var(--d, 0ms) + var(--i) * 55ms);
+}
+.js .split.in .w > span {
+	transform: none;
+}
+
+/* scroll-lit text: words brighten with --p */
+.lit > span {
+	opacity: calc(0.14 + 0.86 * clamp(0, var(--p, 0) * var(--n) * 1.15 - var(--i), 1));
+	transition: opacity 0.15s linear;
+}
+
+@keyframes marquee {
+	to {
+		transform: translateX(-50%);
+	}
+}
+.marquee {
+	animation: marquee 32s linear infinite;
+}
+@keyframes floaty {
+	50% {
+		transform: translateY(-10px);
+	}
+}
+.floaty {
+	animation: floaty 6s ease-in-out infinite;
+}
+@keyframes spin-slow {
+	to {
+		transform: rotate(360deg);
+	}
+}
+.spin-slow {
+	animation: spin-slow 90s linear infinite;
+}
+@keyframes word-in {
+	from {
+		transform: translateY(100%);
+		opacity: 0;
+	}
+}
+@keyframes word-out {
+	to {
+		transform: translateY(-100%);
+		opacity: 0;
+	}
+}
+@keyframes ping-soft {
+	75%,
+	100% {
+		transform: scale(2.4);
+		opacity: 0;
+	}
+}
+.ping-soft {
+	animation: ping-soft 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes grow-x {
+	from {
+		transform: scaleX(0);
+	}
+}
+@keyframes grow-y {
+	from {
+		transform: scaleY(0);
+	}
+}
+@keyframes typing {
+	from {
+		clip-path: inset(0 100% 0 0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+	.js .reveal,
+	.js .reveal [data-stagger],
+	.js .split .w > span {
+		opacity: 1 !important;
+		transform: none !important;
+		transition: none !important;
+	}
+	.marquee,
+	.floaty,
+	.spin-slow,
+	.ping-soft {
+		animation: none !important;
+	}
+	.lit > span {
+		opacity: 1;
+	}
+}
