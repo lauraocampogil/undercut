@@ -10,6 +10,14 @@
 	let menu = $state(false);
 	let y = $state(0);
 
+	const audiences = ['web agencies.', 'app studios.', 'communication agencies.'];
+	let wi = $state(0);
+	$effect(() => {
+		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		const t = setInterval(() => (wi = (wi + 1) % audiences.length), 2400);
+		return () => clearInterval(t);
+	});
+
 	// light rays (deterministic so SSR = client)
 	const rays = Array.from({ length: 90 }, (_, i) => {
 		const a = (i / 90) * Math.PI * 2;
@@ -31,8 +39,6 @@
 	})();
 
 	const cuts = ['Vanity metrics', 'Cookie banners', 'Event setup', '400 reports', 'PDFs nobody reads', 'Waiting on a dev'];
-	const noTape = ['No cookies', 'No event setup', 'No 400 reports', 'No consultant', 'No per-pageview pricing', 'Just answers'];
-	const tools = ['GA4', 'Search Console', 'Google Maps', 'Tag Manager', 'Lighthouse', 'W3C', 'Firebase', 'WordPress', 'Webflow', 'Shopify', 'Slack'];
 	const channels = [
 		['Google Search', 46],
 		['Google Maps', 24],
@@ -58,8 +64,8 @@
 
 <svelte:window bind:scrollY={y} />
 <svelte:head>
-	<title>Undercut — dashboards are dead. Long live answers.</title>
-	<meta name="description" content="Anti-dashboard analytics for agencies. Where leads come from, what blocks them, what to fix — for every client, in plain words. Fixed in one click." />
+	<title>Undercut — analytics without the noise, for agencies</title>
+	<meta name="description" content="Analytics for web, mobile app and communication agencies. Where leads come from, what blocks them, what to fix — for every client, in plain words. Fixed in one click." />
 </svelte:head>
 
 {#snippet mark(size = 18, cls = '')}
@@ -118,19 +124,25 @@
 
 			<div class="mx-auto max-w-6xl px-5 text-center">
 				<p class="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[.06] py-1 pr-3 pl-1 text-xs backdrop-blur" use:reveal={{ delay: 50 }}>
-					<span class="flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 font-semibold text-accent-ink">{@render mark(12)} Anti-dashboard</span>Analytics for agencies
+					<span class="flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 font-semibold text-accent-ink">{@render mark(12)} For agencies</span>Web · Mobile apps · Communication
 				</p>
 				<h1 class="mt-8">
-					<span class="block text-[52px] leading-[0.9] sm:text-[112px]">
-						<span class="relative inline-block" use:inview={{ delay: 200 }}>
-							<SplitText as="span" class="shout" text="Dashboards" delay={150} />
-							<span class="cut-bar absolute top-[56%] -right-[3%] -left-[3%] h-[0.13em] rounded-full bg-accent" aria-hidden="true"></span>
+					<SplitText as="span" class="shout block text-[clamp(52px,16vw,176px)]" text="Analytics" delay={150} />
+					<span class="display mt-2 block text-[44px] leading-[0.95] sm:mt-3 sm:text-[104px]">
+						<SplitText as="span" text="without the" delay={400} />
+						<span class="relative inline-block" use:inview={{ delay: 450 }}>
+							<SplitText as="span" text="*noise.*" emClass="text-white/70" delay={500} />
+							<span class="cut-bar absolute top-[52%] -right-[4%] -left-[4%] h-[0.12em] rounded-full bg-accent" aria-hidden="true"></span>
 						</span>
-						<SplitText as="span" class="display" text="are dead." delay={350} />
 					</span>
-					<SplitText as="span" class="display mt-1 block text-[52px] leading-[0.95] sm:text-[124px]" text="Long live *answers.*" emClass="text-accent" delay={550} />
 				</h1>
-				<p class="mx-auto mt-8 max-w-xl text-base text-white/65 sm:text-lg" use:reveal={{ delay: 800 }}>Undercut tells agencies where leads come from, what’s blocking them and what to fix — for every client, in plain words. Then fixes it. One click.</p>
+				<p class="display mt-6 text-[26px] leading-tight text-white/80 sm:text-[40px]" use:reveal={{ delay: 750 }}>
+					Built for
+					<span class="relative inline-grid overflow-hidden pb-[0.1em] align-bottom">
+						{#key wi}<em class="col-start-1 row-start-1 text-accent [animation:word-in_.6s_var(--ease-out)_both]">{audiences[wi]}</em>{/key}
+					</span>
+				</p>
+				<p class="mx-auto mt-5 max-w-xl text-base text-white/60 sm:text-lg" use:reveal={{ delay: 850 }}>You run 20 client websites and apps. Undercut tells you, per client, where leads come from, what’s blocking them and what to fix — in plain words. Then fixes it in one click.</p>
 				<div class="mt-9 flex flex-wrap justify-center gap-3" use:reveal={{ delay: 950 }}>
 					<a href={cta.href} class="btn btn-accent group px-6 py-3 text-base">{cta.label} — 14 days<span class="transition-transform group-hover:translate-x-1">→</span></a>
 					<a href="/app" class="btn border border-white/20 px-6 py-3 text-base text-white hover:bg-white/10">See the live demo</a>
@@ -220,17 +232,28 @@
 		</div>
 	</section>
 
-	<!-- ================= TAPES ================= -->
-	<section class="relative my-24 h-[200px] sm:my-32 sm:h-[240px]" aria-label="What Undercut is — and isn’t">
-		<div class="absolute top-1/2 -right-10 -left-10 -translate-y-1/2 rotate-[3deg] overflow-hidden bg-ink py-4 sm:py-5">
-			<div class="marquee-rev flex w-max items-center gap-8 text-accent">
-				{#each [...tools, ...tools, ...tools] as t, i (i)}<span class="flex items-center gap-8 text-[20px] font-semibold tracking-tight whitespace-nowrap uppercase sm:text-[26px]">{t}{@render mark(18)}</span>{/each}
-			</div>
+	<!-- ================= WHO IT'S FOR ================= -->
+	<section class="mx-auto max-w-[1240px] px-4 py-24 sm:px-6 sm:py-40">
+		<div class="flex flex-wrap items-end justify-between gap-6">
+			<SplitText text={'Made for agencies.\n*Not for analysts.*'} class="display text-[44px] leading-none sm:text-[80px]" />
+			<p class="max-w-sm text-ink-2" use:reveal={{ delay: 250 }}>You build and run things for clients. Undercut shows what each one brings in — and what to fix next.</p>
 		</div>
-		<div class="absolute top-1/2 -right-10 -left-10 -translate-y-1/2 -rotate-[4deg] overflow-hidden bg-accent py-4 shadow-[0_20px_50px_-20px_rgba(0,0,0,.4)] sm:py-5">
-			<div class="marquee flex w-max items-center gap-8 text-ink">
-				{#each [...noTape, ...noTape, ...noTape] as t, i (i)}<span class="shout flex items-center gap-8 text-[26px] whitespace-nowrap sm:text-[36px]">{t}{@render mark(22)}</span>{/each}
-			</div>
+		<div class="mt-16 grid gap-3 md:grid-cols-3" use:reveal>
+			{#each [
+				{ t: 'Web agencies', k: 'Sites & SEO', d: 'Leads per page and channel, speed, SEO and W3C checked daily — and fixes published without opening the CMS.', pts: ['Leads by channel', 'One-click SEO fixes', 'Heatmaps'], tone: 'ink' },
+				{ t: 'App studios', k: 'iOS & Android', d: 'Users, retention, crashes and store reviews next to the app’s landing page. One place per client, no Firebase console tour.', pts: ['Retention & crashes', 'Store reviews', 'Web + app together'], tone: 'lime' },
+				{ t: 'Communication agencies', k: 'Campaigns & social', d: 'Did the campaign bring calls, forms and WhatsApps? See it per channel, explain it in one sentence, send the report.', pts: ['Campaign → leads', 'Why it changed', 'White-label reports'], tone: 'white' }
+			] as a, i (a.t)}
+				<article class="group relative flex min-h-[380px] flex-col overflow-hidden rounded-[32px] p-8 transition-transform duration-500 hover:-translate-y-1.5 {a.tone === 'ink' ? 'bg-ink text-white' : a.tone === 'lime' ? 'bg-accent text-accent-ink' : 'bg-white'}" data-stagger>
+					<div class="pointer-events-none absolute -right-10 -bottom-12 opacity-[.08] transition-transform duration-700 group-hover:-rotate-6">{@render mark(240)}</div>
+					<p class="flex items-center justify-between text-xs font-medium opacity-60"><span>0{i + 1}</span><span>{a.k}</span></p>
+					<h3 class="shout mt-10 text-[34px] md:text-[clamp(26px,2.6vw,38px)]">{a.t}</h3>
+					<p class="mt-4 text-sm opacity-70">{a.d}</p>
+					<ul class="relative mt-auto flex flex-wrap gap-1.5 pt-8">
+						{#each a.pts as pt (pt)}<li class="rounded-full px-3 py-1 text-xs {a.tone === 'ink' ? 'bg-white/10' : a.tone === 'lime' ? 'bg-ink/10' : 'bg-tile'}">{pt}</li>{/each}
+					</ul>
+				</article>
+			{/each}
 		</div>
 	</section>
 
