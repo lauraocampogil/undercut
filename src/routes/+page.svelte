@@ -127,8 +127,8 @@
 					<span class="flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 font-semibold text-accent-ink">{@render mark(12)} For agencies</span>Web · Mobile apps · Communication
 				</p>
 				<h1 class="mt-8">
-					<SplitText as="span" class="shout block text-[clamp(52px,16vw,176px)]" text="Analytics" delay={150} />
-					<span class="display mt-2 block text-[44px] leading-[0.95] sm:mt-3 sm:text-[104px]">
+					<SplitText as="span" class="shout block text-[clamp(42px,9vw,104px)]" text="Analytics" delay={150} />
+					<span class="display mt-2 block text-[40px] leading-[0.95] sm:mt-3 sm:text-[84px]">
 						<SplitText as="span" text="without the" delay={400} />
 						<span class="relative inline-block" use:inview={{ delay: 450 }}>
 							<SplitText as="span" text="*noise.*" emClass="text-white/70" delay={500} />
@@ -487,10 +487,10 @@
 			<div class="absolute -bottom-40 left-1/2 -z-10 size-[520px] -translate-x-1/2 rounded-full bg-accent/40 blur-[110px]"></div>
 			<h2>
 				<span class="relative inline-block" use:inview={{ delay: 200 }}>
-					<SplitText as="span" class="shout block text-[52px] leading-[0.85] sm:text-[140px]" text="Stop reporting." />
-					<span class="cut-bar absolute top-[46%] -right-[2%] -left-[2%] h-[0.09em] rounded-full bg-accent text-[52px] sm:text-[140px]" aria-hidden="true"></span>
+					<SplitText as="span" class="shout block text-[38px] leading-[0.85] sm:text-[88px]" text="Stop reporting." />
+					<span class="cut-bar absolute top-[58%] -right-[2%] -left-[2%] h-[0.1em] rounded-full bg-accent text-[38px] sm:text-[88px]" aria-hidden="true"></span>
 				</span>
-				<SplitText as="span" class="display mt-2 block text-[60px] leading-[0.95] sm:text-[150px]" text="*Start fixing.*" emClass="text-accent" delay={300} />
+				<SplitText as="span" class="display mt-2 block text-[46px] leading-[0.95] sm:text-[100px]" text="*Start fixing.*" emClass="text-accent" delay={300} />
 			</h2>
 			<div class="mt-12 flex flex-wrap justify-center gap-3" use:reveal={{ delay: 300 }}>
 				<a href={cta.href} class="btn btn-accent group px-7 py-3.5 text-base">{cta.label} — 14 days<span class="transition-transform group-hover:translate-x-1">→</span></a>
