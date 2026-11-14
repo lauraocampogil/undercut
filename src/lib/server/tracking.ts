@@ -12,7 +12,7 @@ import { track } from './usage.ts';
 const DIR = join(process.cwd(), '.data');
 export type Device = 'desktop' | 'mobile';
 
-type Ctx = { sid?: string; src?: string; med?: string; camp?: string; land?: string; cc?: string };
+type Ctx = { sid?: string; src?: string; med?: string; camp?: string; cont?: string; land?: string; cc?: string };
 export type LeadKind = 'form' | 'phone' | 'email' | 'whatsapp';
 export type TrackEvent =
 	| ({ t: 'pv'; v?: string; p: string; d: Device; r?: string; w: number; h: number; ent?: boolean; lang?: string; ts: number } & Ctx)

@@ -79,6 +79,32 @@
 			</section>
 		{/if}
 
+
+		{#if data.campaigns.length}
+			<section class="card mt-4 p-7">
+				<h2 class="display text-[34px]">{data.campaignOnly ? data.campaigns[0].name : 'Campaigns'}</h2>
+				{#if data.campaignOnly}
+					{@const c = data.campaigns[0]}
+					<p class="mt-1 text-sm text-muted">{c.icon} {c.channel} · from {c.start}{c.end ? ` to ${c.end}` : ''}</p>
+					<div class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-[20px] bg-line sm:grid-cols-4">
+						{#each [['Visits', c.stats.visits.toLocaleString('en-US')], ['Leads', String(c.stats.leads)], ['Conversion', `${c.stats.conversion}%`], ['Cost per lead', c.stats.cpl ? `€${c.stats.cpl}` : '—']] as [l, v] (l)}
+							<div class="bg-white p-5"><p class="text-xs text-muted">{l}</p><p class="big mt-2 text-[36px]">{v}</p></div>
+						{/each}
+					</div>
+					{#if c.stats.daily.length > 1}<div class="mt-5"><BarChart data={c.stats.daily.map((d) => ({ date: d.date, value: d.leads }))} height={170} unit="leads" /></div>{/if}
+					<p class="mt-4 text-sm text-ink-2">📝 {c.stats.byKind.form} forms · 💬 {c.stats.byKind.whatsapp} WhatsApp · 📞 {c.stats.byKind.phone} calls · ✉️ {c.stats.byKind.email} emails</p>
+				{:else}
+					<ul class="mt-5 divide-y divide-line">
+						{#each data.campaigns as c (c.id)}
+							<li class="flex flex-wrap items-center gap-3 py-3 text-sm">
+								<span class="text-xl">{c.icon}</span><span class="min-w-0 flex-1"><strong class="font-medium">{c.name}</strong> <span class="text-muted">· {c.channel}</span></span>
+								<span>{c.stats.visits} visits</span><span class="rounded-full bg-accent px-2.5 py-0.5 font-medium text-accent-ink">{c.stats.leads} leads</span>{#if c.stats.cpl}<span class="text-muted">€{c.stats.cpl}/lead</span>{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</section>
+		{/if}
 		<section class="mt-4 grid gap-4 sm:grid-cols-2">
 			<div class="card p-7">
 				<h2 class="display text-[34px]">What went <em>well</em></h2>

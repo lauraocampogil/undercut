@@ -148,7 +148,7 @@ async function fallback(client: Client | null, messages: Msg[]): Promise<Reply> 
 		const lines = r.keywords.slice(0, 5).map((x) => `• ${x.keyword} — ${x.volume}/mo (${x.competition})`);
 		return {
 			reply: `${T.kw[L]} “${k}”:\n${lines.join('\n')}`,
-			actions: client ? [{ type: 'keyword_fix', label: `Use “${r.keywords[0]?.keyword ?? k}” in a page title`, keyword: r.keywords[0]?.keyword ?? k }, { type: 'open', label: 'Open Keywords', href: `/app/ideas?q=${encodeURIComponent(k)}&client=${client.id}` }] : [{ type: 'open', label: 'Open Keywords', href: `/app/ideas?q=${encodeURIComponent(k)}` }],
+			actions: client ? [{ type: 'keyword_fix', label: `Use “${r.keywords[0]?.keyword ?? k}” in a page title`, keyword: r.keywords[0]?.keyword ?? k }, { type: 'open', label: 'Open Keywords', href: `/app/clients/${client.id}/keywords?q=${encodeURIComponent(k)}` }] : [{ type: 'open', label: 'Open Keywords', href: `/app/ideas?q=${encodeURIComponent(k)}` }],
 			ai: false
 		};
 	}

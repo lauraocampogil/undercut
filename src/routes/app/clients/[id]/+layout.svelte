@@ -5,7 +5,7 @@
 	const days = $derived(Number(page.url.searchParams.get('days')) || 28);
 	const showDays = $derived(!/\/(settings|seo|heatmaps)$/.test(page.url.pathname));
 	const section = $derived(
-		({ leads: 'Leads', traffic: 'Traffic', search: 'Search & Maps', seo: 'SEO & fixes', heatmaps: 'Heatmaps', app: 'App analytics', settings: 'Setup & connections' } as Record<string, string>)[page.url.pathname.split('/')[4] ?? ''] ?? 'Summary'
+		({ leads: 'Leads', traffic: 'Traffic', search: 'Search & Maps', seo: 'SEO & fixes', keywords: 'Keywords', campaigns: 'Campaigns', heatmaps: 'Heatmaps', app: 'App analytics', settings: 'Setup & connections' } as Record<string, string>)[page.url.pathname.split('/')[4] ?? ''] ?? 'Summary'
 	);
 	const kind = $derived(data.web && data.app ? 'Website + app' : data.app ? 'App' : 'Website');
 </script>

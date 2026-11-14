@@ -18,8 +18,7 @@
 	type Item = { href: string; label: string; icon: any; badge?: number };
 	const agencyNav = $derived([
 		{ href: '/app', label: 'All clients', icon: 'grid' },
-		{ href: '/app/alerts', label: 'Alerts', icon: 'bell', badge: data.unread },
-		{ href: '/app/ideas', label: 'Keywords', icon: 'key' }
+		{ href: '/app/alerts', label: 'Alerts', icon: 'bell', badge: data.unread }
 	] as Item[]);
 	const clientNav = $derived.by(() => {
 		if (!current) return [] as { group: string; items: Item[] }[];
@@ -36,17 +35,26 @@
 								{ href: `${b}/leads`, label: 'Leads', icon: 'target' },
 								{ href: `${b}/traffic`, label: 'Traffic', icon: 'chart' },
 								{ href: `${b}/search`, label: 'Search & Maps', icon: 'search' },
+								{ href: `${b}/keywords`, label: 'Keywords', icon: 'key' },
 								{ href: `${b}/seo`, label: 'SEO & fixes', icon: 'check' },
 								{ href: `${b}/heatmaps`, label: 'Heatmaps', icon: 'flame' }
 							]
 						}
 					]
 				: []),
-			...(app ? [{ group: 'App', items: [{ href: `${b}/app`, label: 'App analytics', icon: 'phone' }] }] : []),
+			...(web ? [{ group: 'Communication', items: [{ href: `${b}/campaigns`, label: 'Campaigns', icon: 'megaphone' }] }] : []),
+		...(app ? [{ group: 'App', items: [{ href: `${b}/app`, label: 'App analytics', icon: 'phone' }, { href: `${b}/keywords?mode=app`, label: 'App Store keywords', icon: 'key' }] }] : []),
 			{ group: '', items: [{ href: `${b}/settings`, label: 'Setup & connections', icon: 'sliders' }] }
 		] as { group: string; items: Item[] }[];
 	});
-	const isActive = (href: string) => (href === '/app' ? path === '/app' : path === href || (href.endsWith('/settings') === false && href.split('/').length > 4 && path.startsWith(href + '/')));
+	const isActive = (href: string) => {
+		const [hp, hq] = href.split('?');
+		if (hp.endsWith('/keywords')) {
+			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
+			return path === hp && (hq === 'mode=app') === appMode;
+		}
+		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
+	};
 
 	$effect(() => {
 		path;
@@ -57,7 +65,7 @@
 
 {#snippet link(it: Item)}
 	<a
-		href={it.href + (it.href.includes('/clients/') && !it.href.endsWith('/settings') ? q : '')}
+		href={it.href + (it.href.includes('/clients/') && !it.href.endsWith('/settings') ? (it.href.includes('?') ? q.replace('?', '&') : q) : '')}
 		class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors {isActive(it.href) ? 'bg-ink text-white' : 'text-ink-2 hover:bg-black/5'}"
 	>
 		<Icon name={it.icon} />

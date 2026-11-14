@@ -4,6 +4,12 @@
 	let role = $state(untrack(() => (data.preselect ? 'client' : 'member')));
 	const roleHelp = { admin: 'Everything, incl. billing', member: 'All clients, no billing', client: 'Sees only their own dashboard & report' };
 	const clientName = (id?: string) => data.clientsList.find((c) => c.id === id)?.name;
+	let copied = $state('');
+	function copy(link: string) {
+		navigator.clipboard?.writeText(link);
+		copied = link;
+		setTimeout(() => (copied = ''), 1500);
+	}
 </script>
 
 <svelte:head><title>Team · Undercut</title></svelte:head>
@@ -25,6 +31,7 @@
 						<p class="truncate font-medium">{m.email}</p>
 						<p class="truncate text-xs text-muted">{m.status === 'invited' ? 'Invitation pending' : 'Active'}{m.clientId ? ` · ${clientName(m.clientId)}` : ''}</p>
 					</div>
+					{#if m.link}<button type="button" class="pill py-1 text-[11px]" onclick={() => copy(m.link!)}>{copied === m.link ? 'Copied ✓' : '🔗 Invite link'}</button>{/if}
 					<span class="rounded-full bg-tile px-2.5 py-1 text-[11px] capitalize">{m.role}</span>
 					<form method="POST" action="?/remove"><input type="hidden" name="email" value={m.email} /><button class="text-xs text-bad hover:underline">Remove</button></form>
 				</li>
@@ -50,7 +57,13 @@
 			</label>
 		{/if}
 		{#if form?.error}<p class="text-sm text-[#ff8a80]">{form.error}</p>{/if}
-		{#if form?.invited}<p class="rounded-[16px] bg-accent p-3 text-sm text-accent-ink">Invitation saved for {form.invited}. Emails are sent once accounts (Supabase Auth) are live.</p>{/if}
+		{#if form?.invited}
+			<div class="rounded-[16px] bg-accent p-3 text-sm text-accent-ink">
+				<p>{form.sent ? `Invitation emailed to ${form.invited} ✓` : `Invitation ready for ${form.invited}. Send them this link:`}</p>
+				{#if !form.sent}<button type="button" class="mt-2 w-full truncate rounded-full bg-ink px-3 py-2 text-left text-xs text-accent" onclick={() => copy(form.link!)}>{copied === form.link ? 'Copied ✓' : form.link}</button>{/if}
+			</div>
+		{/if}
+		{#if !data.emailReady}<p class="text-xs text-white/40">Add RESEND_API_KEY to send invitations by email. Until then, copy the link.</p>{/if}
 		<button class="btn btn-accent mt-auto self-start">Send invitation</button>
 	</form>
 </div>

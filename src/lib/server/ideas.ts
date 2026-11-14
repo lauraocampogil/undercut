@@ -48,7 +48,7 @@ async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Prom
 	return value;
 }
 
-async function suggest(q: string, lang: Lang, geo: string): Promise<string[]> {
+export async function suggest(q: string, lang: Lang, geo: string): Promise<string[]> {
 	const url = `https://suggestqueries.google.com/complete/search?client=firefox&ie=utf-8&oe=utf-8&hl=${lang}&gl=${geo.toLowerCase()}&q=${encodeURIComponent(q)}`;
 	const ctrl = new AbortController();
 	const t = setTimeout(() => ctrl.abort(), 4000);

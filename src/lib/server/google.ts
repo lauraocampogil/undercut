@@ -584,3 +584,16 @@ export async function gscSegments(site: string, dim: keyof typeof GSC_DIM, days:
 	}
 	return [...m.values()];
 }
+
+/** Search Console numbers for one exact query (used for tracked keywords outside the top 100). */
+export async function gscQuery(client: Client, query: string, days = 28): Promise<GscRow | null> {
+	const site = client.google.gscSiteUrl;
+	if (!site || !isConnected() || !googleConfigured()) return null;
+	const range = demoSearchConsole(client, days).range;
+	const j = await g(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
+		method: 'POST',
+		body: JSON.stringify({ startDate: range.start, endDate: range.end, dimensions: ['query'], dimensionFilterGroups: [{ filters: [{ dimension: 'query', operator: 'equals', expression: query }] }] })
+	});
+	const r = j.rows?.[0];
+	return r ? { key: query, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: +r.position.toFixed(1) } : null;
+}

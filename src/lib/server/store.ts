@@ -155,7 +155,7 @@ export const hasWeb = (c: Client) => clientType(c) !== 'app';
 export const hasApp = (c: Client) => clientType(c) !== 'web';
 
 // The signed-in person (MVP: one local account; production: Supabase Auth)
-export type Account = { name: string; email: string; language: 'en' | 'fr' | 'nl' | 'es' };
+export type Account = { name: string; email: string; language: 'en' | 'fr' | 'nl' | 'es'; passwordHash?: string };
 export function getAccount(): Account {
 	return read<Account>('account.json', { name: 'Agency owner', email: '', language: 'en' });
 }
@@ -164,7 +164,7 @@ export function saveAccount(a: Account) {
 }
 
 // Team members & invitations
-export type Member = { email: string; name?: string; role: 'owner' | 'admin' | 'member' | 'client'; status: 'active' | 'invited'; clientId?: string; invitedAt: string };
+export type Member = { email: string; name?: string; role: 'owner' | 'admin' | 'member' | 'client'; status: 'active' | 'invited'; clientId?: string; invitedAt: string; passwordHash?: string; inviteToken?: string };
 export function listMembers(): Member[] {
 	return read<Member[]>('team.json', []);
 }
@@ -180,3 +180,7 @@ export function getBilling(): Billing {
 export function saveBilling(b: Billing) {
 	write('billing.json', b);
 }
+
+/** Generic JSON helpers for feature modules (keywords, campaigns…). */
+export const readData = read;
+export const writeData = write;
