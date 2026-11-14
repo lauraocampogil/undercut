@@ -10,7 +10,7 @@ export const load = () => {
 		billing: getBilling(),
 		unread: unreadCount(),
 		clients: listClients()
-			.map((c) => ({ id: c.id, name: c.name, color: c.color }))
+			.map((c) => ({ id: c.id, name: c.name, color: c.color, type: c.type ?? 'web' }))
 			.sort((a, b) => a.name.localeCompare(b.name)),
 		google: { configured: googleConfigured(), connected: Boolean(t), email: t?.email ?? null }
 	};

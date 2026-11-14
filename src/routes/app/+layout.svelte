@@ -4,117 +4,171 @@
 	import Assistant from '#lib/components/Assistant.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	let { data, children } = $props();
+
+	let drawer = $state(false); // mobile sidebar
 	let menu = $state<'clients' | 'account' | null>(null);
 
-	const nav = [
-		{ href: '/app', label: 'Overview' },
-		{ href: '/app/ideas', label: 'Keywords' },
-		{ href: '/app/settings', label: 'Settings' }
-	];
-	const active = (href: string) =>
-		href === '/app' ? page.url.pathname === '/app' || page.url.pathname.startsWith('/app/clients') : page.url.pathname.startsWith(href);
-	const current = $derived(data.clients.find((c) => page.url.pathname.startsWith(`/app/clients/${c.id}`)));
+	const path = $derived(page.url.pathname);
+	const current = $derived(data.clients.find((c) => path.startsWith(`/app/clients/${c.id}`)));
+	const q = $derived(page.url.searchParams.get('days') ? `?days=${page.url.searchParams.get('days')}` : '');
 	const planLabel = $derived({ trial: 'Free trial', freelance: 'Freelance', agency: 'Agency', studio: 'Studio' }[data.billing.plan]);
+	const initial = (s: string) => s.trim().slice(0, 1).toUpperCase() || 'U';
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	type Item = { href: string; label: string; icon: any; badge?: number };
+	const agencyNav = $derived([
+		{ href: '/app', label: 'All clients', icon: 'grid' },
+		{ href: '/app/alerts', label: 'Alerts', icon: 'bell', badge: data.unread },
+		{ href: '/app/ideas', label: 'Keywords', icon: 'key' }
+	] as Item[]);
+	const clientNav = $derived.by(() => {
+		if (!current) return [] as { group: string; items: Item[] }[];
+		const b = `/app/clients/${current.id}`;
+		const web = current.type !== 'app';
+		const app = current.type !== 'web';
+		return [
+			{ group: '', items: [{ href: b, label: 'Summary', icon: 'gauge' }] },
+			...(web
+				? [
+						{
+							group: 'Website',
+							items: [
+								{ href: `${b}/leads`, label: 'Leads', icon: 'target' },
+								{ href: `${b}/traffic`, label: 'Traffic', icon: 'chart' },
+								{ href: `${b}/search`, label: 'Search & Maps', icon: 'search' },
+								{ href: `${b}/seo`, label: 'SEO & fixes', icon: 'check' },
+								{ href: `${b}/heatmaps`, label: 'Heatmaps', icon: 'flame' }
+							]
+						}
+					]
+				: []),
+			...(app ? [{ group: 'App', items: [{ href: `${b}/app`, label: 'App analytics', icon: 'phone' }] }] : []),
+			{ group: '', items: [{ href: `${b}/settings`, label: 'Setup & connections', icon: 'sliders' }] }
+		] as { group: string; items: Item[] }[];
+	});
+	const isActive = (href: string) => (href === '/app' ? path === '/app' : path === href || (href.endsWith('/settings') === false && href.split('/').length > 4 && path.startsWith(href + '/')));
+
 	$effect(() => {
-		page.url.pathname;
+		path;
+		drawer = false;
 		menu = null;
 	});
-	const initial = (s: string) => s.trim().slice(0, 1).toUpperCase() || 'U';
 </script>
 
-<div class="min-h-dvh px-3 py-3 sm:px-5 sm:py-5">
-	<header class="no-print mx-auto flex max-w-[1320px] flex-wrap items-center gap-3 lg:flex-nowrap">
-		<a href="/app" class="mr-auto shrink-0 lg:mr-0"><Logo /></a>
+{#snippet link(it: Item)}
+	<a
+		href={it.href + (it.href.includes('/clients/') && !it.href.endsWith('/settings') ? q : '')}
+		class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors {isActive(it.href) ? 'bg-ink text-white' : 'text-ink-2 hover:bg-black/5'}"
+	>
+		<Icon name={it.icon} />
+		<span class="flex-1 truncate">{it.label}</span>
+		{#if it.badge}<span class="rounded-full bg-bad px-1.5 text-[10px] font-semibold text-white">{it.badge}</span>{/if}
+	</a>
+{/snippet}
 
-		<nav class="scrollbar-none order-3 -mx-3 w-[calc(100%+1.5rem)] overflow-x-auto px-3 lg:order-none lg:mx-auto lg:w-auto lg:px-0">
-			<div class="flex w-max gap-1 rounded-full bg-white p-1.5">
-				{#each nav as item (item.href)}
-					<a href={item.href} class="rounded-full px-4 py-2 text-sm transition-colors {active(item.href) ? 'bg-ink text-white' : 'text-ink-2 hover:bg-tile'}">{item.label}</a>
-				{/each}
-			</div>
-		</nav>
+<div class="min-h-dvh lg:grid lg:grid-cols-[264px_1fr]">
+	<!-- mobile top bar -->
+	<header class="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-paper/90 px-4 py-3 backdrop-blur lg:hidden">
+		<button class="icon-btn" onclick={() => (drawer = true)} aria-label="Open menu"><Icon name="menu" /></button>
+		<a href="/app"><Logo size={26} /></a>
+		<a href="/app/alerts" class="relative icon-btn" aria-label="Alerts"><Icon name="bell" />{#if data.unread}<span class="absolute -top-1 -right-1 grid min-w-4 place-items-center rounded-full bg-bad px-1 text-[9px] text-white">{data.unread}</span>{/if}</a>
+	</header>
 
-		<div class="relative flex shrink-0 items-center gap-2">
-			<!-- client switcher -->
-			<button class="flex items-center gap-2 rounded-full bg-white py-1.5 pr-4 pl-1.5 text-sm" onclick={() => (menu = menu === 'clients' ? null : 'clients')} aria-expanded={menu === 'clients'}>
-				<span class="grid size-8 place-items-center rounded-full text-xs font-semibold text-white" style="background:{current?.color ?? '#0D0D0D'}">{initial(current?.name ?? 'All')}</span>
-				<span class="hidden max-w-[150px] truncate text-left sm:block">
-					<span class="block text-[11px] leading-tight text-muted">Client</span>
-					<span class="block leading-tight font-medium">{current?.name ?? 'All clients'}</span>
+	<!-- sidebar -->
+	<aside
+		class="no-print fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col gap-1 overflow-y-auto border-r border-line bg-paper px-3 py-4 transition-transform lg:sticky lg:top-0 lg:z-auto lg:h-dvh lg:w-auto lg:translate-x-0"
+		class:-translate-x-full={!drawer}
+	>
+		<div class="flex items-center justify-between px-2 pb-3">
+			<a href="/app"><Logo /></a>
+			<button class="icon-btn size-9 lg:hidden" onclick={() => (drawer = false)} aria-label="Close menu"><Icon name="x" /></button>
+		</div>
+
+		<!-- client switcher -->
+		<div class="relative">
+			<button class="flex w-full items-center gap-3 rounded-2xl bg-white p-2 text-left text-sm" onclick={() => (menu = menu === 'clients' ? null : 'clients')} aria-expanded={menu === 'clients'}>
+				<span class="grid size-9 shrink-0 place-items-center rounded-xl text-xs font-semibold text-white" style="background:{current?.color ?? '#0D0D0D'}">{initial(current?.name ?? 'A')}</span>
+				<span class="min-w-0 flex-1">
+					<span class="block text-[11px] leading-tight text-muted">{current ? 'Client' : data.agency.name}</span>
+					<span class="block truncate leading-tight font-medium">{current?.name ?? 'All clients'}</span>
 				</span>
-				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6" /></svg>
+				<Icon name="chevron" size={14} />
 			</button>
-
-			<button class="hidden h-11 items-center gap-2 rounded-full bg-ink pr-4 pl-3 text-sm text-white md:flex" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="#C6F432"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>Ask AI
-			</button>
-
-			<a href="/app/alerts" class="relative grid size-11 place-items-center rounded-full bg-white" aria-label="Alerts{data.unread ? ` (${data.unread} new)` : ''}" title="Alerts">
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0" /></svg>
-				{#if data.unread}<span class="absolute -top-0.5 -right-0.5 grid min-w-5 place-items-center rounded-full bg-bad px-1 text-[10px] font-semibold text-white">{data.unread}</span>{/if}
-			</a>
-
-			<!-- account menu -->
-			<button class="grid size-11 place-items-center rounded-full bg-white" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
-				<span class="relative grid size-8 place-items-center rounded-full bg-[#E4F5B8] text-xs font-semibold text-accent-ink">
-					{initial(data.account.name)}
-					<span class="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-white {data.google.connected ? 'bg-good' : 'bg-[#E3A21A]'}"></span>
-				</span>
-			</button>
-
 			{#if menu === 'clients'}
-				<div class="absolute top-full right-0 z-40 mt-2 w-72 rounded-[24px] bg-white p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
-					<a href="/app" class="flex items-center gap-3 rounded-2xl px-3 py-2 text-sm hover:bg-tile {current ? '' : 'font-medium'}">All clients</a>
-					<p class="label px-3 pt-2 pb-1">Clients</p>
+				<div class="absolute top-full right-0 left-0 z-40 mt-2 max-h-80 overflow-y-auto rounded-[20px] bg-white p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
+					<a href="/app" class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-tile">All clients</a>
 					{#each data.clients as c (c.id)}
-						<a href="/app/clients/{c.id}" class="flex items-center gap-3 rounded-2xl px-3 py-2 text-sm hover:bg-tile {current?.id === c.id ? 'bg-tile font-medium' : ''}">
-							<span class="size-2.5 rounded-full" style="background:{c.color}"></span><span class="truncate">{c.name}</span>
+						<a href="/app/clients/{c.id}" class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-tile {current?.id === c.id ? 'bg-tile font-medium' : ''}">
+							<span class="size-2.5 rounded-full" style="background:{c.color}"></span><span class="flex-1 truncate">{c.name}</span>
+							<span class="text-[10px] text-muted">{c.type === 'both' ? 'web+app' : c.type}</span>
 						</a>
 					{/each}
-					<a href="/app/clients/new" class="mt-1 flex items-center justify-center gap-2 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white">+ Add client</a>
-				</div>
-			{/if}
-
-			{#if menu === 'account'}
-				<div class="absolute top-full right-0 z-40 mt-2 w-80 rounded-[24px] bg-white py-2 text-sm shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
-					{#if current}
-						<p class="label px-5 pt-2 pb-1">Client</p>
-						<a href="/app/clients/{current.id}" class="flex items-center gap-3 px-5 py-2 font-medium hover:bg-tile"><span class="grid size-6 place-items-center rounded-md text-[11px] text-white" style="background:{current.color}">{initial(current.name)}</span>{current.name}</a>
-						<a href="/app/clients/{current.id}/settings" class="flex items-center gap-3 px-5 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>Client setup</a>
-						<a href="/app/settings/team?client={current.id}" class="flex items-center gap-3 px-5 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="plus" /></span>Invite the client</a>
-						<div class="my-2 border-t border-line"></div>
-					{/if}
-					<p class="label px-5 pt-1 pb-1">Agency</p>
-					<a href="/app/settings" class="flex items-center gap-3 px-5 py-2 font-medium hover:bg-tile">
-						<span class="grid size-6 place-items-center rounded-md bg-accent text-[11px] text-accent-ink">{initial(data.agency.name)}</span>
-						<span class="flex-1 truncate">{data.agency.name}</span>
-						<span class="rounded-full bg-tile px-2 py-0.5 text-[10px] font-normal">{planLabel}</span>
-					</a>
-					<a href="/app/settings/team" class="flex items-center gap-3 px-5 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>Team</a>
-					<a href="/app/settings/billing" class="flex items-center gap-3 px-5 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>Billing & usage</a>
-					<a href="/app/settings" class="flex items-center gap-3 px-5 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>Agency settings</a>
-					<a href="/app/settings#connections" class="flex items-center gap-3 px-5 py-2 hover:bg-tile">
-						<span class="w-6 text-center"><span class="inline-block size-2 rounded-full {data.google.connected ? 'bg-good' : 'bg-[#E3A21A]'}"></span></span>Connections
-						<span class="ml-auto text-xs text-muted">{data.google.connected ? 'Google on' : 'Google off'}</span>
-					</a>
-					<div class="my-2 border-t border-line"></div>
-					<p class="label px-5 pt-1 pb-1">Account</p>
-					<a href="/app/settings/account" class="flex items-center gap-3 px-5 py-2 hover:bg-tile">
-						<span class="grid size-8 place-items-center rounded-full bg-[#E4F5B8] text-xs font-semibold text-accent-ink">{initial(data.account.name)}</span>
-						<span class="min-w-0"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">{data.account.email || 'Add your email'}</span></span>
-					</a>
-					<a href="/app/settings/account#logout" class="flex items-center gap-3 px-5 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>Log out</a>
+					<a href="/app/clients/new" class="mt-1 flex items-center justify-center gap-2 rounded-xl bg-ink px-3 py-2 text-sm text-white"><Icon name="plus" size={14} />Add client</a>
 				</div>
 			{/if}
 		</div>
-	</header>
 
-	{#if menu}
-		<button class="fixed inset-0 z-30 cursor-default" aria-label="Close menu" onclick={() => (menu = null)}></button>
-	{/if}
+		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Agency">
+			{#each agencyNav as it (it.href)}{@render link(it)}{/each}
+		</nav>
 
-	<main class="mx-auto mt-6 max-w-[1320px] pb-20 sm:mt-8">
-		{@render children()}
+		{#if current}
+			<nav class="mt-4 flex flex-col gap-0.5 border-t border-line pt-4" aria-label="{current.name} sections">
+				<p class="flex items-center gap-2 px-3 pb-1 text-[11px] font-medium text-muted"><span class="size-2 rounded-full" style="background:{current.color}"></span><span class="truncate">{current.name}</span></p>
+				{#each clientNav as g, gi (gi)}
+					{#if g.group}<p class="mt-2 px-3 pb-0.5 text-[10px] font-medium tracking-wider text-muted uppercase">{g.group}</p>{/if}
+					{#each g.items as it (it.href)}{@render link(it)}{/each}
+				{/each}
+			</nav>
+		{/if}
+
+		<div class="mt-auto flex flex-col gap-2 pt-4">
+			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="#C6F432"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+				<span class="flex-1 text-left">Ask Undercut AI</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
+			</button>
+
+			<!-- account & settings -->
+			<div class="relative">
+				{#if menu === 'account'}
+					<div class="absolute right-0 bottom-full left-0 z-40 mb-2 rounded-[20px] bg-white py-2 text-sm shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
+						<p class="label px-4 pt-1 pb-1">Agency</p>
+						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 font-medium hover:bg-tile">
+							<span class="grid size-6 place-items-center rounded-md bg-accent text-[11px] text-accent-ink">{initial(data.agency.name)}</span>
+							<span class="flex-1 truncate">{data.agency.name}</span><span class="rounded-full bg-tile px-2 py-0.5 text-[10px] font-normal">{planLabel}</span>
+						</a>
+						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>Agency settings</a>
+						<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>Team</a>
+						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>Billing & usage</a>
+						<a href="/app/settings/alerts" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bell" /></span>Alert settings</a>
+						<a href="/app/settings#connections" class="flex items-center gap-3 px-4 py-2 hover:bg-tile">
+							<span class="grid w-6 place-items-center"><span class="size-2 rounded-full {data.google.connected ? 'bg-good' : 'bg-[#E3A21A]'}"></span></span>Connections
+							<span class="ml-auto text-xs text-muted">{data.google.connected ? 'Google on' : 'Google off'}</span>
+						</a>
+						<div class="my-2 border-t border-line"></div>
+						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>My account</a>
+						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>Log out</a>
+					</div>
+				{/if}
+				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
+					<span class="relative grid size-9 shrink-0 place-items-center rounded-full bg-[#E4F5B8] text-xs font-semibold text-accent-ink">
+						{initial(data.account.name)}
+						<span class="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-paper {data.google.connected ? 'bg-good' : 'bg-[#E3A21A]'}"></span>
+					</span>
+					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">Account & settings</span></span>
+					<Icon name="cog" size={15} />
+				</button>
+			</div>
+		</div>
+	</aside>
+
+	{#if drawer}<button class="fixed inset-0 z-40 bg-black/30 lg:hidden" aria-label="Close menu" onclick={() => (drawer = false)}></button>{/if}
+	{#if menu}<button class="fixed inset-0 z-30 cursor-default" aria-label="Close" onclick={() => (menu = null)}></button>{/if}
+
+	<main class="min-w-0 px-4 py-6 sm:px-8 lg:py-8">
+		<div class="mx-auto max-w-[1240px] pb-20">
+			{@render children()}
+		</div>
 	</main>
 </div>
 
