@@ -1,11 +1,12 @@
 import { fail } from '@sveltejs/kit';
+import { dbOn } from '#lib/server/db.ts';
 import { getAccount, listMembers, saveAccount, saveMembers } from '#lib/server/store.ts';
 import { hashPassword, passwordProblem, startSession, verifyPassword, findUser } from '#lib/server/auth.ts';
 
 export const load = ({ locals }) => {
 	const u = locals.user!;
 	const a = getAccount();
-	return { me: u.role === 'owner' ? { name: a.name, email: a.email, language: a.language } : { name: u.name, email: u.email, language: a.language }, hasPassword: Boolean(findUser(u.email)?.passwordHash), locked: locals.locked, role: u.role };
+	return { me: u.role === 'owner' ? { name: a.name, email: a.email, language: a.language } : { name: u.name, email: u.email, language: a.language }, hasPassword: Boolean(findUser(u.email)?.passwordHash), locked: locals.locked, role: u.role, emailLocked: dbOn() };
 };
 
 export const actions = {
@@ -16,7 +17,8 @@ export const actions = {
 		if (u.role === 'owner') {
 			const a = getAccount();
 			const language = String(f.get('language') ?? a.language);
-			const email = String(f.get('email') ?? a.email).trim().toLowerCase().slice(0, 120);
+			// multi-agency mode: the email is the login key — it stays as is
+			const email = dbOn() ? a.email : String(f.get('email') ?? a.email).trim().toLowerCase().slice(0, 120);
 			if (a.passwordHash && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail(400, { error: 'Your email is used to log in — it must be valid.' });
 			saveAccount({ ...a, name: name || a.name, email, language: (['en', 'fr', 'nl', 'es'].includes(language) ? language : 'en') as 'en' | 'fr' | 'nl' | 'es' });
 		} else {

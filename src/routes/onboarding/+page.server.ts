@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import * as env from '$app/env/private';
-import { getAccount, getAgency, getClient, saveClient, slugify } from '#lib/server/store.ts';
+import { getAccount, getAgency, getClient, saveClient, slugify, newClientId } from '#lib/server/store.ts';
 import { normaliseSite } from '#lib/server/sitemap.ts';
 import { googleConfigured, isConnected, listAccounts, matchProperties, type Option } from '#lib/server/google.ts';
 import { getHeatmap } from '#lib/server/tracking.ts';
@@ -33,7 +33,7 @@ export const load = async ({ url }) => {
 	const base = env.PUBLIC_BASE_URL || url.origin;
 	return {
 		step,
-		account: getAccount(),
+		account: { name: getAccount().name },
 		agency: getAgency().name,
 		client: client ? { id: client.id, name: client.name, domain: client.domain, type: client.type ?? 'web', google: client.google } : null,
 		google: { configured, connected, error: url.searchParams.get('error'), ok: url.searchParams.has('ok') },
@@ -61,8 +61,7 @@ export const actions = {
 				return fail(400, { name, domain: domainRaw, error: 'That website address does not look valid.' });
 			}
 		}
-		let id = slugify(name);
-		while (getClient(id)) id += '-2';
+		const id = newClientId(name);
 		saveClient({ id, name, domain, color: COLORS[Math.floor(Math.random() * COLORS.length)], createdAt: new Date().toISOString().slice(0, 10), type, app: type !== 'web' ? { name } : undefined, google: {} });
 		redirect(303, `/onboarding?step=2&client=${id}`);
 	},

@@ -3,8 +3,7 @@
 //   suggested → (agency edits / approves) → live → (undo) → suggested
 // Live fixes are served at /api/fixes and applied in the browser by /u.js.
 // For a permanent fix the agency can also copy the code for the CMS / developer.
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readData, writeData } from './store.ts';
 import * as env from '$app/env/private';
 import type { Client } from '#lib/types.ts';
 import type { SeoAudit, PageAudit } from './seo-audit.ts';
@@ -26,23 +25,16 @@ export type Fix = {
 	createdAt?: string; // equal to updatedAt while nobody touched the suggestion
 };
 
-const DIR = join(process.cwd(), '.data', 'fixes');
-const file = (clientId: string) => join(DIR, `${clientId.replace(/[^a-z0-9-]/gi, '')}.json`);
+const file = (clientId: string) => `fixes/${clientId.replace(/[^a-z0-9-]/gi, '')}.json`;
 
 export function listFixes(clientId: string): Fix[] {
-	if (!existsSync(file(clientId))) return [];
-	try {
-		const all = JSON.parse(readFileSync(file(clientId), 'utf8')) as Fix[];
-		const seen = new Set<string>();
-		return all.filter((f) => !seen.has(f.id) && seen.add(f.id)); // older files could hold duplicates
-	} catch {
-		return [];
-	}
+	const all = readData<Fix[]>(file(clientId), []);
+	const seen = new Set<string>();
+	return all.filter((f) => !seen.has(f.id) && seen.add(f.id)); // older files could hold duplicates
 }
 
 function saveFixes(clientId: string, fixes: Fix[]) {
-	mkdirSync(DIR, { recursive: true });
-	writeFileSync(file(clientId), JSON.stringify(fixes, null, 2));
+	writeData(file(clientId), fixes);
 }
 
 export function updateFix(clientId: string, id: string, patch: Partial<Pick<Fix, 'value' | 'status'>>) {

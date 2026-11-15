@@ -1,7 +1,7 @@
 // Alerts instead of dashboards: Undercut watches every client and sends a message only when
 // something needs the agency — by email (Resend) and/or Slack, plus a bell in the app.
 // Runs daily from /api/cron (Vercel Cron) or with "Check now" in Settings → Alerts.
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readData, writeData } from './store.ts';
 import { join } from 'node:path';
 import * as env from '$app/env/private';
 import type { AlertRule, Client, Level } from '#lib/types.ts';
@@ -26,20 +26,10 @@ export const RULES: { id: AlertRule; label: string; help: string }[] = [
 	{ id: 'bad_reviews', label: 'Bad reviews', help: 'New 1–2★ app store reviews' }
 ];
 
-const FILE = join(process.cwd(), '.data', 'alerts.json');
-const STATE = join(process.cwd(), '.data', 'alerts-state.json');
-const readJson = <T>(f: string, d: T): T => {
-	if (!existsSync(f)) return d;
-	try {
-		return JSON.parse(readFileSync(f, 'utf8'));
-	} catch {
-		return d;
-	}
-};
-const writeJson = (f: string, v: unknown) => {
-	mkdirSync(join(process.cwd(), '.data'), { recursive: true });
-	writeFileSync(f, JSON.stringify(v, null, 2));
-};
+const FILE = 'alerts.json';
+const STATE = 'alerts-state.json';
+const readJson = <T>(f: string, d: T): T => readData<T>(f, d);
+const writeJson = (f: string, v: unknown) => writeData(f, v);
 
 export const listAlerts = (): Alert[] => readJson<Alert[]>(FILE, []).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 export const unreadCount = () => listAlerts().filter((a) => !a.read).length;

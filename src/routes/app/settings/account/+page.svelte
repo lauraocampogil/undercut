@@ -9,7 +9,7 @@
 	<form method="POST" action="?/profile" use:enhance={() => async ({ update }) => update({ reset: false })} class="card space-y-5 p-6 sm:p-7">
 		<h2 class="display text-[34px] leading-none">My account</h2>
 		<label class="block"><span class="label">Name</span><input class="input mt-1.5" name="name" value={data.me.name} /></label>
-		<label class="block"><span class="label">Email {data.role === 'owner' ? '· your login' : ''}</span><input class="input mt-1.5" type="email" name="email" value={data.me.email} placeholder="you@agency.be" disabled={data.role !== 'owner'} /></label>
+		<label class="block"><span class="label">Email {data.role === 'owner' ? '· your login' : ''}</span><input class="input mt-1.5" type="email" name="email" value={data.me.email} placeholder="you@agency.be" disabled={data.role !== 'owner' || data.emailLocked} /></label>
 		{#if data.role === 'owner'}
 			<label class="block">
 				<span class="label">Language of AI summaries & reports</span>

@@ -1,13 +1,17 @@
 import { redirect } from '@sveltejs/kit';
 import { exchangeCode, googleIdentity } from '#lib/server/google.ts';
-import { acceptInviteWithGoogle, findUser, startSession } from '#lib/server/auth.ts';
-import { getAccount, listClients, saveAccount, writeData } from '#lib/server/store.ts';
+import { acceptInviteWithGoogle, findUser, inviteWorkspace, startSession } from '#lib/server/auth.ts';
+import { addLogin, createWorkspace, getAccount, getAgency, listClients, loadWorkspace, lookupLogin, saveAccount, saveAgency, writeData } from '#lib/server/store.ts';
+import { dbOn } from '#lib/server/db.ts';
+import { inWorkspace } from '#lib/server/context.ts';
+import { markJoined, rowByCode } from '#lib/server/beta.ts';
 
 export const GET = async ({ url, cookies, locals }) => {
 	const mode = cookies.get('oauth_mode') === 'login' ? 'login' : 'data';
 	const next = cookies.get('oauth_next') || (mode === 'login' ? '/app' : '/app/settings');
 	const invite = cookies.get('oauth_invite');
-	for (const k of ['oauth_next', 'oauth_mode', 'oauth_invite']) cookies.delete(k, { path: '/' });
+	const beta = cookies.get('oauth_beta');
+	for (const k of ['oauth_next', 'oauth_mode', 'oauth_invite', 'oauth_beta']) cookies.delete(k, { path: '/' });
 	const back = (q: string) => (mode === 'login' ? `/login?${q}` : `${next}${next.includes('?') ? '&' : '?'}${q}`);
 	const code = url.searchParams.get('code');
 	const state = url.searchParams.get('state');
@@ -23,6 +27,46 @@ export const GET = async ({ url, cookies, locals }) => {
 		} catch (e) {
 			console.error(e);
 			redirect(303, back('error=google'));
+		}
+		if (dbOn()) {
+			// a) joining a team (invitation link)
+			const iws = invite ? inviteWorkspace(invite) : null;
+			if (invite && iws) {
+				await loadWorkspace(iws);
+				const m = await inWorkspace(iws, async () => {
+					const m = acceptInviteWithGoogle(invite, id.email, id.name);
+					if (m) startSession(cookies, m.email, secure);
+					return m;
+				});
+				if (!m) redirect(303, `/invite/${invite}?error=email`);
+				await addLogin(m.email, iws);
+				redirect(303, m.role === 'client' && m.clientId ? `/app/clients/${m.clientId}` : '/app');
+			}
+			// b) existing account
+			const ws = await lookupLogin(id.email);
+			if (ws) {
+				await loadWorkspace(ws);
+				const u = await inWorkspace(ws, () => {
+					const u = findUser(id.email);
+					if (u) startSession(cookies, u.email, secure);
+					return u;
+				});
+				if (!u) redirect(303, back('error=unknown'));
+				redirect(303, u.role === 'client' && u.clientId ? `/app/clients/${u.clientId}` : next);
+			}
+			// c) new agency with a beta invitation
+			const row = beta ? await rowByCode(beta) : null;
+			if (!row || row.status === 'joined') redirect(303, back('error=unknown'));
+			const nws = await createWorkspace(row.agency || `${id.name}’s agency`);
+			await addLogin(id.email, nws);
+			await inWorkspace(nws, () => {
+				saveAccount({ name: id.name, email: id.email, language: 'en', googleLogin: true });
+				saveAgency({ ...getAgency(), name: row.agency || `${id.name}’s agency` });
+				writeData('clients.json', []);
+				startSession(cookies, id.email, secure);
+			});
+			await markJoined(beta!, nws);
+			redirect(303, '/onboarding');
 		}
 		// 1) accepting an invitation
 		if (invite) {

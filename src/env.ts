@@ -21,5 +21,9 @@ export const variables = defineEnvVars({
 	CRON_SECRET: { schema: optional, description: 'Protects /api/cron (Vercel Cron sends it automatically)' },
 	ANTHROPIC_MODEL: { schema: optional, description: 'Optional: Claude model id' },
 	SCHEDULER: { schema: optional, description: 'Set to "off" to disable the built-in daily alerts / weekly digest timer (self-hosting)' },
+	SUPABASE_URL: { schema: optional, description: 'Supabase project URL (multi-agency mode). Without it: local JSON files, one workspace' },
+	SUPABASE_SERVICE_ROLE_KEY: { schema: optional, description: 'Supabase service role key (server only — never in the browser)' },
+	ADMIN_EMAILS: { schema: optional, description: 'Comma-separated emails that can open /admin (beta waitlist & invitations)' },
+	BETA_SEATS: { schema: optional, description: 'Number of beta agencies (default 30)' },
 	SESSION_SECRET: { schema: optional, description: 'Signs login cookies. Generated and stored in .data if not set' }
 });

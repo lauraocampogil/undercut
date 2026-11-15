@@ -120,3 +120,31 @@ Con la primera visita aparecen visitas, fuentes, leads (formularios, teléfono, 
 | Alertas | Slack (webhook) o email (Resend) |
 
 Un cliente real **nunca** muestra datos inventados: lo que no está conectado aparece como “Not linked” con el botón para conectarlo. Los clientes de ejemplo (demo) solo existen si los mantienes al crear la cuenta.
+
+---
+
+## 4. Bêta à 30 agences : Supabase (multi-agences)
+
+Sans Supabase, Undercut = un seul espace (le tien, en local). Avec Supabase, **chaque agence a son propre espace**, ses clients, sa connexion Google et ses données.
+
+1. <https://supabase.com/dashboard> → **New project** (région **Frankfurt / eu-central-1**), nom « undercut », un mot de passe fort.
+2. **SQL Editor** → colle tout le fichier `supabase/schema.sql` → **Run**.
+3. **Project Settings → API** : copie **Project URL** et la clé **service_role** (secrète, jamais dans le navigateur).
+4. Variables d'environnement (Coolify, et `.env` si tu veux tester en local) :
+
+   ```env
+   SUPABASE_URL=https://xxxx.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=eyJ...      # service_role
+   ADMIN_EMAILS=ton@email.com            # qui peut ouvrir /admin
+   BETA_SEATS=30
+   SESSION_SECRET=...                    # openssl rand -hex 32
+   ```
+
+5. Redéploie. Puis :
+   - Va sur `/beta` avec **ton** email (celui de `ADMIN_EMAILS`) → tu passes directement à la création de ton espace.
+   - Les agences remplissent `/beta` (bouton « Join the beta » de la landing).
+   - Tu ouvres **/admin** (menu compte → *Beta invitations*) → **Invite** : elles reçoivent un email (Resend) avec leur lien personnel `/signup?code=…`.
+   - Chacune crée son espace (email + mot de passe ou Google) et ajoute ses clients.
+
+Ce qui est dans Supabase : agences, connexions, clients, réglages, Google, alertes, fixes, campagnes, mots-clés, liste d'attente.
+Ce qui reste sur le volume `/app/.data` : les visites/clics du snippet et les captures des heatmaps (gros volumes) — garde le volume persistant.

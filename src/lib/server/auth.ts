@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import * as env from '$app/env/private';
 import type { Cookies } from '@sveltejs/kit';
 import { getAccount, listMembers, saveAccount, saveMembers, type Member } from '#lib/server/store.ts';
+import { currentWs } from './context.ts';
+import { dbOn } from './db.ts';
 
 export type User = { email: string; name: string; role: Member['role']; clientId?: string };
 export const COOKIE = 'uc_session';
@@ -37,13 +39,13 @@ export function verifyPassword(pw: string, stored?: string) {
 export const passwordProblem = (pw: string) => (pw.length < 8 ? 'Use at least 8 characters.' : null);
 
 /** Login is enforced once the owner has a password. */
-export const authEnabled = () => Boolean(getAccount().passwordHash || getAccount().googleLogin);
+export const authEnabled = () => dbOn() || Boolean(getAccount().passwordHash || getAccount().googleLogin);
 
 function sign(payload: string) {
 	return createHmac('sha256', secret()).update(payload).digest('base64url');
 }
 export function startSession(cookies: Cookies, email: string, secure: boolean) {
-	const payload = Buffer.from(JSON.stringify({ e: email, x: Date.now() + MAX_AGE * 1000 })).toString('base64url');
+	const payload = Buffer.from(JSON.stringify({ e: email, x: Date.now() + MAX_AGE * 1000, w: currentWs() ?? undefined })).toString('base64url');
 	cookies.set(COOKIE, `${payload}.${sign(payload)}`, { path: '/', httpOnly: true, sameSite: 'lax', secure, maxAge: MAX_AGE });
 }
 export function endSession(cookies: Cookies) {
@@ -58,20 +60,27 @@ export function findUser(email: string): (User & { passwordHash?: string }) | nu
 	return m ? { email: m.email, name: m.name ?? m.email.split('@')[0], role: m.role, clientId: m.clientId, passwordHash: m.passwordHash } : null;
 }
 
-export function userFromCookie(value?: string): User | null {
+/** Verified session content: email + workspace. */
+export function sessionPayload(value?: string): { e: string; w?: string } | null {
 	if (!value) return null;
 	const [payload, sig] = value.split('.');
 	if (!payload || !sig) return null;
 	const expected = sign(payload);
 	if (expected.length !== sig.length || !timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
 	try {
-		const { e, x } = JSON.parse(Buffer.from(payload, 'base64url').toString());
+		const { e, x, w } = JSON.parse(Buffer.from(payload, 'base64url').toString());
 		if (Date.now() > x) return null;
-		const u = findUser(e);
-		return u ? { email: u.email, name: u.name, role: u.role, clientId: u.clientId } : null;
+		return { e, w };
 	} catch {
 		return null;
 	}
+}
+
+export function userFromCookie(value?: string): User | null {
+	const p = sessionPayload(value);
+	if (!p) return null;
+	const u = findUser(p.e);
+	return u ? { email: u.email, name: u.name, role: u.role, clientId: u.clientId } : null;
 }
 
 // --- brute-force protection: 10 attempts / 15 min per IP+email ---
@@ -92,12 +101,15 @@ export function setOwnerPassword(pw: string) {
 
 // --- invitations ---
 export function createInvite(m: Omit<Member, 'status' | 'invitedAt' | 'inviteToken'>) {
-	const token = randomBytes(18).toString('base64url');
+	// multi-agency mode: the token carries its workspace, so the invite page knows where to look
+	const token = (dbOn() && currentWs() ? `${currentWs()}.` : '') + randomBytes(18).toString('base64url');
 	const all = listMembers().filter((x) => x.email !== m.email);
 	all.push({ ...m, status: 'invited', invitedAt: new Date().toISOString(), inviteToken: token });
 	saveMembers(all);
 	return token;
 }
+export const inviteWorkspace = (token: string) => (token.includes('.') ? token.split('.')[0] : null);
+
 export function inviteByToken(token: string) {
 	return listMembers().find((m) => m.inviteToken && m.inviteToken === token && m.status === 'invited') ?? null;
 }

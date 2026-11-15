@@ -59,7 +59,7 @@
 		{ q: 'Can my clients log in?', a: 'Yes, on the Agency plan. They only see their own dashboard and report.' },
 		{ q: 'Apps too?', a: 'Yes. Link Firebase and the App Store ID: users, retention, crashes and reviews next to the website.' }
 	];
-	const cta = $derived(data.hasWorkspace ? { href: '/app', label: 'Open the app' } : { href: '/signup', label: 'Start free' });
+	const cta = { href: '/beta', label: 'Join the free beta' };
 </script>
 
 <svelte:window bind:scrollY={y} />
@@ -105,7 +105,7 @@
 			</nav>
 			<div class="flex items-center gap-2">
 				<a href="/app" class="hidden px-3 text-sm sm:block {y > 40 ? '' : 'text-white/80 hover:text-white'}">Log in</a>
-				<a href={cta.href} class="btn btn-accent group">{data.hasWorkspace ? 'Open app' : 'Start free'}<span class="transition-transform group-hover:translate-x-0.5">→</span></a>
+				<a href={cta.href} class="btn btn-accent group">Join the beta<span class="transition-transform group-hover:translate-x-0.5">→</span></a>
 				<button class="icon-btn md:hidden {y > 40 ? '' : 'border-white/20! bg-white/10! text-white'}" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
 			</div>
 		</div>
@@ -144,7 +144,7 @@
 				</p>
 				<p class="mx-auto mt-5 max-w-xl text-base text-white/60 sm:text-lg" use:reveal={{ delay: 850 }}>You run 20 client websites and apps. Undercut tells you, per client, where leads come from, what’s blocking them and what to fix — in plain words. Then fixes it in one click.</p>
 				<div class="mt-9 flex flex-wrap justify-center gap-3" use:reveal={{ delay: 950 }}>
-					<a href={cta.href} class="btn btn-accent group px-6 py-3 text-base">{cta.label} — 14 days<span class="transition-transform group-hover:translate-x-1">→</span></a>
+					<a href={cta.href} class="btn btn-accent group px-6 py-3 text-base">{cta.label}<span class="transition-transform group-hover:translate-x-1">→</span></a>
 					<a href="/app" class="btn border border-white/20 px-6 py-3 text-base text-white hover:bg-white/10">See the live demo</a>
 				</div>
 			</div>
@@ -449,7 +449,7 @@
 	<section id="pricing" class="mx-auto max-w-[1240px] scroll-mt-24 px-4 py-24 sm:px-6 sm:py-40">
 		<div class="text-center">
 			<SplitText text={'Per client.\n*Not per pageview.*'} class="display text-[48px] leading-none sm:text-[88px]" />
-			<p class="mt-5 text-ink-2" use:reveal={{ delay: 200 }}>Traffic is good news. It shouldn’t be a bill. 14 days free, no card.</p>
+			<p class="mt-5 text-ink-2" use:reveal={{ delay: 200 }}>Traffic is good news. It shouldn’t be a bill. Free for the first 30 agencies during the beta.</p>
 		</div>
 		<div class="mt-16 grid gap-3 md:grid-cols-3" use:reveal>
 			{#each ['freelance', 'agency', 'studio'] as const as id (id)}
@@ -459,7 +459,7 @@
 					<div class="relative flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-accent-ink">Most popular</span>{/if}</div>
 					<p class="relative"><span class="big text-[64px]">€{p.price}</span><span class="text-sm opacity-60"> / month</span></p>
 					<p class="relative text-sm opacity-70">Up to {p.clients} clients · all features{id === 'freelance' ? '' : id === 'agency' ? ' · team & client logins · white-label' : ' · own report domain · priority support'}</p>
-					<a href="/signup?plan={id}" class="btn relative mt-auto {id === 'agency' ? 'btn-accent' : 'btn-primary'}">Start free</a>
+					<a href="/beta" class="btn relative mt-auto {id === 'agency' ? 'btn-accent' : 'btn-primary'}">Free during the beta</a>
 				</div>
 			{/each}
 		</div>
@@ -493,7 +493,7 @@
 				<SplitText as="span" class="display mt-2 block text-[46px] leading-[0.95] sm:text-[100px]" text="*Start fixing.*" emClass="text-accent" delay={300} />
 			</h2>
 			<div class="mt-12 flex flex-wrap justify-center gap-3" use:reveal={{ delay: 300 }}>
-				<a href={cta.href} class="btn btn-accent group px-7 py-3.5 text-base">{cta.label} — 14 days<span class="transition-transform group-hover:translate-x-1">→</span></a>
+				<a href={cta.href} class="btn btn-accent group px-7 py-3.5 text-base">{cta.label}<span class="transition-transform group-hover:translate-x-1">→</span></a>
 				<a href="/app" class="btn border border-white/20 px-7 py-3.5 text-base text-white hover:bg-white/10">See the demo</a>
 			</div>
 			<p class="mt-5 text-xs text-white/50" use:reveal={{ delay: 400 }}>No card · Cookieless · Data in the EU</p>

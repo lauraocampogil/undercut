@@ -1,18 +1,12 @@
 // Monthly usage counters for Billing & usage (MVP: JSON file; production: Supabase table).
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readData, writeData } from './store.ts';
 
 export type UsageKind = 'ai' | 'audits' | 'fixes' | 'events' | 'reports';
-const FILE = join(process.cwd(), '.data', 'usage.json');
+const FILE = 'usage.json';
 const month = () => new Date().toISOString().slice(0, 7);
 
 function read(): Record<string, Partial<Record<UsageKind, number>>> {
-	if (!existsSync(FILE)) return {};
-	try {
-		return JSON.parse(readFileSync(FILE, 'utf8'));
-	} catch {
-		return {};
-	}
+	return readData(FILE, {});
 }
 
 export function track(kind: UsageKind, n = 1) {
@@ -20,8 +14,7 @@ export function track(kind: UsageKind, n = 1) {
 	const all = read();
 	const m = (all[month()] ??= {});
 	m[kind] = (m[kind] ?? 0) + n;
-	mkdirSync(join(process.cwd(), '.data'), { recursive: true });
-	writeFileSync(FILE, JSON.stringify(all, null, 2));
+	writeData(FILE, all);
 }
 
 export function usageThisMonth(): Record<UsageKind, number> {

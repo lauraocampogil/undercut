@@ -1,6 +1,7 @@
 // Google OAuth + REST calls (no SDK, just fetch) for GA4, Search Console,
 // Business Profile and Tag Manager. One "Connect with Google" asks for all scopes.
 import * as env from '$app/env/private';
+import { currentWs } from './context.ts';
 import { getTokens, saveTokens, type GoogleTokens } from './store';
 import type { Client, Metrics } from '#lib/types.ts';
 import { dateRange, demoMetrics } from './demo';
@@ -100,7 +101,7 @@ export async function exchangeCode(code: string, origin: string) {
 	};
 	saveTokens(tokens);
 	clearGoogleCache();
-	Object.assign(health, { ok: true, revoked: false, lastError: undefined, lastOk: Date.now() });
+	Object.assign(hs(), { ok: true, revoked: false, lastError: undefined, lastOk: Date.now() });
 	return tokens;
 }
 
@@ -112,17 +113,25 @@ export async function exchangeCode(code: string, origin: string) {
 // - GET-like reads are cached 10 min, so dashboards open instantly and quota is spared
 
 export type GoogleHealth = { ok: boolean; lastOk?: number; lastError?: string; lastErrorAt?: number; revoked?: boolean };
-const health: GoogleHealth = { ok: true };
-export const googleHealth = () => ({ ...health });
+// per agency workspace: each has its own Google login
+const healthByWs = new Map<string, GoogleHealth>();
+const hs = () => {
+	const k = currentWs() ?? '_';
+	let h = healthByWs.get(k);
+	if (!h) healthByWs.set(k, (h = { ok: true }));
+	return h;
+};
+export const googleHealth = () => ({ ...hs() });
 
-let refreshing: Promise<string | null> | null = null;
+const refreshingByWs = new Map<string, Promise<string | null>>();
 
 async function refreshToken(force = false): Promise<string | null> {
 	const t = getTokens();
 	if (!t) return null;
 	if (!force && t.expires_at - 120_000 > Date.now()) return t.access_token;
 	if (!t.refresh_token) return null;
-	refreshing ??= (async () => {
+	const wsKey = currentWs() ?? '_';
+	if (!refreshingByWs.has(wsKey)) refreshingByWs.set(wsKey, (async () => {
 		try {
 			const res = await fetch('https://oauth2.googleapis.com/token', {
 				method: 'POST',
@@ -140,7 +149,7 @@ async function refreshToken(force = false): Promise<string | null> {
 				if (j.error === 'invalid_grant') {
 					// the user revoked access or the refresh token expired (7 days in "testing" mode)
 					saveTokens(null);
-					Object.assign(health, { ok: false, revoked: true, lastError: 'Google access was revoked or expired — please reconnect.', lastErrorAt: Date.now() });
+					Object.assign(hs(), { ok: false, revoked: true, lastError: 'Google access was revoked or expired — please reconnect.', lastErrorAt: Date.now() });
 				}
 				return null;
 			}
@@ -150,10 +159,10 @@ async function refreshToken(force = false): Promise<string | null> {
 		} catch {
 			return null;
 		} finally {
-			setTimeout(() => (refreshing = null), 0);
+			setTimeout(() => refreshingByWs.delete(wsKey), 0);
 		}
-	})();
-	return refreshing;
+	})());
+	return refreshingByWs.get(wsKey)!;
 }
 
 async function accessToken() {
@@ -178,14 +187,14 @@ async function slot<T>(fn: () => Promise<T>): Promise<T> {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function g<T = any>(url: string, init: RequestInit = {}, opts: { cache?: boolean } = {}): Promise<T> {
-	const key = url + '|' + (typeof init.body === 'string' ? init.body : '');
+	const key = (currentWs() ?? '_') + '|' + url + '|' + (typeof init.body === 'string' ? init.body : '');
 	const useCache = opts.cache !== false;
 	const hit = cache.get(key);
 	if (useCache && hit && Date.now() - hit.at < CACHE_MS) return hit.value as T;
 
 	return slot(async () => {
 		let token = await accessToken();
-		if (!token) throw new Error(health.revoked ? health.lastError! : 'Google not connected');
+		if (!token) throw new Error(hs().revoked ? hs().lastError! : 'Google not connected');
 		let lastErr = '';
 		for (let attempt = 0; attempt < 3; attempt++) {
 			try {
@@ -196,7 +205,7 @@ async function g<T = any>(url: string, init: RequestInit = {}, opts: { cache?: b
 				});
 				if (res.status === 401 && attempt === 0) {
 					token = await refreshToken(true);
-					if (!token) throw new Error(health.lastError ?? 'Google login expired — please reconnect.');
+					if (!token) throw new Error(hs().lastError ?? 'Google login expired — please reconnect.');
 					continue;
 				}
 				if (res.status === 429 || res.status >= 500) {
@@ -210,12 +219,12 @@ async function g<T = any>(url: string, init: RequestInit = {}, opts: { cache?: b
 				}
 				const value = (await res.json()) as T;
 				if (useCache) cache.set(key, { at: Date.now(), value });
-				Object.assign(health, { ok: true, lastOk: Date.now(), revoked: false });
+				Object.assign(hs(), { ok: true, lastOk: Date.now(), revoked: false });
 				return value;
 			} catch (e) {
 				const err = e as Error;
 				if (err.name !== 'TimeoutError' && err.name !== 'TypeError') {
-					Object.assign(health, { ok: false, lastError: err.message, lastErrorAt: Date.now() });
+					Object.assign(hs(), { ok: false, lastError: err.message, lastErrorAt: Date.now() });
 					throw err;
 				}
 				lastErr = err.name === 'TimeoutError' ? 'timeout' : 'network error';
@@ -223,7 +232,7 @@ async function g<T = any>(url: string, init: RequestInit = {}, opts: { cache?: b
 			}
 		}
 		const msg = `${new URL(url).hostname.split('.')[0]}: ${lastErr} after 3 tries`;
-		Object.assign(health, { ok: false, lastError: msg, lastErrorAt: Date.now() });
+		Object.assign(hs(), { ok: false, lastError: msg, lastErrorAt: Date.now() });
 		// serve stale data rather than nothing
 		if (hit) return hit.value as T;
 		throw new Error(msg);

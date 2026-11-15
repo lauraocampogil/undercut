@@ -6,7 +6,7 @@ import { emailReady, sendEmail } from '#lib/server/email.ts';
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 export const load = ({ url }) => ({
-	owner: getAccount(),
+	owner: (({ passwordHash: _p, ...o }) => o)(getAccount()),
 	members: listMembers().map(({ passwordHash: _p, inviteToken, ...m }) => ({ ...m, link: inviteToken ? `${url.origin}/invite/${inviteToken}` : null })),
 	clientsList: listClients().map((c) => ({ id: c.id, name: c.name })),
 	preselect: url.searchParams.get('client'),

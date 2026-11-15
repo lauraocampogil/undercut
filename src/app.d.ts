@@ -6,6 +6,7 @@ declare global {
 		interface Locals {
 			user: import('#lib/server/auth.ts').User | null;
 			locked: boolean;
+			ws?: string;
 		}
 		// interface PageData {}
 		// interface PageState {}

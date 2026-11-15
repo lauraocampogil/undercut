@@ -16,6 +16,9 @@ export const GET = ({ url, cookies, locals }) => {
 	cookies.set('oauth_state', state, opts);
 	cookies.set('oauth_next', back, opts);
 	cookies.set('oauth_mode', mode === 'login' ? 'login' : 'data', opts);
+	const beta = url.searchParams.get('beta');
+	if (beta) cookies.set('oauth_beta', beta, opts);
+	else cookies.delete('oauth_beta', { path: '/' });
 	const invite = url.searchParams.get('invite');
 	if (invite) cookies.set('oauth_invite', invite, opts);
 	else cookies.delete('oauth_invite', { path: '/' });
