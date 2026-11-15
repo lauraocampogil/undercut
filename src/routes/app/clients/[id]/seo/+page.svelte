@@ -14,6 +14,7 @@
 	let showCode = $state<string | null>(null);
 	let tab = $state<'lighthouse' | 'w3c' | 'pages'>('lighthouse');
 	let group = $state<string | null>(null);
+	let draft = $state<Record<string, string>>({});
 	const checked = $derived(new Date(a.checkedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }));
 	const dot = { good: 'bg-good', warn: 'bg-[#E3A21A]', bad: 'bg-bad' };
 	const kindLabel = { title: 'Google title', description: 'Description', alt: 'Image text', canonical: 'Canonical', schema: 'Business info' };
@@ -66,11 +67,29 @@
 			</div>
 		</div>
 		{#if lh}
-			<div class="my-auto grid grid-cols-2 gap-4 pt-5 sm:grid-cols-4">
-				<Gauge score={lh.scores.performance} label="Performance" />
-				<Gauge score={lh.scores.accessibility} label="Accessibility" />
-				<Gauge score={lh.scores.bestPractices} label="Best practices" />
-				<Gauge score={lh.scores.seo} label="SEO" />
+			<div class="flex flex-1 gap-5 pt-5">
+				<div class="flex flex-1 flex-col gap-4">
+					<div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+						<Gauge score={lh.scores.performance} label="Performance" />
+						<Gauge score={lh.scores.accessibility} label="Accessibility" />
+						<Gauge score={lh.scores.bestPractices} label="Best practices" />
+						<Gauge score={lh.scores.seo} label="SEO" />
+					</div>
+					{#if lh.metrics?.length}
+						<ul class="grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-line pt-3 text-xs sm:grid-cols-3">
+							{#each lh.metrics as m (m.id)}
+								<li class="flex items-center gap-1.5"><span class="size-2 shrink-0 rounded-full {dot[m.level]}"></span><span class="truncate text-muted">{m.label}</span><b class="ml-auto font-medium">{m.value}</b></li>
+							{/each}
+						</ul>
+					{/if}
+					<p class="mt-auto text-[11px] text-muted">
+						{lh.testedAt ? `Tested ${new Date(lh.testedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}{lh.runs && lh.runs.length > 1 ? ` · median of ${lh.runs.length} runs (${lh.runs.join(', ')})` : ''} · scores move a few points between runs, like on Google.
+						<a class="underline" href="https://pagespeed.web.dev/analysis?url={encodeURIComponent(lh.url ?? data.client.domain)}&form_factor={device}" target="_blank" rel="noreferrer">Open on PageSpeed Insights ↗</a>
+					</p>
+				</div>
+				{#if lh.screenshot}
+					<img src={lh.screenshot} alt="What Google saw on {device}" class="hidden w-28 shrink-0 self-start rounded-[12px] border border-line xl:block" />
+				{/if}
 			</div>
 		{:else}
 			<p class="my-auto text-sm text-muted"><Linkify text={a.errors?.lighthouse ?? 'Lighthouse could not run this time — try “Check again”.'} /></p>
@@ -98,7 +117,7 @@
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
 			<h2 class="display text-[40px] sm:text-[52px]">Fix it <em>here</em></h2>
-			<p class="text-sm text-muted">Check the text, edit if needed, publish. It goes live on the site through the Undercut snippet — no CMS, no developer.</p>
+			<p class="max-w-2xl text-sm text-muted">Undercut read the site like Google does. Below: what Google can’t read well — with a suggestion for each. Edit if you want, click <b class="text-ink">Publish</b>: it goes live on the site through the Undercut snippet. No CMS, no developer.</p>
 		</div>
 		<div class="flex flex-wrap gap-2">
 			{#if live.length}<span class="pill border-0 bg-accent text-accent-ink">{live.length} live</span>{/if}
@@ -126,28 +145,54 @@
 		{/each}
 	</div>
 
-	<ul class="mt-4 grid gap-3 lg:grid-cols-2">
+	<ul class="mt-4 grid gap-3 {activeKind === 'alt' ? 'lg:grid-cols-2' : ''}">
 		{#each shown as f (f.id)}
-			<li class="flex flex-col gap-3 p-5 {f.status === 'live' ? 'rounded-[28px] bg-[#E4F5B8]' : 'card'}">
+			{@const val = draft[f.id] ?? f.value}
+			<li class="flex flex-col gap-4 p-5 sm:p-6 {f.status === 'live' ? 'rounded-[28px] bg-[#E4F5B8]' : 'card'}">
 				<div class="flex items-center justify-between gap-2">
-					<div class="flex min-w-0 items-center gap-2">
-						<span class="rounded-full bg-ink px-2.5 py-1 text-[11px] font-medium text-white">{kindLabel[f.kind]}</span>
-						<span class="truncate text-xs text-muted">{f.path}{f.target ? ` · ${f.target.split('/').pop()}` : ''}</span>
-					</div>
-					<span class="shrink-0 text-[11px] {f.status === 'live' ? 'font-semibold text-good' : 'text-muted'}">{f.status === 'live' ? '● Live' : f.by === 'ai' ? 'AI suggestion' : 'Suggestion'}</span>
+					<p class="text-sm"><span class="text-muted">Page</span> <a href="{data.client.domain.replace(/\/$/, '')}{f.path}" target="_blank" rel="noreferrer" class="font-medium underline-offset-4 hover:underline">{f.path} ↗</a></p>
+					<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium {f.status === 'live' ? 'bg-good text-white' : 'bg-tile text-muted'}">{f.status === 'live' ? '● Live on the site' : f.by === 'ai' ? '✦ Written by AI' : 'Suggestion'}</span>
 				</div>
-				{#if f.current}<p class="text-sm text-muted line-through decoration-bad/60">{f.current}</p>{/if}
-				<form method="POST" action="?/publish" use:enhance={keep} class="flex flex-col gap-3">
+				<form method="POST" action="?/publish" use:enhance={keep} class="flex flex-col gap-4">
 					<input type="hidden" name="id" value={f.id} />
-					{#if f.kind === 'schema'}
-						<textarea name="value" rows="7" class="input font-mono text-xs" spellcheck="false">{f.value}</textarea>
-						<p class="text-xs text-muted">Fill in phone, address and opening hours, then publish.</p>
+					{#if f.kind === 'alt'}
+						<div class="grid gap-4 sm:grid-cols-[150px_1fr]">
+							<a href={f.preview ?? f.target} target="_blank" rel="noreferrer" class="grid h-36 place-items-center overflow-hidden rounded-[18px] bg-tile" title="Open the image">
+								{#if f.preview || f.target}<img src={f.preview ?? f.target} alt="" loading="lazy" class="max-h-full max-w-full object-contain" />{/if}
+							</a>
+							<div class="flex min-w-0 flex-col gap-2">
+								<p class="text-xs text-muted">{f.context ? `Near “${f.context}”` : 'This image has no description.'}</p>
+								<label class="text-xs font-medium" for="v-{f.id}">What does this image show?</label>
+								<textarea id="v-{f.id}" name="value" rows="3" class="input resize-none rounded-[16px] text-sm" readonly={f.status === 'live'} oninput={(e) => (draft[f.id] = e.currentTarget.value)}>{f.value}</textarea>
+								<p class="text-[11px] text-muted">Google and screen readers read this text instead of seeing the picture.</p>
+							</div>
+						</div>
+					{:else if f.kind === 'title' || f.kind === 'description'}
+						{@const t = f.kind === 'title' ? val : (data.titles[f.path] ?? data.client.name)}
+						{@const d = f.kind === 'description' ? val : (data.descs[f.path] ?? '')}
+						{@const max = f.kind === 'title' ? 60 : 155}
+						<div class="grid gap-3 lg:grid-cols-2">
+							<div class="rounded-[18px] bg-tile p-4">
+								<p class="mb-2 text-[11px] font-medium tracking-wide text-muted uppercase">In Google now</p>
+								<p class="truncate text-xs text-ink-2">{data.client.domain.replace(/^https?:\/\//, '').replace(/\/$/, '')} › {f.path === '/' ? '' : f.path.slice(1)}</p>
+								<p class="mt-0.5 text-lg leading-snug text-[#1a0dab] {f.kind === 'title' ? 'line-through decoration-bad/70' : ''}">{f.kind === 'title' ? f.current || '(no title — Google invents one)' : t}</p>
+								<p class="mt-1 text-sm text-ink-2 {f.kind === 'description' ? 'line-through decoration-bad/70' : ''}">{f.kind === 'description' ? f.current || '(no description — Google picks random text from the page)' : d}</p>
+							</div>
+							<div class="rounded-[18px] border-2 border-accent bg-white p-4">
+								<p class="mb-2 text-[11px] font-medium tracking-wide text-accent-ink uppercase">After publishing</p>
+								<p class="truncate text-xs text-ink-2">{data.client.domain.replace(/^https?:\/\//, '').replace(/\/$/, '')} › {f.path === '/' ? '' : f.path.slice(1)}</p>
+								<p class="mt-0.5 text-lg leading-snug text-[#1a0dab]">{t}</p>
+								<p class="mt-1 text-sm text-ink-2">{d}</p>
+							</div>
+						</div>
+						<label class="flex items-center justify-between text-xs font-medium" for="v-{f.id}"><span>{f.kind === 'title' ? 'New Google title (the blue link)' : 'New description (the text under the link)'}</span><span class={val.length > max ? 'text-bad' : 'text-muted'}>{val.length}/{max}</span></label>
+						<textarea id="v-{f.id}" name="value" rows={f.kind === 'description' ? 3 : 2} class="input -mt-2 resize-none rounded-[16px] text-sm" readonly={f.status === 'live'} oninput={(e) => (draft[f.id] = e.currentTarget.value)}>{f.value}</textarea>
+					{:else if f.kind === 'canonical'}
+						<p class="text-sm text-ink-2">Tells Google which address is the real one for this page, so <b>?utm=…</b> or <b>www.</b> versions don’t count as duplicates.</p>
+						<input name="value" class="input text-sm" value={f.value} readonly={f.status === 'live'} />
 					{:else}
-						<textarea name="value" rows={f.kind === 'description' ? 3 : 2} class="input resize-none rounded-[16px] text-sm" readonly={f.status === 'live'}>{f.value}</textarea>
-						{#if f.kind === 'title' || f.kind === 'description'}
-							{@const max = f.kind === 'title' ? 60 : 155}
-							<p class="-mt-2 text-right text-[11px] {f.value.length > max ? 'text-bad' : 'text-muted'}">{f.value.length}/{max}</p>
-						{/if}
+						<p class="text-sm text-ink-2">Business info Google can show in results: address, phone, opening hours. Fill in the empty fields, then publish.</p>
+						<textarea name="value" rows="8" class="input font-mono text-xs" spellcheck="false">{f.value}</textarea>
 					{/if}
 					<div class="flex flex-wrap items-center gap-2">
 						{#if f.status === 'live'}
@@ -155,15 +200,15 @@
 						{:else}
 							<button class="btn btn-primary py-2">Publish</button>
 							<button formaction="?/save" class="pill">Save</button>
-							<button formaction="?/dismiss" class="pill text-muted">Dismiss</button>
+							<button formaction="?/dismiss" class="pill text-muted">Not needed</button>
 						{/if}
-						<button type="button" class="ml-auto text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onclick={() => (showCode = showCode === f.id ? null : f.id)}>{showCode === f.id ? 'Hide code' : 'Code for the CMS'}</button>
+						<button type="button" class="ml-auto text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onclick={() => (showCode = showCode === f.id ? null : f.id)}>{showCode === f.id ? 'Hide code' : 'Code for the developer'}</button>
 					</div>
 					{#if showCode === f.id}<pre class="overflow-x-auto rounded-[14px] bg-ink p-3 text-xs text-accent">{f.code}</pre>{/if}
 				</form>
 			</li>
 		{:else}
-			<li class="card p-8 text-center lg:col-span-2"><p class="display text-3xl">Nothing to fix automatically ✓</p></li>
+			<li class="card p-8 text-center"><p class="display text-3xl">Nothing to fix automatically ✓</p></li>
 		{/each}
 	</ul>
 	{#if data.dismissed}

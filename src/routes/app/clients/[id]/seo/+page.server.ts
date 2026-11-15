@@ -9,11 +9,14 @@ export const load = async ({ parent }) => {
 	if (!hasWeb(client)) redirect(307, `/app/clients/${client.id}`);
 	const audit = await getSeoAudit(client);
 	let fixes = listFixes(client.id);
-	if (!fixes.length) fixes = await generateFixes(client, audit);
+	// first visit, or suggestions made before image previews existed → (re)generate
+	if (!fixes.length || fixes.some((f) => f.kind === 'alt' && f.status === 'suggested' && !f.preview)) fixes = await generateFixes(client, audit);
 	return {
 		audit,
 		fixes: fixes.filter((f) => f.status !== 'dismissed').map((f) => ({ ...f, code: codeFor(f) })),
 		dismissed: fixes.filter((f) => f.status === 'dismissed').length,
+		titles: Object.fromEntries(audit.pages.map((p) => [p.path, p.title])) as Record<string, string>,
+		descs: Object.fromEntries(audit.pages.map((p) => [p.path, p.desc])) as Record<string, string>,
 		fixed: [...fixedIssues(client.id)],
 		snippetInstalled: client.demo || getHeatmap(client).installed
 	};

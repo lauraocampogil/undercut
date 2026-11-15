@@ -15,12 +15,15 @@ export type Fix = {
 	kind: FixKind;
 	path: string;
 	target?: string; // image src for alt texts
+	preview?: string; // absolute image URL, shown next to the suggestion
+	context?: string; // nearby text on the page (caption, heading, link label)
 	current?: string;
 	value: string;
 	status: 'suggested' | 'live' | 'dismissed';
 	by: 'ai' | 'rules';
 	issue: string; // audit issue id it solves
 	updatedAt: string;
+	createdAt?: string; // equal to updatedAt while nobody touched the suggestion
 };
 
 const DIR = join(process.cwd(), '.data', 'fixes');
@@ -90,9 +93,40 @@ function rulesDescription(client: Client, p: PageAudit) {
 	return clip(`${what} in Brussels. Clear information, prices and quick contact — get in touch today.`, 155);
 }
 
-function altFrom(src: string, p: PageAudit, client: Client) {
+// File names like "45a786d9-307c-…" or "IMG_2034" say nothing — then use the text around the image.
+const meaningless = (w: string) => !w || /^[0-9a-f\s]{8,}$/i.test(w) || /\b[0-9a-f]{8}\b/i.test(w) || /^(img|dsc|image|photo|screenshot|pxl)?\s*\d+$/i.test(w) || w.length < 4;
+function altFrom(src: string, p: PageAudit, client: Client, context = '') {
 	const words = human(src.split('?')[0]);
-	return clip(cap(words.length >= 4 ? `${words} — ${client.name}` : `${topic(p)} — ${client.name}`), 110);
+	const base = !meaningless(words) ? words : context || topic(p);
+	return clip(cap(`${base} — ${client.name}`), 110);
+}
+
+/** Describe images with Claude (vision) when ANTHROPIC_API_KEY is set. Returns { imageUrl: alt }. */
+async function aiAlts(client: Client, imgs: { abs: string; context: string; page: string }[]): Promise<Record<string, string>> {
+	if (!env.ANTHROPIC_API_KEY || !imgs.length) return {};
+	const list = imgs.filter((i) => /^https:\/\//.test(i.abs)).slice(0, 12);
+	if (!list.length) return {};
+	try {
+		const content: object[] = [];
+		list.forEach((i, n) => {
+			content.push({ type: 'text', text: `Image ${n + 1} (page ${i.page}${i.context ? `, near the text "${i.context}"` : ''}):` });
+			content.push({ type: 'image', source: { type: 'url', url: i.abs } });
+		});
+		content.push({ type: 'text', text: `Write an alt text for each image of the website of ${client.name} (${client.domain}): what the image shows, max 110 characters, in the language of the site (French if unsure), no "image of". Reply with JSON only: {"1": "...", "2": "..."}` });
+		const res = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+			body: JSON.stringify({ model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5', max_tokens: 1200, messages: [{ role: 'user', content }] }),
+			signal: AbortSignal.timeout(45_000)
+		});
+		if (!res.ok) return {};
+		const j = await res.json();
+		const text: string = j.content?.[0]?.text ?? '';
+		const out = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as Record<string, string>;
+		return Object.fromEntries(list.map((i, n) => [i.abs, out[String(n + 1)]]).filter(([, v]) => v));
+	} catch {
+		return {};
+	}
 }
 
 function schemaFor(client: Client) {
@@ -143,14 +177,16 @@ export async function generateFixes(client: Client, audit: SeoAudit): Promise<Fi
 	const existing = new Map(listFixes(client.id).map((f) => [f.id, f]));
 	const ok = audit.pages.filter((p) => p.status >= 200 && p.status < 400);
 	const needCopy = ok.filter((p) => !p.title || p.title.length > 62 || p.title.length < 25 || !p.desc);
-	const ai = await aiCopy(client, needCopy);
+	const imgs = ok.flatMap((p) => (p.noAltImgs ?? []).map((i) => ({ ...i, page: p.path })));
+	const [ai, alts] = await Promise.all([aiCopy(client, needCopy), aiAlts(client, imgs)]);
 	const now = new Date().toISOString();
 	const out: Fix[] = [];
 	const add = (f: Omit<Fix, 'status' | 'updatedAt'>) => {
 		if (out.some((o) => o.id === f.id)) return; // same image twice on a page, etc.
 		const prev = existing.get(f.id);
-		// keep what the agency already edited / published
-		out.push(prev ? { ...f, value: prev.value, status: prev.status, updatedAt: prev.updatedAt } : { ...f, status: 'suggested', updatedAt: now });
+		// keep what the agency edited, published or dismissed; refresh untouched suggestions (better text, image preview)
+		const keepPrev = prev && (prev.status !== 'suggested' || (prev.createdAt && prev.updatedAt !== prev.createdAt));
+		out.push(keepPrev ? { ...f, value: prev!.value, status: prev!.status, updatedAt: prev!.updatedAt, createdAt: prev!.createdAt } : { ...f, status: 'suggested', updatedAt: now, createdAt: now });
 	};
 
 	for (const p of ok) {
@@ -161,8 +197,9 @@ export async function generateFixes(client: Client, audit: SeoAudit): Promise<Fi
 			add({ id: `description:${p.path}`, kind: 'description', path: p.path, current: '', value: a.description ? clip(a.description, 158) : rulesDescription(client, p), by: a.description ? 'ai' : 'rules', issue: 'desc' });
 		if (!p.canonical)
 			add({ id: `canonical:${p.path}`, kind: 'canonical', path: p.path, value: client.domain.replace(/\/$/, '') + p.path, by: 'rules', issue: 'canonical' });
-		for (const src of p.noAltSrcs ?? [])
-			add({ id: `alt:${p.path}:${src}`, kind: 'alt', path: p.path, target: src, value: altFrom(src, p, client), by: 'rules', issue: 'alt' });
+		const imgList = p.noAltImgs ?? (p.noAltSrcs ?? []).map((src) => ({ src, abs: src, context: '' }));
+		for (const im of imgList)
+			add({ id: `alt:${p.path}:${im.src}`, kind: 'alt', path: p.path, target: im.src, preview: im.abs, context: im.context, value: alts[im.abs] ? clip(alts[im.abs], 110) : altFrom(im.src, p, client, im.context), by: alts[im.abs] ? 'ai' : 'rules', issue: 'alt' });
 	}
 	if (ok[0] && !ok[0].schema) add({ id: 'schema:/', kind: 'schema', path: '/', value: schemaFor(client), by: 'rules', issue: 'schema' });
 

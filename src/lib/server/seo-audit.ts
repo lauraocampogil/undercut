@@ -28,6 +28,7 @@ export type PageAudit = {
 	words: number;
 	h1Text?: string;
 	noAltSrcs?: string[];
+	noAltImgs?: { src: string; abs: string; context: string }[]; // image without description: its address + nearby text
 };
 
 export type SeoIssue = {
@@ -43,6 +44,11 @@ export type Lighthouse = {
 	source: 'psi' | 'demo';
 	scores: { performance: number; accessibility: number; bestPractices: number; seo: number };
 	audits: { id: string; category: 'Performance' | 'Accessibility' | 'Best practices' | 'SEO'; title: string; value?: string; level: Level }[];
+	metrics?: { id: string; label: string; value: string; level: Level }[]; // FCP, LCP, TBT, CLS, Speed Index — same as PageSpeed Insights
+	screenshot?: string; // what Google saw (data URI)
+	testedAt?: string;
+	runs?: number[]; // performance score of each run (median is shown)
+	url?: string;
 };
 export type W3C = {
 	source: 'live' | 'demo';
@@ -84,6 +90,20 @@ async function timed(url: string, timeoutMs = 9000) {
 	}
 }
 
+// Nearby text that tells what an image shows: caption, link label, heading of its section.
+function contextFor(img: import('node-html-parser').HTMLElement) {
+	const clean = (t?: string | null) => (t ?? '').replace(/\s+/g, ' ').trim();
+	let el: import('node-html-parser').HTMLElement | null = img;
+	for (let i = 0; i < 5 && el; i++) {
+		const label = clean(el.getAttribute?.('aria-label') ?? el.getAttribute?.('title'));
+		if (label) return label.slice(0, 80);
+		const cap = clean(el.querySelector?.('figcaption, h1, h2, h3, h4')?.textContent);
+		if (cap) return cap.slice(0, 80);
+		el = el.parentNode as import('node-html-parser').HTMLElement | null;
+	}
+	return '';
+}
+
 function auditPage(url: string, status: number, ms: number, html: string): PageAudit {
 	const root = parse(html || '<html></html>');
 	const meta = (name: string) => root.querySelector(`meta[name="${name}"]`)?.getAttribute('content') ?? '';
@@ -107,7 +127,25 @@ function auditPage(url: string, status: number, ms: number, html: string): PageA
 		imagesNoAlt: imgs.filter((i) => !i.getAttribute('alt')?.trim()).length,
 		words: text ? text.split(' ').length : 0,
 		h1Text: root.querySelector('h1')?.textContent.replace(/\s+/g, ' ').trim().slice(0, 90),
-		noAltSrcs: [...new Set(imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => i.getAttribute('src') ?? '').filter(Boolean))].slice(0, 12)
+		noAltSrcs: [...new Set(imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => i.getAttribute('src') ?? '').filter(Boolean))].slice(0, 12),
+		noAltImgs: (() => {
+			const seen = new Set<string>();
+			const out: { src: string; abs: string; context: string }[] = [];
+			for (const i of imgs) {
+				const src = i.getAttribute('src') ?? '';
+				if (!src || i.getAttribute('alt')?.trim() || seen.has(src)) continue;
+				seen.add(src);
+				let abs = src;
+				try {
+					abs = new URL(src, url).toString();
+				} catch {
+					/* keep as is */
+				}
+				out.push({ src, abs, context: contextFor(i) });
+				if (out.length >= 12) break;
+			}
+			return out;
+		})()
 	};
 }
 
@@ -159,6 +197,12 @@ async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'
 			}
 		}
 		const seen = new Set<string>();
+		const metric = (id: string, label: string) => {
+			const m = a[id];
+			return m ? { id, label, value: String(m.displayValue ?? ''), level: (m.score >= 0.9 ? 'good' : m.score >= 0.5 ? 'warn' : 'bad') as Level } : null;
+		};
+		const metrics = [metric('first-contentful-paint', 'First Contentful Paint'), metric('largest-contentful-paint', 'Largest Contentful Paint'), metric('total-blocking-time', 'Total Blocking Time'), metric('cumulative-layout-shift', 'Cumulative Layout Shift'), metric('speed-index', 'Speed Index')].filter((x): x is NonNullable<typeof x> => Boolean(x));
+		const shot = a['final-screenshot']?.details?.data;
 		return {
 			speed: {
 				source: 'psi',
@@ -170,7 +214,11 @@ async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'
 			lighthouse: {
 				source: 'psi',
 				scores: { performance: score('performance'), accessibility: score('accessibility'), bestPractices: score('best-practices'), seo: score('seo') },
-				audits: audits.filter((x) => !seen.has(x.id) && seen.add(x.id)).slice(0, 14)
+				audits: audits.filter((x) => !seen.has(x.id) && seen.add(x.id)).slice(0, 14),
+				metrics,
+				screenshot: typeof shot === 'string' && shot.length < 400_000 ? shot : undefined,
+				testedAt: lr.fetchTime ?? new Date().toISOString(),
+				url: lr.finalDisplayedUrl ?? lr.finalUrl ?? url
 			},
 			console: {
 				source: 'psi',
@@ -180,6 +228,16 @@ async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'
 	} catch (e) {
 		return { speed: null, lighthouse: null, console: null, error: (e as Error).name === 'TimeoutError' ? 'Lighthouse took more than 60 s — the page is very slow or blocked the test. Try “Check again”.' : 'Lighthouse could not reach Google PageSpeed.' };
 	}
+}
+
+/** Lighthouse varies from run to run (like on pagespeed.web.dev). Run it 3× in parallel and keep the median. */
+async function lighthouseMedian(url: string, strategy: 'mobile' | 'desktop') {
+	const runs = await Promise.all([lighthouse(url, strategy), lighthouse(url, strategy), lighthouse(url, strategy)]);
+	const ok = runs.filter((r) => r.lighthouse).sort((x, y) => x.lighthouse!.scores.performance - y.lighthouse!.scores.performance);
+	if (!ok.length) return runs[0];
+	const med = ok[Math.floor((ok.length - 1) / 2)];
+	med.lighthouse!.runs = ok.map((r) => r.lighthouse!.scores.performance);
+	return med;
 }
 
 // W3C Nu HTML Checker — the official validator, on the homepage HTML.
@@ -363,8 +421,8 @@ export async function getSeoAudit(client: Client, force = false): Promise<SeoAud
 	const [sm, robots, lhRes, lhDesk, home] = await Promise.all([
 		sitemapFor(client).catch(() => null),
 		timed(`${origin}/robots.txt`, 6000),
-		lighthouse(origin, 'mobile'),
-		lighthouse(origin, 'desktop'),
+		lighthouseMedian(origin + '/', 'mobile'),
+		lighthouseMedian(origin + '/', 'desktop'),
 		timed(origin + '/')
 	]);
 	const speed = lhRes.speed;
