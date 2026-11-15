@@ -83,7 +83,7 @@ export const actions = {
 		try {
 			const res = await fetch(client.domain, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'UndercutBot/1.0 (+install check)' } });
 			const html = await res.text();
-			const found = html.includes('/u.js') && html.includes(`data-site="${client.id}"`);
+			const found = /\/u\.js/.test(html) && new RegExp(`data-site=["']?${client.id}["'\\s>]`).test(html);
 			return { check: found ? ('ok' as const) : ('missing' as const) };
 		} catch {
 			return { check: 'unreachable' as const };

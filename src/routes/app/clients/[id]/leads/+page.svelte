@@ -48,8 +48,8 @@
 				<p class="mt-1 text-sm text-white/60">{rate(l.totals.leads, l.totals.visits)} of visits become a lead</p>
 			</div>
 			<div class="flex items-center justify-between gap-2">
-				<p class="text-xs text-white/40">vs {n(l.totals.prev)} the period before</p>
-				<WhyButton clientId={data.client.id} metric="leads" days={data.days} dark />
+				<p class="text-xs text-white/40">{l.totals.prev ? `vs ${n(l.totals.prev)} the period before` : 'Counted automatically — nothing to set up'}</p>
+				{#if l.totals.prev && l.totals.leads !== l.totals.prev}<WhyButton clientId={data.client.id} metric="leads" days={data.days} dark />{/if}
 			</div>
 		</div>
 		<div class="grid grid-cols-2 gap-3 lg:grid-cols-4">

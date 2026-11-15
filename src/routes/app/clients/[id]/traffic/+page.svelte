@@ -30,7 +30,7 @@
 			</div>
 			<div>
 				<p class="big text-[40px] sm:text-[52px]">{k.v}</p>
-				<div class="mt-2 flex items-center gap-2"><Delta value={k.d} />{#if k.label === 'Visits'}<WhyButton clientId={data.client.id} metric="visits" days={data.days} />{/if}</div>
+				<div class="mt-2 flex min-h-6 items-center gap-2">{#if m.visits.prev}<Delta value={k.d} />{:else}<span class="text-xs text-muted">no earlier period yet</span>{/if}{#if k.label === 'Visits' && m.visits.prev}<WhyButton clientId={data.client.id} metric="visits" days={data.days} />{/if}</div>
 			</div>
 		</div>
 	{/each}
@@ -50,7 +50,11 @@
 	<div class="card p-6">
 		<h2 class="text-lg font-medium">Busiest days</h2>
 		<p class="text-sm text-muted">Plan posts and ads on the black days.</p>
-		<div class="mt-6"><Heatmap data={m.visits.daily} /></div>
+		{#if m.visits.daily.filter((d) => d.value > 0).length >= 7}
+			<div class="mt-6"><Heatmap data={m.visits.daily} /></div>
+		{:else}
+			<p class="mt-6 rounded-[18px] bg-tile p-4 text-sm text-ink-2">Shows up after a week of visits — then you’ll see which days people visit most.</p>
+		{/if}
 	</div>
 </section>
 

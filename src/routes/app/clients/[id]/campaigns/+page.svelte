@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { act } from '#lib/act.ts';
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import SourceBadge from '#lib/components/SourceBadge.svelte';
@@ -65,7 +66,7 @@
 </section>
 
 <!-- New / edit campaign: full width -->
-<form id="campaign-form" method="POST" action="?/save" class="card-dark mt-4 scroll-mt-6 p-6 sm:p-8" use:enhance={() => async ({ result, update }) => { await update({ reset: result.type === 'success' }); if (result.type === 'success') editing = null; }}>
+<form id="campaign-form" method="POST" action={act('save')} class="card-dark mt-4 scroll-mt-6 p-6 sm:p-8" use:enhance={() => async ({ result, update }) => { await update({ reset: result.type === 'success' }); if (result.type === 'success') editing = null; }}>
 	{#key editing?.id ?? 'new'}
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<h2 class="display text-[36px] leading-none">{editing ? 'Edit campaign' : 'New campaign'}</h2>
@@ -147,7 +148,7 @@
 					<button class="pill" onclick={() => (openId = openId === c.id ? null : c.id)} aria-expanded={openId === c.id}>{openId === c.id ? 'Hide details' : 'Details'}</button>
 					<button class="pill" onclick={() => edit(c)}>Edit</button>
 					<a class="pill" href="/r/{data.client.id}?campaign={c.id}" target="_blank" rel="noreferrer">Report ↗</a>
-					<form method="POST" action="?/remove" use:enhance={({ cancel }) => { if (!confirm(`Delete “${c.name}”? Its tracked link keeps working but stats are no longer shown.`)) cancel(); }} class="ml-auto">
+					<form method="POST" action={act('remove')} use:enhance={({ cancel }) => { if (!confirm(`Delete “${c.name}”? Its tracked link keeps working but stats are no longer shown.`)) cancel(); }} class="ml-auto">
 						<input type="hidden" name="id" value={c.id} /><button class="icon-btn size-8 text-xs" aria-label="Delete {c.name}">🗑</button>
 					</form>
 				</div>
@@ -197,7 +198,7 @@
 					{#each data.detected as d (d.slug)}
 						<li class="flex items-center gap-3 rounded-xl bg-tile px-3 py-2 text-sm">
 							<span class="min-w-0 flex-1 truncate font-medium">{d.slug}</span><span class="text-xs text-muted">{d.source || '—'} / {d.medium || '—'} · {d.visits} visits · {d.leads} leads</span>
-							<form method="POST" action="?/adopt" use:enhance><input type="hidden" name="slug" value={d.slug} /><input type="hidden" name="source" value={d.source} /><input type="hidden" name="medium" value={d.medium} /><button class="pill py-1 text-xs">Track</button></form>
+							<form method="POST" action={act('adopt')} use:enhance><input type="hidden" name="slug" value={d.slug} /><input type="hidden" name="source" value={d.source} /><input type="hidden" name="medium" value={d.medium} /><button class="pill py-1 text-xs">Track</button></form>
 						</li>
 					{/each}
 				</ul>

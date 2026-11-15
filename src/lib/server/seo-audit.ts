@@ -232,6 +232,8 @@ async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'
 
 /** Lighthouse varies from run to run (like on pagespeed.web.dev). Run it 3× in parallel and keep the median. */
 async function lighthouseMedian(url: string, strategy: 'mobile' | 'desktop') {
+	// Without an API key Google's shared quota is tiny: one run only, otherwise most calls come back 429.
+	if (!env.PAGESPEED_API_KEY) return lighthouse(url, strategy);
 	const runs = await Promise.all([lighthouse(url, strategy), lighthouse(url, strategy), lighthouse(url, strategy)]);
 	const ok = runs.filter((r) => r.lighthouse).sort((x, y) => x.lighthouse!.scores.performance - y.lighthouse!.scores.performance);
 	if (!ok.length) return runs[0];
@@ -418,13 +420,13 @@ export async function getSeoAudit(client: Client, force = false): Promise<SeoAud
 	if (!force && hit && Date.now() - Date.parse(hit.checkedAt) < ttl) return hit;
 
 	const origin = normaliseSite(client.domain);
-	const [sm, robots, lhRes, lhDesk, home] = await Promise.all([
-		sitemapFor(client).catch(() => null),
-		timed(`${origin}/robots.txt`, 6000),
-		lighthouseMedian(origin + '/', 'mobile'),
-		lighthouseMedian(origin + '/', 'desktop'),
-		timed(origin + '/')
-	]);
+	// mobile then desktop (not in parallel) so the free PageSpeed quota is not hit twice at once
+	const lhBoth = (async () => {
+		const m = await lighthouseMedian(origin + '/', 'mobile');
+		const d = await lighthouseMedian(origin + '/', 'desktop');
+		return [m, d] as const;
+	})();
+	const [sm, robots, [lhRes, lhDesk], home] = await Promise.all([sitemapFor(client).catch(() => null), timed(`${origin}/robots.txt`, 6000), lhBoth, timed(origin + '/')]);
 	const speed = lhRes.speed;
 	const v = await w3c(home.body);
 	const urls = [origin + '/'];

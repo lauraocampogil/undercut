@@ -37,6 +37,14 @@ export function buildInsights(m: Metrics, sitemap?: SitemapReport | null, extra:
 			meaning: 'No visits came in from the Undercut snippet and no Google Analytics property is linked.',
 			action: 'Paste the snippet from Setup on the site (or link GA4). Numbers appear with the first visit.'
 		});
+	else if (m.visits.prev === 0 && m.sources.ga4 === 'tracking')
+		out.push({
+			level: 'good',
+			area: 'Traffic',
+			title: `Measuring started: ${m.visits.total.toLocaleString('en')} visit${m.visits.total === 1 ? '' : 's'} so far`,
+			meaning: 'The snippet works. Trends and comparisons appear once there is a full period to compare with.',
+			action: 'Nothing to do — just let the visits come in.'
+		});
 	else if (v >= 10)
 		out.push({
 			level: 'good',
@@ -129,7 +137,7 @@ export function buildInsights(m: Metrics, sitemap?: SitemapReport | null, extra:
 	const conv = change(m.conversions.total, m.conversions.prev);
 	if (!measuring) {
 		/* nothing to say about contacts before anything is measured */
-	} else if (m.conversions.total === 0)
+	} else if (m.conversions.total === 0 && m.visits.total >= 100)
 		out.push({
 			level: 'bad',
 			area: 'Conversions',
@@ -198,9 +206,11 @@ export function ruleSummary(client: Client, m: Metrics, insights: Insight[]) {
 	const top = insights.find((i) => i.level !== 'good');
 	const best = insights.find((i) => i.level === 'good');
 	const none = !m.visits.total && !m.visits.prev && m.sources.ga4 !== 'google';
+	const fresh = !none && !m.visits.prev && m.sources.ga4 === 'tracking';
+	const visits = `${m.visits.total.toLocaleString('en')} visit${m.visits.total === 1 ? '' : 's'}`;
 	return [
-		none ? `Undercut is not measuring ${client.name} yet.` : `${client.name} had ${m.visits.total.toLocaleString('en')} visits in the last ${m.range.days} days (${v >= 0 ? '+' : ''}${v}%).`,
-		best ? `Good news: ${best.title.charAt(0).toLowerCase() + best.title.slice(1)}.` : '',
+		none ? `Undercut is not measuring ${client.name} yet.` : fresh ? `Undercut just started measuring ${client.name}: ${visits} so far.` : `${client.name} had ${visits} in the last ${m.range.days} days (${v >= 0 ? '+' : ''}${v}%).`,
+		best && !fresh ? `Good news: ${best.title.charAt(0).toLowerCase() + best.title.slice(1)}.` : '',
 		top ? `Priority this week: ${top.action}` : 'Nothing urgent this week.'
 	]
 		.filter(Boolean)

@@ -119,6 +119,16 @@ export async function analyseSitemap(site: string): Promise<SitemapReport> {
 		}
 	}
 	report.newestLastmod = newest ? new Date(newest).toISOString().slice(0, 10) : null;
+	report.paths = [...seen]
+		.map((u) => {
+			try {
+				return new URL(u).pathname;
+			} catch {
+				return '';
+			}
+		})
+		.filter((p) => p && !/\.(xml|pdf|jpe?g|png|webp|gif|svg|zip)$/i.test(p))
+		.slice(0, 200);
 
 	// 3. Check a sample of URLs actually respond (first 15)
 	const sample = [...seen].slice(0, 15);

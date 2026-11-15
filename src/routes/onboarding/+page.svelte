@@ -143,7 +143,7 @@
 				</ol>
 			</div>
 
-			<form method="POST" action="?/check" class="mt-4" use:enhance={() => { checking = true; return async ({ update }) => { await update({ reset: false }); checking = false; }; }}>
+			<form method="POST" action="?step=3&client={data.client.id}&/check" class="mt-4" use:enhance={() => { checking = true; return async ({ update }) => { await update({ reset: false }); checking = false; }; }}>
 				<input type="hidden" name="client" value={data.client.id} />
 				{#if form?.check === 'ok' || data.installed}
 					<div class="card flex items-center gap-4 bg-[#E4F5B8] p-5 sm:p-6">
@@ -152,7 +152,7 @@
 						<a href="/onboarding?step=4&client={data.client.id}" class="btn btn-primary">Next →</a>
 					</div>
 				{:else}
-					{#if form?.check === 'missing'}<p class="mb-3 rounded-[16px] bg-[#FFF3D6] p-3 text-sm">Not found yet. Published the site? Caches can take a minute.</p>{/if}
+					{#if form?.check === 'missing'}<p class="mb-3 rounded-[16px] bg-[#FFF3D6] p-3 text-sm">Not found in the page yet. Published the site? Caches can take a minute. Installed it with Tag Manager? <a class="underline" href={data.client.domain} target="_blank" rel="noopener">Open the site once</a> and check again — the first visit confirms it.</p>{/if}
 					{#if form?.check === 'unreachable'}<p class="mb-3 rounded-[16px] bg-[#FFF3D6] p-3 text-sm">We couldn’t open the site from here. You can continue — we’ll detect it with the first visit.</p>{/if}
 					<div class="flex flex-col gap-2 sm:flex-row">
 						<button class="btn btn-primary flex-1 py-3 text-base" disabled={checking}>{checking ? 'Checking…' : 'Check installation'}</button>

@@ -2,6 +2,7 @@ export type Client = {
 	id: string;
 	name: string;
 	domain: string; // e.g. https://example.be
+	extraHosts?: string[]; // other hostnames that may send events (staging, preview)
 	color: string; // brand colour used on reports
 	createdAt: string;
 	demo?: boolean; // seeded example client: data is simulated
@@ -93,6 +94,7 @@ export type SitemapReport = {
 	duplicates: number;
 	checked: { url: string; status: number }[];
 	broken: number;
+	paths?: string[]; // up to 200 page paths from the sitemap
 	error?: string;
 };
 

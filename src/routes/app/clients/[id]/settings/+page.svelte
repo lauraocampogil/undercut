@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { act } from '#lib/act.ts';
 	import Linkify from '#lib/components/Linkify.svelte';
 	import { untrack } from 'svelte';
 	import { page } from '$app/state';
@@ -25,7 +26,7 @@
 	<p class="mb-4 rounded-[20px] bg-accent p-4 text-sm text-accent-ink">Client added. The SEO audit already runs on its website. Connect the data below — missing something? Create it here in one click.</p>
 {/if}
 
-<form method="POST" action="?/save" class="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
+<form method="POST" action={act('save')} class="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
 	<!-- left: who is this client -->
 	<div class="flex flex-col gap-4">
 		<div class="card space-y-5 p-6">
@@ -96,7 +97,7 @@
 					{/if}
 					<input type="hidden" name="token" value={form.gsc.token} /><input type="hidden" name="host" value={form.gsc.host} />
 					<p class="font-medium">2. Then:</p>
-					<button formaction="?/gscVerify" name="method" value={form.gsc.method} class="btn btn-primary py-2 text-sm">Verify & add to Search Console</button>
+					<button formaction={act('gscVerify')} name="method" value={form.gsc.method} class="btn btn-primary py-2 text-sm">Verify & add to Search Console</button>
 				</div>
 			{/if}
 			{#if !data.canManage && data.connected}
@@ -124,11 +125,11 @@
 								{#if f.key === 'ga4'}
 									<button formaction="?/createGa4" class="btn btn-accent self-start py-2 text-sm">＋ Create a GA4 property for {c.name}</button>
 								{:else if f.key === 'gtm'}
-									<button formaction="?/createGtm" class="btn btn-accent self-start py-2 text-sm">＋ Create a Tag Manager container{c.google.measurementId ? ' (with GA4 inside)' : ''}</button>
+									<button formaction={act('createGtm')} class="btn btn-accent self-start py-2 text-sm">＋ Create a Tag Manager container{c.google.measurementId ? ' (with GA4 inside)' : ''}</button>
 								{:else if f.key === 'gsc'}
 									<div class="flex flex-wrap gap-2">
-										<button formaction="?/gscToken" name="method" value="META" class="btn btn-accent py-2 text-sm">＋ Add to Search Console</button>
-										<button formaction="?/gscToken" name="method" value="DNS_TXT" class="pill py-2 text-sm">Use DNS instead</button>
+										<button formaction={act('gscToken')} name="method" value="META" class="btn btn-accent py-2 text-sm">＋ Add to Search Console</button>
+										<button formaction={act('gscToken')} name="method" value="DNS_TXT" class="pill py-2 text-sm">Use DNS instead</button>
 									</div>
 								{:else if f.key === 'gbp'}
 									<a href="https://business.google.com/create" target="_blank" rel="noreferrer" class="pill self-start py-2 text-sm">Create a Business Profile ↗</a>
@@ -158,7 +159,7 @@
 		{/if}
 
 		<div class="flex flex-wrap items-center justify-between gap-3 px-2">
-			<button formaction="?/delete" class="text-sm text-bad hover:underline" onclick={(e) => { if (!confirm(`Delete ${c.name}?`)) e.preventDefault(); }}>Delete client</button>
+			<button formaction={act('delete')} class="text-sm text-bad hover:underline" onclick={(e) => { if (!confirm(`Delete ${c.name}?`)) e.preventDefault(); }}>Delete client</button>
 			<button class="btn btn-primary">Save →</button>
 		</div>
 	</div>

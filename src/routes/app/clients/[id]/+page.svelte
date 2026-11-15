@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { act } from '#lib/act.ts';
 	import { enhance } from '$app/forms';
 	import Delta from '#lib/components/Delta.svelte';
 	import HealthRing from '#lib/components/HealthRing.svelte';
@@ -12,7 +13,8 @@
 	let showDone = $state(false);
 	let showGood = $state(false);
 	const dot = { good: 'bg-good', warn: 'bg-[#E3A21A]', bad: 'bg-bad' };
-	const word = { good: 'On track', warn: 'Watch', bad: 'Act now' };
+	const word = { good: 'Good', warn: 'Keep an eye', bad: 'Needs action' };
+	let openTask = $state<string | null>(null);
 	import { canAutoFix } from '#lib/fixable.ts';
 	import { invalidateAll } from '$app/navigation';
 	const autoCount = $derived(open.filter((t) => canAutoFix(t.issueId)).length);
@@ -38,7 +40,7 @@
 			</div>
 			<HealthRing score={data.health.score} size={64} dark />
 		</div>
-		<p class="display text-[26px] leading-[1.2] sm:text-[30px]">{data.summary.text}</p>
+		<p class="text-[19px] leading-[1.45] sm:text-[21px]">{data.summary.text}</p>
 		{#if data.summary.ai}<span class="self-start rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-accent-ink">AI summary</span>{/if}
 	</div>
 
@@ -49,7 +51,7 @@
 				<a href={a.href + (data.days !== 28 ? `?days=${data.days}` : '')} class="absolute inset-0 rounded-[28px]" aria-label="Open {a.label}"></a>
 				<div class="flex items-center justify-between gap-2">
 					<p class="text-sm font-medium">{a.label}</p>
-					<span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] {a.key === 'leads' ? 'bg-white/10' : 'bg-tile'}"><span class="size-1.5 rounded-full {dot[a.level]}"></span>{word[a.level]}</span>
+					<span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] {a.key === 'leads' ? 'bg-white/10' : 'bg-tile'}"><span class="size-1.5 rounded-full {a.waiting ? 'bg-[#bdbdb6]' : dot[a.level]}"></span>{a.waiting ? 'Not set up' : word[a.level]}</span>
 				</div>
 				<div>
 					<p class="flex items-start gap-1.5"><span class="big text-[40px] {a.key === 'leads' ? 'text-accent' : ''}">{a.value}</span>{#if a.delta !== undefined}<Delta value={a.delta} invert={a.deltaInvert} suffix={a.deltaInvert ? '' : '%'} dark={a.key === 'leads'} />{/if}</p>
@@ -68,8 +70,8 @@
 <section class="mt-10">
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
-			<h2 class="display text-[40px] sm:text-[48px]">To <em>fix</em></h2>
-			<p class="text-sm text-muted">⚡ Fix = Undercut does it for you · How to fix = steps for the developer · ✓ = done</p>
+			<h2 class="display text-[40px] sm:text-[48px]">This week’s <em>to-do</em></h2>
+			<p class="text-sm text-muted">Most important first. Click a line to see what to do · ⚡ Fix = Undercut does it for you · ✓ = done</p>
 		</div>
 		{#if autoCount}
 			<button class="btn btn-accent" onclick={fixEverything} disabled={fixingAll}>⚡ {fixingAll ? 'Fixing…' : `Fix ${autoCount} automatically`}</button>
@@ -85,7 +87,7 @@
 					<p class="truncate text-xs text-muted">{areaOf[t.area]} · {t.meaning}</p>
 				</div>
 				<FixButton clientId={c.id} issueId={t.issueId} problem={t.title} detail={t.meaning} size="sm" />
-				<form method="POST" action="?/toggle" use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
+				<form method="POST" action={act('toggle')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
 					<input type="hidden" name="id" value={t.id} />
 					<button class="grid size-8 shrink-0 place-items-center rounded-full border-2 border-[#cfcfc9] text-xs text-transparent hover:border-ink hover:text-ink" aria-label="Mark “{t.title}” as done" title="Mark as done">✓</button>
 				</form>
@@ -107,7 +109,7 @@
 		<ul class="mt-3 space-y-2">
 			{#each done as t (t.id)}
 				<li class="flex items-center gap-3 rounded-full bg-white/60 px-4 py-2.5 text-sm text-muted">
-					<form method="POST" action="?/toggle" use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
+					<form method="POST" action={act('toggle')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
 						<input type="hidden" name="id" value={t.id} />
 						<button class="grid size-6 place-items-center rounded-full bg-ink text-xs text-accent" aria-label="Mark “{t.title}” as not done">✓</button>
 					</form>

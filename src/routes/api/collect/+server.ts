@@ -1,5 +1,5 @@
 import { getClient, withSite } from '#lib/server/store.ts';
-import { record, type TrackEvent } from '#lib/server/tracking.ts';
+import { fromClientSite, record, type TrackEvent } from '#lib/server/tracking.ts';
 
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
 
@@ -14,8 +14,9 @@ export const POST = async ({ request }) => {
 		const body = JSON.parse(text) as { site: string; events: TrackEvent[] };
 		if (!body?.site || !Array.isArray(body.events)) return new Response('bad request', { status: 400, headers: CORS });
 		const ok = await withSite(body.site, () => {
-			if (!getClient(body.site)) return false;
-			record(body.site, body.events, country);
+			const client = getClient(body.site);
+			if (!client) return false;
+			if (fromClientSite(client, request)) record(body.site, body.events, country);
 			return true;
 		});
 		if (!ok) return new Response('unknown site', { status: 404, headers: CORS });

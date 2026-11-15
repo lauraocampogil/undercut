@@ -116,7 +116,7 @@ function aggregate(events: TrackEvent[], path: string, device: Device, snapshotH
 		if (!prev || s.depth > prev.depth) byView.set(k, s);
 	});
 	const scrolls = [...byView.values()];
-	const height = snapshotHeight ?? Math.max(1000, ...scrolls.map((s) => s.h), ...pv.map((p) => p.h * 2));
+	const height = snapshotHeight ?? Math.max(1000, ...scrolls.map((s) => Number(s.h) || 0), ...pv.map((p) => (Number(p.h) || 0) * 2));
 	// bin clicks on a 12 px grid to keep payloads small
 	const bins = new Map<string, { x: number; y: number; v: number }>();
 	for (const c of clicks) {
@@ -328,4 +328,26 @@ footer{background:#f5f5f3;padding:${m ? '50px 20px' : '60px 90px'};height:${m ? 
 <form><h2 style="font-size:32px">Contact us</h2><input placeholder="Name"><input placeholder="Email"><textarea placeholder="Message"></textarea><span class="btn">Send</span></form>
 <footer><b>${name}</b><p style="margin-top:16px">Rue de l'Exemple 12, 1050 Bruxelles</p><p style="margin-top:8px">+32 2 123 45 67</p></footer>
 </body></html>`;
+}
+
+// ---------- Origin guard ----------
+const bare = (h: string) => h.toLowerCase().replace(/^www\./, '');
+/**
+ * Only count events sent from the client's own website (or its subdomains).
+ * Stops test visits (localhost, a copy of the snippet on another site, Undercut itself) from polluting real data.
+ * Apps and clients without a domain accept everything.
+ */
+export function fromClientSite(client: Client, request: Request): boolean {
+	if (!client.domain) return true;
+	const origin = request.headers.get('origin') || request.headers.get('referer') || '';
+	if (!origin) return true; // sendBeacon from some browsers omits it
+	let host = '';
+	let want = '';
+	try {
+		host = bare(new URL(origin).hostname);
+		want = bare(new URL(client.domain).hostname);
+	} catch {
+		return true;
+	}
+	return host === want || host.endsWith(`.${want}`) || (client.extraHosts ?? []).some((h) => bare(h) === host);
 }

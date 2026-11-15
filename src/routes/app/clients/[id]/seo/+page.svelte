@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { act } from '#lib/act.ts';
 	import Linkify from '#lib/components/Linkify.svelte';
 	import { enhance } from '$app/forms';
 	import HealthRing from '#lib/components/HealthRing.svelte';
@@ -8,7 +9,7 @@
 	let { data } = $props();
 	const a = $derived(data.audit);
 	let device = $state<'mobile' | 'desktop'>('mobile');
-	const lh = $derived(device === 'mobile' ? a.lighthouse : (a.lighthouseDesktop ?? a.lighthouse));
+	const lh = $derived(device === 'mobile' ? a.lighthouse : (a.lighthouseDesktop ?? null));
 	const w = $derived(a.w3c);
 	let running = $state(false);
 	let showCode = $state<string | null>(null);
@@ -50,8 +51,8 @@
 				<p class="text-xs text-white/50">issues open</p>
 			</div>
 		</div>
-		<form method="POST" action="?/rerun" use:enhance={() => { running = true; return async ({ update }) => { await update(); running = false; }; }}>
-			<button class="btn btn-accent w-full" disabled={running}>{running ? 'Checking… (≈30 s)' : 'Check again'}</button>
+		<form method="POST" action={act('rerun')} use:enhance={() => { running = true; return async ({ update }) => { await update(); running = false; }; }}>
+			<button class="btn btn-accent w-full" disabled={running}>{running ? 'Checking… (≈1 min)' : 'Check again'}</button>
 		</form>
 	</div>
 
@@ -122,7 +123,7 @@
 		<div class="flex flex-wrap gap-2">
 			{#if live.length}<span class="pill border-0 bg-accent text-accent-ink">{live.length} live</span>{/if}
 			{#if pending.length}
-				<form method="POST" action="?/publishAll" use:enhance={keep}><button class="btn btn-primary">Publish all {pending.length}</button></form>
+				<form method="POST" action={act('publishAll')} use:enhance={keep}><button class="btn btn-primary">Publish all {pending.length}</button></form>
 			{/if}
 		</div>
 	</div>
@@ -153,7 +154,7 @@
 					<p class="text-sm"><span class="text-muted">Page</span> <a href="{data.client.domain.replace(/\/$/, '')}{f.path}" target="_blank" rel="noreferrer" class="font-medium underline-offset-4 hover:underline">{f.path} ↗</a></p>
 					<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium {f.status === 'live' ? 'bg-good text-white' : 'bg-tile text-muted'}">{f.status === 'live' ? '● Live on the site' : f.by === 'ai' ? '✦ Written by AI' : 'Suggestion'}</span>
 				</div>
-				<form method="POST" action="?/publish" use:enhance={keep} class="flex flex-col gap-4">
+				<form method="POST" action={act('publish')} use:enhance={keep} class="flex flex-col gap-4">
 					<input type="hidden" name="id" value={f.id} />
 					{#if f.kind === 'alt'}
 						<div class="grid gap-4 sm:grid-cols-[150px_1fr]">
@@ -196,11 +197,11 @@
 					{/if}
 					<div class="flex flex-wrap items-center gap-2">
 						{#if f.status === 'live'}
-							<button formaction="?/undo" class="pill">Undo</button>
+							<button formaction={act('undo')} class="pill">Undo</button>
 						{:else}
 							<button class="btn btn-primary py-2">Publish</button>
-							<button formaction="?/save" class="pill">Save</button>
-							<button formaction="?/dismiss" class="pill text-muted">Not needed</button>
+							<button formaction={act('save')} class="pill">Save</button>
+							<button formaction={act('dismiss')} class="pill text-muted">Not needed</button>
 						{/if}
 						<button type="button" class="ml-auto text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onclick={() => (showCode = showCode === f.id ? null : f.id)}>{showCode === f.id ? 'Hide code' : 'Code for the developer'}</button>
 					</div>
@@ -212,7 +213,7 @@
 		{/each}
 	</ul>
 	{#if data.dismissed}
-		<form method="POST" action="?/restore" use:enhance={keep} class="mt-3"><button class="text-xs text-muted hover:underline">Show {data.dismissed} dismissed suggestion{data.dismissed > 1 ? 's' : ''} again</button></form>
+		<form method="POST" action={act('restore')} use:enhance={keep} class="mt-3"><button class="text-xs text-muted hover:underline">Show {data.dismissed} dismissed suggestion{data.dismissed > 1 ? 's' : ''} again</button></form>
 	{/if}
 </section>
 

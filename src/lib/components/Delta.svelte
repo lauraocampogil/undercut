@@ -8,6 +8,8 @@
 	);
 </script>
 
+{#if value && Number.isFinite(value)}
 <span class="num inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-medium {cls}">
 	{#if !flat}<span aria-hidden="true">{value > 0 ? '↑' : '↓'}</span>{/if}{Math.abs(value)}{suffix}
 </span>
+{/if}
