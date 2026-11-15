@@ -38,6 +38,14 @@
 	const qs = (extra: string) => `?mode=${data.mode}&days=${data.days}${extra}`;
 </script>
 
+{#if data.webKw?.source === 'off'}
+	<a href="/app/clients/{data.client.id}/settings" class="mb-4 flex items-center gap-4 rounded-[24px] bg-ink p-5 text-white">
+		<span class="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-accent-ink">G</span>
+		<span class="flex-1"><b class="block">Link Search Console to see positions</b><span class="text-sm text-white/60">You can already track keywords and research new ones — positions, clicks and quick wins appear once Search Console is linked.</span></span>
+		<span class="btn btn-accent shrink-0">Link it →</span>
+	</a>
+{/if}
+
 <svelte:head><title>Keywords · {data.client.name} · Undercut</title></svelte:head>
 
 {#snippet trackBtn(k: string, kind: 'web' | 'app', on: boolean)}

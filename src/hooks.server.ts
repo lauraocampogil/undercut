@@ -2,11 +2,13 @@ import { redirect } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit/hooks';
 import { COOKIE, allowedPath, authEnabled, userFromCookie } from '#lib/server/auth.ts';
 import { getAccount } from '#lib/server/store.ts';
+import { startScheduler } from '#lib/server/scheduler.ts';
 
 // Pages and APIs that need a signed-in user once the workspace has a password.
-const PRIVATE = /^\/(app|onboarding)(\/|$)|^\/api\/(assistant|fix|why)(\/|$)|^\/auth\/google(\/|$)/;
+const PRIVATE = /^\/(app|onboarding)(\/|$)|^\/api\/(assistant|fix|why)(\/|$)/;
 
 export const handle: Handle = async ({ event, resolve }) => {
+	startScheduler(event.url.origin);
 	const locked = authEnabled();
 	let user = userFromCookie(event.cookies.get(COOKIE));
 	if (!locked && !user) {

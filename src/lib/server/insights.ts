@@ -27,8 +27,17 @@ export function sortInsights(list: Insight[]) {
 export function buildInsights(m: Metrics, sitemap?: SitemapReport | null, extra: Draft[] = []): Insight[] {
 	const out: Draft[] = [];
 	const v = change(m.visits.total, m.visits.prev);
+	const measuring = m.sources.ga4 !== 'off' && m.sources.ga4 !== 'error' && (m.visits.total > 0 || m.visits.prev > 0 || m.sources.ga4 === 'google');
 
-	if (v >= 10)
+	if (!measuring)
+		out.push({
+			level: 'warn',
+			area: 'Tracking',
+			title: 'Not measuring visits yet',
+			meaning: 'No visits came in from the Undercut snippet and no Google Analytics property is linked.',
+			action: 'Paste the snippet from Setup on the site (or link GA4). Numbers appear with the first visit.'
+		});
+	else if (v >= 10)
 		out.push({
 			level: 'good',
 			area: 'Traffic',
@@ -54,7 +63,15 @@ export function buildInsights(m: Metrics, sitemap?: SitemapReport | null, extra:
 		});
 
 	// Position: lower number = better
-	const posDelta = +(m.search.prevPosition - m.search.position).toFixed(1);
+	const posDelta = m.search.position > 0 && m.search.prevPosition > 0 ? +(m.search.prevPosition - m.search.position).toFixed(1) : 0;
+	if (m.sources.gsc === 'off')
+		out.push({
+			level: 'warn',
+			area: 'Google Search',
+			title: 'Search Console is not linked',
+			meaning: 'Without it Undercut cannot see which Google searches bring people, or the site’s position.',
+			action: 'In Setup, connect Google and pick the Search Console property of this site.'
+		});
 	if (posDelta >= 0.5)
 		out.push({
 			level: 'good',
@@ -110,13 +127,15 @@ export function buildInsights(m: Metrics, sitemap?: SitemapReport | null, extra:
 	}
 
 	const conv = change(m.conversions.total, m.conversions.prev);
-	if (m.conversions.total === 0)
+	if (!measuring) {
+		/* nothing to say about contacts before anything is measured */
+	} else if (m.conversions.total === 0)
 		out.push({
 			level: 'bad',
 			area: 'Conversions',
 			title: 'No conversions measured',
 			meaning: 'Either nobody contacted the business through the site, or contact forms are not tracked.',
-			action: 'Mark the contact form submission as a key event in GA4 (Admin → Events).'
+			action: m.sources.ga4 === 'tracking' ? 'The snippet counts forms, calls, emails and WhatsApp clicks. Check the contact page works and the phone number is a tap-to-call link.' : 'Install the Undercut snippet (it counts forms, calls, emails and WhatsApp clicks automatically) or mark the form submission as a key event in GA4.'
 		});
 	else
 		out.push({
@@ -178,8 +197,9 @@ export function ruleSummary(client: Client, m: Metrics, insights: Insight[]) {
 	const v = change(m.visits.total, m.visits.prev);
 	const top = insights.find((i) => i.level !== 'good');
 	const best = insights.find((i) => i.level === 'good');
+	const none = !m.visits.total && !m.visits.prev && m.sources.ga4 !== 'google';
 	return [
-		`${client.name} had ${m.visits.total.toLocaleString('en')} visits in the last ${m.range.days} days (${v >= 0 ? '+' : ''}${v}%).`,
+		none ? `Undercut is not measuring ${client.name} yet.` : `${client.name} had ${m.visits.total.toLocaleString('en')} visits in the last ${m.range.days} days (${v >= 0 ? '+' : ''}${v}%).`,
 		best ? `Good news: ${best.title.charAt(0).toLowerCase() + best.title.slice(1)}.` : '',
 		top ? `Priority this week: ${top.action}` : 'Nothing urgent this week.'
 	]

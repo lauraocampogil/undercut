@@ -20,5 +20,6 @@ export const variables = defineEnvVars({
 	ALERTS_FROM: { schema: optional, description: 'Sender for alert emails, e.g. Undercut <alerts@yourdomain.be>' },
 	CRON_SECRET: { schema: optional, description: 'Protects /api/cron (Vercel Cron sends it automatically)' },
 	ANTHROPIC_MODEL: { schema: optional, description: 'Optional: Claude model id' },
+	SCHEDULER: { schema: optional, description: 'Set to "off" to disable the built-in daily alerts / weekly digest timer (self-hosting)' },
 	SESSION_SECRET: { schema: optional, description: 'Signs login cookies. Generated and stored in .data if not set' }
 });

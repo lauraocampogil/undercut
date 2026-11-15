@@ -5,13 +5,17 @@ import { SCOPES, clearGoogleCache, googleHealth, testConnection } from '#lib/ser
 
 export const load = ({ url }) => ({
 	scopes: SCOPES,
-	redirectUri: `${url.origin}/auth/google/callback`,
+	redirectUri: env.GOOGLE_REDIRECT_URI || `${url.origin}/auth/google/callback`,
+	origin: url.origin,
+	publicUrl: env.PUBLIC_BASE_URL || '',
 	exampleClient: listClients()[0]?.id ?? null,
 	health: googleHealth(),
 	keys: {
 		serpapi: Boolean(env.SERPAPI_KEY),
 		pagespeed: Boolean(env.PAGESPEED_API_KEY),
-		anthropic: Boolean(env.ANTHROPIC_API_KEY)
+		anthropic: Boolean(env.ANTHROPIC_API_KEY),
+		resend: Boolean(env.RESEND_API_KEY),
+		stripe: Boolean(env.STRIPE_SECRET_KEY)
 	}
 });
 

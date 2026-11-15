@@ -155,7 +155,7 @@ export const hasWeb = (c: Client) => clientType(c) !== 'app';
 export const hasApp = (c: Client) => clientType(c) !== 'web';
 
 // The signed-in person (MVP: one local account; production: Supabase Auth)
-export type Account = { name: string; email: string; language: 'en' | 'fr' | 'nl' | 'es'; passwordHash?: string };
+export type Account = { name: string; email: string; language: 'en' | 'fr' | 'nl' | 'es'; passwordHash?: string; googleLogin?: boolean };
 export function getAccount(): Account {
 	return read<Account>('account.json', { name: 'Agency owner', email: '', language: 'en' });
 }
@@ -164,7 +164,7 @@ export function saveAccount(a: Account) {
 }
 
 // Team members & invitations
-export type Member = { email: string; name?: string; role: 'owner' | 'admin' | 'member' | 'client'; status: 'active' | 'invited'; clientId?: string; invitedAt: string; passwordHash?: string; inviteToken?: string };
+export type Member = { email: string; name?: string; role: 'owner' | 'admin' | 'member' | 'client'; status: 'active' | 'invited'; clientId?: string; invitedAt: string; passwordHash?: string; inviteToken?: string; googleLogin?: boolean };
 export function listMembers(): Member[] {
 	return read<Member[]>('team.json', []);
 }

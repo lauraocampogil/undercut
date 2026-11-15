@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Logo from '#lib/components/Logo.svelte';
-	let { form } = $props();
+	import GoogleButton from '#lib/components/GoogleButton.svelte';
+	let { data, form } = $props();
 </script>
 
 <svelte:head><title>Start free · Undercut</title></svelte:head>
@@ -11,6 +12,12 @@
 		<div class="mx-auto my-auto w-full max-w-md py-10">
 			<h1 class="display text-[52px] leading-none">Start <em>free</em></h1>
 			<p class="mt-3 text-ink-2">14 days, every feature, no card. Your first client is connected in about 10 minutes.</p>
+			{#if data.google}
+				<div class="mt-8 space-y-4">
+					<GoogleButton href="/auth/google?mode=login&next=/onboarding" label="Sign up with Google" />
+					<p class="flex items-center gap-3 text-xs text-muted"><span class="h-px flex-1 bg-line"></span>or with email<span class="h-px flex-1 bg-line"></span></p>
+				</div>
+			{/if}
 			<form method="POST" class="mt-8 space-y-4">
 				{#if form?.error}<p class="rounded-[16px] bg-bad-bg p-3 text-sm text-bad">{form.error}</p>{/if}
 				<label class="block"><span class="label">Your name</span><input class="input mt-1.5" name="name" value={form?.name ?? ''} autocomplete="name" required /></label>

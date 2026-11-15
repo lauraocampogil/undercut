@@ -50,7 +50,7 @@
 		<a href={link({ mode: 'clicks' })} data-sveltekit-noscroll class="rounded-full px-3.5 py-1.5 {data.mode === 'clicks' ? 'bg-ink text-white' : ''}">Clicks</a>
 		<a href={link({ mode: 'scroll' })} data-sveltekit-noscroll class="rounded-full px-3.5 py-1.5 {data.mode === 'scroll' ? 'bg-ink text-white' : ''}">Scroll</a>
 	</div>
-	<span class="ml-auto"><SourceBadge state={h.source === 'live' ? 'google' : h.source === 'demo' ? 'demo' : 'off'} /></span>
+	<span class="ml-auto"><SourceBadge state={h.source === 'live' ? 'tracking' : h.source === 'demo' ? 'demo' : 'off'} /></span>
 </section>
 
 <section class="mt-4 grid gap-4 lg:grid-cols-[1fr_340px]">

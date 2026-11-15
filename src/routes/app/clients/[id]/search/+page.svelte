@@ -30,6 +30,16 @@
 	]);
 </script>
 
+{#if g.source === 'off'}
+	<a href="/app/clients/{data.client.id}/settings" class="mb-4 flex items-center gap-4 rounded-[24px] bg-ink p-5 text-white">
+		<span class="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-accent-ink">G</span>
+		<span class="flex-1"><b class="block">Link Search Console to see real Google searches</b><span class="text-sm text-white/60">Clicks, position and the searches that bring people to {data.client.name}. One click in Setup.</span></span>
+		<span class="btn btn-accent shrink-0">Link it →</span>
+	</a>
+{:else if g.source === 'error'}
+	<p class="mb-4 rounded-[20px] bg-bad-bg p-4 text-sm text-bad">Search Console: {g.error}</p>
+{/if}
+
 <svelte:head><title>Search Console · {data.client.name}</title></svelte:head>
 
 {#if g.error}<div class="mb-4 rounded-[20px] bg-bad-bg p-4 text-sm text-bad">Search Console error, demo numbers shown: {g.error}</div>{/if}

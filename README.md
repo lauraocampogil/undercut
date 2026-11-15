@@ -1,5 +1,7 @@
 # Undercut — analytics that agencies understand in 30 seconds
 
+> **Usar Undercut con tus sitios reales → [DEPLOY.md](./DEPLOY.md)** (Google, local, Coolify).
+
 MVP built with SvelteKit 3 + Svelte 5 + Tailwind 4.
 
 ## How the app is organised

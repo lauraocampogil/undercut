@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { googleConfigured } from '#lib/server/google.ts';
 import { authEnabled, failedAttempt, findUser, startSession, tooManyAttempts, verifyPassword } from '#lib/server/auth.ts';
 
 const safeNext = (n: string | null) => (n && n.startsWith('/') && !n.startsWith('//') ? n : '/app');
@@ -6,7 +7,9 @@ const safeNext = (n: string | null) => (n && n.startsWith('/') && !n.startsWith(
 export const load = ({ url, locals }) => {
 	if (!authEnabled()) redirect(303, safeNext(url.searchParams.get('next')));
 	if (locals.user) redirect(303, safeNext(url.searchParams.get('next')));
-	return { next: safeNext(url.searchParams.get('next')) };
+	const errors: Record<string, string> = { unknown: 'This Google account has no access to this workspace. Ask the owner for an invitation.', google: 'Google sign-in failed. Try again.', state: 'The sign-in took too long. Try again.', not_configured: 'Google sign-in is not set up on this server yet.', access_denied: 'Google sign-in was cancelled.' };
+	const e = url.searchParams.get('error');
+	return { next: safeNext(url.searchParams.get('next')), google: googleConfigured(), googleError: e ? (errors[e] ?? 'Google sign-in failed.') : null };
 };
 
 export const actions = {

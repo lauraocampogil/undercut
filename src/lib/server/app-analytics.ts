@@ -10,7 +10,7 @@ import { dateRange } from './demo.ts';
 import { gaReport, googleReady } from './google.ts';
 
 export type AppMetrics = {
-	source: { usage: 'google' | 'demo' | 'error'; ios: 'live' | 'demo' | 'off'; android: 'demo' | 'off'; downloads: 'demo' };
+	source: { usage: 'google' | 'demo' | 'error' | 'off'; ios: 'live' | 'demo' | 'off' | 'error'; android: 'demo' | 'off'; downloads: 'demo' | 'off' };
 	error?: string;
 	range: { start: string; end: string; days: number };
 	dau: Point[];
@@ -121,9 +121,31 @@ async function appStore(iosId: string, country = 'be') {
 	};
 }
 
+function emptyApp(days: number): AppMetrics {
+	return {
+		source: { usage: 'off', ios: 'off', android: 'off', downloads: 'off' },
+		range: dateRange(days),
+		dau: [],
+		active: { total: 0, prev: 0 },
+		newUsers: { total: 0, prev: 0 },
+		mau: 0,
+		stickiness: 0,
+		sessionsPerUser: 0,
+		avgSessionSec: 0,
+		crashFree: 0,
+		platforms: [],
+		retention: [],
+		screens: [],
+		versions: [],
+		downloads: { total: 0, prev: 0 },
+		store: { ios: null, android: null, reviews: [] }
+	};
+}
+
 export async function getAppMetrics(client: Client, days = 28): Promise<AppMetrics> {
-	const m = demoApp(client, days);
-	if (!client.app) m.source.ios = 'off';
+	// Example clients: demo data. Real clients: only what is really connected (never invented numbers).
+	const m = client.demo ? demoApp(client, days) : emptyApp(days);
+	if (!client.app && client.demo) m.source.ios = 'off';
 
 	// Live App Store ratings + reviews (public, no login)
 	if (client.app?.iosId && !client.demo) {
@@ -133,6 +155,7 @@ export async function getAppMetrics(client: Client, days = 28): Promise<AppMetri
 			m.store.reviews = [...s.reviews, ...m.store.reviews.filter((r) => r.platform === 'Android')];
 			m.source.ios = 'live';
 		} catch (e) {
+			m.source.ios = 'error';
 			m.error = (e as Error).message;
 		}
 	}
@@ -183,7 +206,13 @@ export async function getAppMetrics(client: Client, days = 28): Promise<AppMetri
 
 export function appTasks(a: AppMetrics): Draft[] {
 	const out: Draft[] = [];
-	if (a.crashFree < 99)
+	const low = a.store.reviews.filter((r) => r.stars <= 2);
+	if (a.source.usage !== 'google' && a.source.usage !== 'demo') {
+		out.push({ level: 'warn', area: 'App', title: 'App usage is not connected yet', meaning: 'Users, retention, screens and crashes come from the app’s Firebase-linked GA4 property.', action: 'In Setup, connect Google and pick the GA4 property linked to the app’s Firebase project. Add the App Store ID for ratings and reviews.' });
+		if (low.length) out.push({ level: 'warn', area: 'App', title: `${low.length} recent negative review${low.length > 1 ? 's' : ''}`, meaning: `"${low[0].title}" (${low[0].platform}, ${low[0].stars}★).`, action: 'Reply to each one within 48 h.' });
+		return out;
+	}
+	if (a.crashFree && a.crashFree < 99)
 		out.push({
 			level: a.crashFree < 98 ? 'bad' : 'warn',
 			area: 'App',
@@ -200,7 +229,6 @@ export function appTasks(a: AppMetrics): Draft[] {
 			meaning: 'Most new users try the app once and leave.',
 			action: 'Improve onboarding and add a reminder notification on day 2 and day 6.'
 		});
-	const low = a.store.reviews.filter((r) => r.stars <= 2);
 	if (low.length)
 		out.push({
 			level: 'warn',

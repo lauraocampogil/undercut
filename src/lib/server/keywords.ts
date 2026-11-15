@@ -51,7 +51,7 @@ export async function webKeywords(client: Client, days = 28) {
 		t.web.map(async (k) => {
 			let r: { position: number; clicks: number; impressions: number; ctr: number; prevClicks?: number } | null | undefined = find(k);
 			if (!r && gsc.source === 'google') r = await gscQuery(client, k, days).catch(() => null);
-			if (!r && gsc.source !== 'google') {
+			if (!r && client.demo && gsc.source !== 'google') {
 				// demo client: stable, plausible numbers so the flow can be tried
 				const h = hash(k);
 				const position = 3 + (h % 38);
@@ -79,8 +79,8 @@ function hash(s: string) {
 	return h;
 }
 
-export async function appRank(keyword: string, iosId: string | undefined, country = 'be'): Promise<AppRank> {
-	const key = `${keyword}|${iosId}|${country}`;
+export async function appRank(keyword: string, iosId: string | undefined, country = 'be', demo = false): Promise<AppRank> {
+	const key = `${keyword}|${iosId}|${country}|${demo}`;
 	const hit = cache.get(key);
 	if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.v;
 	let v: AppRank;
@@ -91,7 +91,8 @@ export async function appRank(keyword: string, iosId: string | undefined, countr
 		const idx = iosId ? j.results.findIndex((r) => String(r.trackId) === iosId) : -1;
 		v = { keyword, rank: idx >= 0 ? idx + 1 : null, top: j.results.slice(0, 3).map((r) => ({ name: r.trackName, id: r.trackId, icon: r.artworkUrl60 })), source: 'appstore' };
 	} catch {
-		// Offline / blocked: deterministic demo numbers, clearly labelled
+		if (!demo) return { keyword, rank: null, top: [], source: 'error' };
+		// Example client offline: deterministic demo numbers, clearly labelled
 		const h = hash(keyword);
 		v = { keyword, rank: iosId ? null : (h % 40) + 1, top: [{ name: `${keyword.split(' ')[0]} Pro`, id: 0, icon: '' }, { name: 'Top competitor', id: 0, icon: '' }, { name: 'Another app', id: 0, icon: '' }], source: 'demo' };
 	}
@@ -102,14 +103,14 @@ export async function appRank(keyword: string, iosId: string | undefined, countr
 export async function appKeywords(client: Client) {
 	const t = getTracked(client);
 	const country = t.geo.toLowerCase();
-	const tracked = await Promise.all(t.app.map((k) => appRank(k, client.app?.iosId, country)));
+	const tracked = await Promise.all(t.app.map((k) => appRank(k, client.app?.iosId, country, client.demo)));
 	return { tracked, hasIosId: Boolean(client.app?.iosId), geo: t.geo };
 }
 
 /** App keyword ideas: what people type in stores (Google autocomplete with "app") + competitor names. */
 export async function appIdeas(term: string, client: Client) {
 	const t = getTracked(client);
-	const [a, b, rank] = await Promise.all([suggest(`${term} app`, t.lang, t.geo), suggest(term, t.lang, t.geo), appRank(term, client.app?.iosId, t.geo.toLowerCase())]);
+	const [a, b, rank] = await Promise.all([suggest(`${term} app`, t.lang, t.geo), suggest(term, t.lang, t.geo), appRank(term, client.app?.iosId, t.geo.toLowerCase(), client.demo)]);
 	const ideas = [...new Set([...b, ...a.map((x) => x.replace(/\s+app$/, ''))].map((x) => x.toLowerCase()))].filter((x) => x !== term.toLowerCase()).slice(0, 16);
-	return { term, ideas: ideas.length ? ideas : [`${term} gratuit`, `${term} belgique`, `meilleure app ${term}`, `${term} en ligne`], suggestSource: ideas.length ? 'google' : 'demo', rank };
+	return { term, ideas: ideas.length || !client.demo ? ideas : [`${term} gratuit`, `${term} belgique`, `meilleure app ${term}`, `${term} en ligne`], suggestSource: ideas.length ? 'google' : client.demo ? 'demo' : 'error', rank };
 }

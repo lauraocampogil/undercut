@@ -4,6 +4,7 @@ import * as env from '$app/env/private';
 import { getTokens, saveTokens, type GoogleTokens } from './store';
 import type { Client, Metrics } from '#lib/types.ts';
 import { dateRange, demoMetrics } from './demo';
+import { trackingMetrics } from './metrics-tracking.ts';
 
 export const SCOPES = [
 	'openid',
@@ -22,18 +23,36 @@ function redirectUri(origin: string) {
 	return env.GOOGLE_REDIRECT_URI || `${origin}/auth/google/callback`;
 }
 
-export function authUrl(origin: string, state: string) {
+/** mode "data": connect Analytics, Search Console, Maps, Tag Manager. mode "login": only sign in (name + email). */
+export function authUrl(origin: string, state: string, mode: 'data' | 'login' = 'data') {
 	const p = new URLSearchParams({
 		client_id: env.GOOGLE_CLIENT_ID ?? '',
 		redirect_uri: redirectUri(origin),
 		response_type: 'code',
-		scope: SCOPES.join(' '),
-		access_type: 'offline',
-		prompt: 'consent',
-		include_granted_scopes: 'true',
+		scope: mode === 'login' ? 'openid email profile' : SCOPES.join(' '),
 		state
 	});
+	if (mode === 'data') {
+		p.set('access_type', 'offline');
+		p.set('prompt', 'consent');
+		p.set('include_granted_scopes', 'true');
+	} else p.set('prompt', 'select_account');
 	return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
+}
+
+/** Sign in with Google: returns the verified identity. The id_token comes straight from Google's token endpoint over TLS. */
+export async function googleIdentity(code: string, origin: string) {
+	const res = await fetch('https://oauth2.googleapis.com/token', {
+		method: 'POST',
+		headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({ code, client_id: env.GOOGLE_CLIENT_ID ?? '', client_secret: env.GOOGLE_CLIENT_SECRET ?? '', redirect_uri: redirectUri(origin), grant_type: 'authorization_code' })
+	});
+	if (!res.ok) throw new Error(`Token exchange failed: ${await res.text()}`);
+	const j = await res.json();
+	const claims = JSON.parse(Buffer.from(String(j.id_token).split('.')[1], 'base64url').toString());
+	if (claims.aud !== env.GOOGLE_CLIENT_ID || !/accounts\.google\.com$/.test(claims.iss) || claims.exp * 1000 < Date.now()) throw new Error('Invalid Google identity');
+	if (!claims.email || claims.email_verified === false) throw new Error('Google account has no verified email');
+	return { email: String(claims.email).toLowerCase(), name: String(claims.name ?? claims.email.split('@')[0]) };
 }
 
 export async function exchangeCode(code: string, origin: string) {
@@ -459,8 +478,9 @@ async function gtm(m: Metrics, container: string) {
 }
 
 export async function getMetrics(client: Client, days = 28): Promise<Metrics> {
-	// Start from demo data; every connected source overwrites its part with real numbers.
-	const m = demoMetrics(client, days);
+	// Example clients start from demo data. Real clients start from the snippet's own numbers (or zeros) —
+	// never invented data. Every connected Google source then overwrites its part with real numbers.
+	const m = client.demo ? demoMetrics(client, days) : trackingMetrics(client, days);
 	if (!isConnected() || !googleConfigured()) return m;
 	const gg = client.google;
 	const run = async (key: keyof Metrics['sources'], enabled: string | undefined, fn: () => Promise<void>) => {
@@ -490,7 +510,9 @@ const COUNTRY: Record<string, string> = { bel: 'Belgium', fra: 'France', nld: 'N
 export async function getSearchConsole(client: Client, days = 28): Promise<SearchConsoleDetail> {
 	const demo = demoSearchConsole(client, days);
 	const site = client.google.gscSiteUrl;
-	if (!site || !isConnected() || !googleConfigured()) return demo;
+	const empty: SearchConsoleDetail = { source: 'off', range: demo.range, totals: { clicks: 0, impressions: 0, ctr: 0, position: 0, prevClicks: 0, prevImpressions: 0, prevPosition: 0 }, daily: [], queries: [], pages: [], countries: [], devices: [] };
+	if (client.demo && (!site || !isConnected() || !googleConfigured())) return demo;
+	if (!site || !isConnected() || !googleConfigured()) return empty;
 	const base = `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`;
 	const prev = prevRange(days);
 	const q = (body: object) => g(base, { method: 'POST', body: JSON.stringify({ startDate: demo.range.start, endDate: demo.range.end, ...body }) });
@@ -530,7 +552,7 @@ export async function getSearchConsole(client: Client, days = 28): Promise<Searc
 			devices: toRows(devices, (k) => k.charAt(0) + k.slice(1).toLowerCase())
 		};
 	} catch (e) {
-		return { ...demo, source: 'error', error: (e as Error).message };
+		return client.demo ? { ...demo, source: 'error', error: (e as Error).message } : { ...empty, source: 'error', error: (e as Error).message };
 	}
 }
 

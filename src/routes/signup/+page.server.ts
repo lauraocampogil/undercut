@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { getAgency, getBilling, listClients, saveAccount, saveAgency, saveBilling, getAccount } from '#lib/server/store.ts';
 import { PLANS, type PlanId } from '#lib/plans.ts';
+import { googleConfigured } from '#lib/server/google.ts';
 import { authEnabled, passwordProblem, setOwnerPassword, startSession } from '#lib/server/auth.ts';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,7 +9,7 @@ import { join } from 'node:path';
 export const load = ({ url, locals }) => {
 	// One workspace per install: once it is protected, new visitors log in instead.
 	if (authEnabled()) redirect(303, locals.user ? '/app' : '/login');
-	return { plan: url.searchParams.get('plan') ?? 'agency' };
+	return { plan: url.searchParams.get('plan') ?? 'agency', google: googleConfigured() };
 };
 
 export const actions = {

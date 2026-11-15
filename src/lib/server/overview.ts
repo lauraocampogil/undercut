@@ -63,8 +63,18 @@ export async function getClientOverview(client: Client, days = 28): Promise<Clie
 	const areas: AreaTile[] = [];
 	if (leads) areas.push({ key: 'leads', label: 'Leads', href: `${base}/leads`, level: level('leads'), value: leads.source === 'waiting' ? '—' : String(leads.totals.leads), sub: leads.source === 'waiting' ? 'install the snippet' : 'forms, calls, emails', delta: leads.source === 'waiting' ? undefined : pct(leads.totals.leads, leads.totals.prev), open: open('leads').length });
 	if (metrics) {
-		areas.push({ key: 'traffic', label: 'Traffic', href: `${base}/traffic`, level: level('traffic'), value: metrics.visits.total.toLocaleString('en-US'), sub: 'visits', delta: pct(metrics.visits.total, metrics.visits.prev), open: open('traffic').length });
-		areas.push({ key: 'search', label: 'Google Search', href: `${base}/search`, level: level('search'), value: `#${metrics.search.position}`, sub: `${metrics.search.clicks.toLocaleString('en-US')} clicks`, delta: +(metrics.search.position - metrics.search.prevPosition).toFixed(1), deltaInvert: true, open: open('search').length });
+		const measuring = metrics.sources.ga4 === 'google' || metrics.sources.ga4 === 'demo' || metrics.visits.total > 0 || metrics.visits.prev > 0;
+		areas.push(
+			measuring
+				? { key: 'traffic', label: 'Traffic', href: `${base}/traffic`, level: level('traffic'), value: metrics.visits.total.toLocaleString('en-US'), sub: 'visits', delta: pct(metrics.visits.total, metrics.visits.prev), open: open('traffic').length }
+				: { key: 'traffic', label: 'Traffic', href: `${base}/settings`, level: 'warn', value: '—', sub: 'install the snippet or link GA4', open: open('traffic').length }
+		);
+		const gscOn = metrics.sources.gsc !== 'off' && metrics.search.position > 0;
+		areas.push(
+			gscOn
+				? { key: 'search', label: 'Google Search', href: `${base}/search`, level: level('search'), value: `#${metrics.search.position}`, sub: `${metrics.search.clicks.toLocaleString('en-US')} clicks`, delta: metrics.search.prevPosition ? +(metrics.search.position - metrics.search.prevPosition).toFixed(1) : undefined, deltaInvert: true, open: open('search').length }
+				: { key: 'search', label: 'Google Search', href: metrics.sources.gsc === 'off' ? `${base}/settings` : `${base}/search`, level: metrics.sources.gsc === 'off' ? 'warn' : level('search'), value: '—', sub: metrics.sources.gsc === 'off' ? 'link Search Console' : 'no searches yet', open: open('search').length }
+		);
 	}
 	if (audit) areas.push({ key: 'seo', label: 'SEO health', href: `${base}/seo`, level: level('seo'), value: `${audit.score}`, sub: `/100 · ${audit.issues.length} issues`, open: open('seo').length });
 	if (metrics?.maps) {
@@ -81,7 +91,12 @@ export async function getClientOverview(client: Client, days = 28): Promise<Clie
 			sub: heat.installed ? 'reach mid-page (mobile)' : 'install the tracking snippet',
 			open: open('behaviour').length
 		});
-	if (app) areas.push({ key: 'app', label: 'App', href: `${base}/app`, level: level('app'), value: app.active.total.toLocaleString('en-US'), sub: `active users · ${app.crashFree}% crash-free`, delta: pct(app.active.total, app.active.prev), open: open('app').length });
+	if (app)
+		areas.push(
+			app.source.usage === 'google' || app.source.usage === 'demo'
+				? { key: 'app', label: 'App', href: `${base}/app`, level: level('app'), value: app.active.total.toLocaleString('en-US'), sub: `active users · ${app.crashFree}% crash-free`, delta: pct(app.active.total, app.active.prev), open: open('app').length }
+				: { key: 'app', label: 'App', href: `${base}/settings`, level: 'warn', value: app.store.ios ? `${app.store.ios.rating}★` : '—', sub: app.store.ios ? `${app.store.ios.count} ratings · link GA4 for usage` : 'link GA4 / Firebase', open: open('app').length }
+		);
 
 	return { metrics, leads, audit, heat, app, tasks, areas, health: healthScore(tasks.filter((t) => !t.done)) };
 }

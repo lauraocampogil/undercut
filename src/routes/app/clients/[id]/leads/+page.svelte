@@ -41,7 +41,7 @@
 		<div class="card-dark flex flex-col justify-between gap-6 p-6 sm:p-7">
 			<div class="flex items-center justify-between">
 				<p class="text-sm text-white/60">Leads · last {l.range.days} days</p>
-				<SourceBadge state={l.source === 'live' ? 'google' : 'demo'} dark />
+				<SourceBadge state={l.source === 'live' ? 'tracking' : l.source === 'demo' ? 'demo' : 'off'} dark />
 			</div>
 			<div>
 				<p class="flex items-start gap-2"><span class="big text-[80px] text-accent">{n(l.totals.leads)}</span><Delta value={pct(l.totals.leads, l.totals.prev)} dark /></p>

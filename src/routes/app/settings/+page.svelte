@@ -17,8 +17,20 @@
 	const optional = $derived([
 		{ name: 'Trends & ranking pages', env: 'SERPAPI_KEY', on: data.keys.serpapi, what: 'Content ideas: Google Trends and the pages that rank' },
 		{ name: 'PageSpeed', env: 'PAGESPEED_API_KEY', on: data.keys.pagespeed, what: 'Speed checks work without; a key raises the quota' },
-		{ name: 'AI summaries', env: 'ANTHROPIC_API_KEY', on: data.keys.anthropic, what: 'Weekly summaries written by Claude, in FR/NL/EN' }
+		{ name: 'AI summaries & assistant', env: 'ANTHROPIC_API_KEY', on: data.keys.anthropic, what: 'Summaries and the assistant written by Claude, in FR/NL/EN/ES' },
+		{ name: 'Emails', env: 'RESEND_API_KEY', on: data.keys.resend, what: 'Alert emails, Monday digest and team invitations' },
+		{ name: 'Payments', env: 'STRIPE_SECRET_KEY', on: data.keys.stripe, what: 'Subscriptions and invoices' }
 	]);
+	const localUrl = $derived(!data.publicUrl || /localhost|127\.0\.0\.1/.test(data.publicUrl));
+	const apis = [
+		['Google Analytics Data API', 'analyticsdata.googleapis.com'],
+		['Google Analytics Admin API', 'analyticsadmin.googleapis.com'],
+		['Google Search Console API', 'searchconsole.googleapis.com'],
+		['Tag Manager API', 'tagmanager.googleapis.com'],
+		['Business Profile Performance API *', 'businessprofileperformance.googleapis.com'],
+		['My Business Account Management API *', 'mybusinessaccountmanagement.googleapis.com'],
+		['My Business Business Information API *', 'mybusinessbusinessinformation.googleapis.com']
+	];
 </script>
 
 <svelte:head><title>Settings · Undercut</title></svelte:head>
@@ -66,7 +78,7 @@
 		<div class="flex flex-wrap items-start justify-between gap-4">
 			<div>
 				<h2 class="display text-[34px] leading-none">Google</h2>
-				<p class="mt-2 text-sm text-muted">{g.connected ? `Connected as ${g.email ?? 'your account'}` : 'One login for every client. Until then, dashboards show example data.'}</p>
+				<p class="mt-2 text-sm text-muted">{g.connected ? `Connected as ${g.email ?? 'your account'}` : 'One login for every client. Until then, real clients only show what the Undercut snippet measures.'}</p>
 			</div>
 			{#if g.connected}
 				<form method="POST" action="?/disconnect"><button class="btn btn-ghost">Disconnect</button></form>
@@ -94,22 +106,36 @@
 				</li>
 			{/each}
 		</ul>
-		{#if !g.configured}
-			<details class="mt-5 text-sm">
-				<summary class="cursor-pointer font-medium">Developer setup (one time, ~10 min)</summary>
-				<ol class="mt-3 list-decimal space-y-2 pl-5 text-ink-2">
-					<li>Google Cloud Console → new project → enable Analytics Data, Analytics Admin, Search Console, Tag Manager and the Business Profile APIs.</li>
-					<li>OAuth consent screen → External → add yourself as test user.</li>
-					<li>Credentials → OAuth client ID → Web application → redirect URI <code class="rounded bg-tile px-1.5 py-0.5 text-xs">{data.redirectUri}</code></li>
-					<li>Put the ID and secret in <code>.env</code> and restart.</li>
-				</ol>
-			</details>
-		{/if}
+		<details class="mt-5 text-sm" open={!g.configured}>
+			<summary class="cursor-pointer font-medium">{g.configured ? 'Google Cloud setup' : 'Set up Google (one time, ~10 min)'}</summary>
+			<ol class="mt-3 list-decimal space-y-3 pl-5 text-ink-2">
+				<li>Open <a class="underline" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud Console</a> → create a project (e.g. “Undercut”).</li>
+				<li>
+					Enable these APIs (click each, then “Enable”):
+					<ul class="mt-2 space-y-1">
+						{#each apis as [n, id] (id)}<li><a class="underline" href="https://console.cloud.google.com/apis/library/{id}" target="_blank" rel="noreferrer">{n}</a></li>{/each}
+					</ul>
+					<p class="mt-1 text-xs text-muted">* Google Maps (Business Profile) data needs a free access request: <a class="underline" href="https://developers.google.com/my-business/content/prereqs" target="_blank" rel="noreferrer">request access</a>. Everything else works right away.</p>
+				</li>
+				<li><a class="underline" href="https://console.cloud.google.com/auth/branding" target="_blank" rel="noreferrer">OAuth consent screen</a> → External → app name “Undercut” → add your Google email as <b>test user</b>.</li>
+				<li>
+					<a class="underline" href="https://console.cloud.google.com/auth/clients/create" target="_blank" rel="noreferrer">Create an OAuth client</a> → Web application →<br />
+					Authorized JavaScript origin: <code class="rounded bg-tile px-1.5 py-0.5 text-xs">{data.origin}</code><br />
+					Authorized redirect URI: <code class="rounded bg-tile px-1.5 py-0.5 text-xs break-all">{data.redirectUri}</code>
+				</li>
+				<li>Copy the Client ID and Client secret into <code>.env</code> as <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> and restart.</li>
+			</ol>
+			<p class="mt-3 text-xs text-muted">The same client also powers “Continue with Google” on the login page. In “Testing” mode Google asks to reconnect every 7 days. Publish the app to stay connected (Google shows an “unverified app” notice until it is verified — fine for your own use).</p>
+		</details>
 	</div>
 
 	<div class="card p-6 sm:p-7">
 		<h2 class="display text-[34px] leading-none">Extras</h2>
-		<p class="mt-2 text-sm text-muted">Optional keys in <code>.env</code>. Everything works without them, with example data where needed.</p>
+		<p class="mt-2 text-sm text-muted">Optional keys in <code>.env</code>. Everything works without them.</p>
+		<div class="mt-5 rounded-[18px] p-4 text-sm {localUrl ? 'bg-warn-bg' : 'bg-good-bg'}">
+			<p class="font-medium">{localUrl ? 'Tracking only works on this computer' : `Public address · ${data.publicUrl}`}</p>
+			<p class="mt-1 text-xs text-ink-2">{localUrl ? 'Your clients’ sites send visits, leads and heatmaps to this app. Deploy it on a public address (see DEPLOY.md) and set PUBLIC_BASE_URL — then paste the snippet on the sites.' : 'The tracking snippet of every client points here.'}</p>
+		</div>
 		<ul class="mt-5 space-y-1.5">
 			{#each optional as o (o.env)}
 				<li class="flex items-center justify-between gap-4 rounded-[18px] bg-tile px-4 py-3 text-sm">

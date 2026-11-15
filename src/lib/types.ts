@@ -31,7 +31,7 @@ export type AlertRule = 'leads_drop' | 'no_leads' | 'traffic_drop' | 'site_down'
 
 export type Point = { date: string; value: number };
 
-export type Source = 'demo' | 'google';
+export type Source = 'demo' | 'google' | 'tracking';
 
 export type Metrics = {
 	range: { start: string; end: string; days: number };
@@ -95,7 +95,7 @@ export type SitemapReport = {
 export type GscRow = { key: string; clicks: number; impressions: number; ctr: number; position: number; prevClicks?: number };
 
 export type SearchConsoleDetail = {
-	source: Source | 'error';
+	source: Source | 'error' | 'off';
 	error?: string;
 	range: { start: string; end: string; days: number };
 	totals: { clicks: number; impressions: number; ctr: number; position: number; prevClicks: number; prevImpressions: number; prevPosition: number };

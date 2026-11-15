@@ -37,7 +37,7 @@ export function verifyPassword(pw: string, stored?: string) {
 export const passwordProblem = (pw: string) => (pw.length < 8 ? 'Use at least 8 characters.' : null);
 
 /** Login is enforced once the owner has a password. */
-export const authEnabled = () => Boolean(getAccount().passwordHash);
+export const authEnabled = () => Boolean(getAccount().passwordHash || getAccount().googleLogin);
 
 function sign(payload: string) {
 	return createHmac('sha256', secret()).update(payload).digest('base64url');
@@ -108,6 +108,19 @@ export function acceptInvite(token: string, name: string, pw: string) {
 	m.status = 'active';
 	m.name = name || m.name;
 	m.passwordHash = hashPassword(pw);
+	delete m.inviteToken;
+	saveMembers(all);
+	return m;
+}
+
+/** Activate an invitation with a Google account (the Google email must match the invited email). */
+export function acceptInviteWithGoogle(token: string, email: string, name: string) {
+	const all = listMembers();
+	const m = all.find((x) => x.inviteToken === token && x.status === 'invited');
+	if (!m || m.email !== email) return null;
+	m.status = 'active';
+	m.name = m.name || name;
+	m.googleLogin = true;
 	delete m.inviteToken;
 	saveMembers(all);
 	return m;

@@ -2,6 +2,7 @@
 // and says in one sentence where most of it comes from. Pure arithmetic, no language model.
 import type { Client } from '#lib/types.ts';
 import { demoMetrics } from './demo.ts';
+import { getMetrics } from './google.ts';
 import { gaSegments, gscSegments, googleReady, type Seg } from './google.ts';
 import { demoTrend, getLeads, trackingSegments } from './leads.ts';
 import { getHeatmap } from './tracking.ts';
@@ -62,8 +63,10 @@ async function segments(client: Client, metric: Metric, dim: Dim, days: number, 
 			if (metric === 'visits' && getHeatmap(client).installed) return { segs: trackingSegments(client, 'visits', dim, days), source: 'tracking' };
 			if (metric === 'clicks' && client.google.gscSiteUrl && googleReady()) return { segs: await gscSegments(client.google.gscSiteUrl, dim, days), source: 'google' };
 		} catch {
-			/* fall back to demo */
+			/* no breakdown available */
 		}
+		// real client without data for this metric: say nothing rather than invent
+		return { segs: [], source: metric === 'clicks' ? 'google' : 'tracking' };
 	}
 	return { segs: demoSegments(client, metric, dim, cur, prev), source: 'demo' };
 }
@@ -76,7 +79,7 @@ export async function explain(client: Client, metric: Metric, days = 28): Promis
 		cur = l.totals.leads;
 		prev = l.totals.prev;
 	} else {
-		const m = demoMetrics(client, days);
+		const m = client.demo ? demoMetrics(client, days) : await getMetrics(client, days);
 		cur = metric === 'visits' ? m.visits.total : m.search.clicks;
 		prev = metric === 'visits' ? m.visits.prev : m.search.prevClicks;
 	}
