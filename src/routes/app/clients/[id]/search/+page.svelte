@@ -100,6 +100,18 @@
 	</div>
 </section>
 
+{#if !data.maps}
+	<section id="maps" class="card mt-10 scroll-mt-6 p-6 sm:p-8">
+		<h2 class="text-xl font-medium">Google Maps (Business Profile)</h2>
+		<p class="mt-2 max-w-3xl text-sm text-ink-2">Calls, route requests and website clicks from Google Maps come from the Business Profile API. Google only opens it to apps it has approved — it is the one Google source that needs a request.</p>
+		<ol class="mt-4 max-w-3xl list-decimal space-y-1.5 pl-5 text-sm text-ink-2">
+			<li>Request access (free, answer in ~1–2 weeks): <a class="underline" href="https://developers.google.com/my-business/content/prereqs#request-access" target="_blank" rel="noreferrer">Business Profile API access form</a> — project <b>undercut-project</b>.</li>
+			<li>Once approved, enable <i>My Business Account Management</i>, <i>Business Information</i> and <i>Business Profile Performance</i> in Google Cloud.</li>
+			<li>In Setup, reconnect Google and pick the Business Profile of this client.</li>
+		</ol>
+		{#if data.mapsError}<p class="mt-4 rounded-[14px] bg-warn-bg p-3 text-xs text-warn">Google says: {data.mapsError}</p>{/if}
+	</section>
+{/if}
 {#if data.maps}
 	{@const mp = data.maps}
 	{@const total = mp.calls + mp.directions + mp.websiteClicks}

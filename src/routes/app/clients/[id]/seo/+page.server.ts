@@ -3,6 +3,7 @@ import { getSeoAudit } from '#lib/server/seo-audit.ts';
 import { getClient, hasWeb } from '#lib/server/store.ts';
 import { codeFor, fixedIssues, generateFixes, listFixes, setAll, updateFix } from '#lib/server/fixes.ts';
 import { getHeatmap } from '#lib/server/tracking.ts';
+import { lastChecks } from '#lib/server/live-check.ts';
 
 export const load = async ({ parent }) => {
 	const { client } = await parent();
@@ -18,7 +19,8 @@ export const load = async ({ parent }) => {
 		titles: Object.fromEntries(audit.pages.map((p) => [p.path, p.title])) as Record<string, string>,
 		descs: Object.fromEntries(audit.pages.map((p) => [p.path, p.desc])) as Record<string, string>,
 		fixed: [...fixedIssues(client.id)],
-		snippetInstalled: client.demo || getHeatmap(client).installed
+		snippetInstalled: client.demo || getHeatmap(client).installed,
+		checks: lastChecks(client)
 	};
 };
 

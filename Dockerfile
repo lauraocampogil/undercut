@@ -8,8 +8,9 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
 WORKDIR /app
-ENV NODE_ENV=production PORT=3000 TZ=Europe/Brussels
-RUN apk add --no-cache tzdata
+# Chromium: real Lighthouse runs on the server (no Google quota) and live checks of published fixes
+ENV NODE_ENV=production PORT=3000 TZ=Europe/Brussels CHROME_PATH=/usr/bin/chromium-browser
+RUN apk add --no-cache tzdata chromium nss freetype harfbuzz ttf-freefont font-noto
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json ./

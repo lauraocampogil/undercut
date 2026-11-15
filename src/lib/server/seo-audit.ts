@@ -4,7 +4,11 @@
 import { parse } from 'node-html-parser';
 import * as env from '$app/env/private';
 import type { Client, Level } from '#lib/types.ts';
-import { projectAccessToken } from './google.ts';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { chromePath, CHROME_ARGS, inChromeQueue } from './chrome.ts';
+import { join } from 'node:path';
+import { execFile } from 'node:child_process';
 import { normaliseSite, sitemapFor } from './sitemap.ts';
 import type { Draft } from './insights.ts';
 import { track } from './usage.ts';
@@ -48,6 +52,7 @@ export type Lighthouse = {
 	screenshot?: string; // what Google saw (data URI)
 	testedAt?: string;
 	runs?: number[]; // performance score of each run (median is shown)
+	engine?: 'psi' | 'local'; // who ran it: Google PageSpeed or Chrome on the Undercut server
 	url?: string;
 };
 export type W3C = {
@@ -127,12 +132,12 @@ function auditPage(url: string, status: number, ms: number, html: string): PageA
 		imagesNoAlt: imgs.filter((i) => !i.getAttribute('alt')?.trim()).length,
 		words: text ? text.split(' ').length : 0,
 		h1Text: root.querySelector('h1')?.textContent.replace(/\s+/g, ' ').trim().slice(0, 90),
-		noAltSrcs: [...new Set(imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => i.getAttribute('src') ?? '').filter(Boolean))].slice(0, 12),
+		noAltSrcs: [...new Set(imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => (i.getAttribute('src') ?? '').trim()).filter(Boolean))].slice(0, 12),
 		noAltImgs: (() => {
 			const seen = new Set<string>();
 			const out: { src: string; abs: string; context: string }[] = [];
 			for (const i of imgs) {
-				const src = i.getAttribute('src') ?? '';
+				const src = (i.getAttribute('src') ?? '').trim();
 				if (!src || i.getAttribute('alt')?.trim() || seen.has(src)) continue;
 				seen.add(src);
 				let abs = src;
@@ -156,83 +161,108 @@ const CAT: Record<string, Lighthouse['audits'][number]['category']> = {
 	seo: 'SEO'
 };
 
-// Google Lighthouse through the PageSpeed Insights API: the same 4 scores as Chrome DevTools.
-async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<{ speed: SeoAudit['speed']; lighthouse: Lighthouse | null; console: SeoAudit['console']; error?: string }> {
+type LhOut = { speed: SeoAudit['speed']; lighthouse: Lighthouse | null; console: SeoAudit['console']; error?: string };
+
+/** Turn a Lighthouse result (from PageSpeed or from our own Chrome) into what the SEO page shows. */
+function fromLhr(lr: any, url: string, source: 'psi' | 'local'): LhOut {
+	const a = lr.audits ?? {};
+	const cats = lr.categories ?? {};
+	if (lr.runtimeError?.code) return { speed: null, lighthouse: null, console: null, error: `Lighthouse could not load the page (${String(lr.runtimeError.message ?? lr.runtimeError.code).slice(0, 160)}).` };
+	const score = (k: string) => Math.round((cats[k]?.score ?? 0) * 100);
+	const audits: Lighthouse['audits'] = [];
+	for (const [catKey, cat] of Object.entries<any>(cats)) {
+		for (const ref of cat.auditRefs ?? []) {
+			const au = a[ref.id];
+			if (!au || au.score === null || au.score >= 0.9 || ['manual', 'notApplicable', 'informative'].includes(au.scoreDisplayMode)) continue;
+			if (ref.weight === 0 && catKey !== 'performance') continue;
+			audits.push({ id: ref.id, category: CAT[catKey], title: au.title, value: au.displayValue, level: au.score < 0.5 ? 'bad' : 'warn' });
+		}
+	}
+	const seen = new Set<string>();
+	const metric = (id: string, label: string) => {
+		const m = a[id];
+		return m ? { id, label, value: String(m.displayValue ?? ''), level: (m.score >= 0.9 ? 'good' : m.score >= 0.5 ? 'warn' : 'bad') as Level } : null;
+	};
+	const metrics = [metric('first-contentful-paint', 'First Contentful Paint'), metric('largest-contentful-paint', 'Largest Contentful Paint'), metric('total-blocking-time', 'Total Blocking Time'), metric('cumulative-layout-shift', 'Cumulative Layout Shift'), metric('speed-index', 'Speed Index')].filter((x): x is NonNullable<typeof x> => Boolean(x));
+	const shot = a['final-screenshot']?.details?.data;
+	return {
+		speed: { source: 'psi', performance: score('performance'), lcp: +((a['largest-contentful-paint']?.numericValue ?? 0) / 1000).toFixed(1), cls: +(a['cumulative-layout-shift']?.numericValue ?? 0).toFixed(2), tbt: Math.round(a['total-blocking-time']?.numericValue ?? 0) },
+		lighthouse: {
+			source: 'psi',
+			engine: source,
+			scores: { performance: score('performance'), accessibility: score('accessibility'), bestPractices: score('best-practices'), seo: score('seo') },
+			audits: audits.filter((x) => !seen.has(x.id) && seen.add(x.id)).slice(0, 14),
+			metrics,
+			screenshot: typeof shot === 'string' && shot.length < 400_000 ? shot : undefined,
+			testedAt: lr.fetchTime ?? new Date().toISOString(),
+			url: lr.finalDisplayedUrl ?? lr.finalUrl ?? url
+		},
+		console: { source: 'psi', items: (a['errors-in-console']?.details?.items ?? []).slice(0, 10).map((it: any) => ({ message: String(it.description ?? '').slice(0, 300), source: it.sourceLocation?.url ?? it.source })) }
+	};
+}
+
+// ---- 1. Our own Chrome on the server (no quota, no key). Used when Chrome is installed (Docker image has it). ----
+async function lighthouseLocal(url: string, strategy: 'mobile' | 'desktop'): Promise<LhOut> {
+	const chrome = chromePath();
+	if (!chrome) return { speed: null, lighthouse: null, console: null, error: 'no-chrome' };
+	const cli = join(process.cwd(), 'node_modules', 'lighthouse', 'cli', 'index.js');
+	if (!existsSync(cli)) return { speed: null, lighthouse: null, console: null, error: 'no-chrome' };
+	return inChromeQueue(
+		() =>
+			new Promise<LhOut>((resolve) => {
+				const dir = mkdtempSync(join(tmpdir(), 'uc-lh-'));
+				const out = join(dir, 'report.json');
+				const args = [cli, url, '--output=json', `--output-path=${out}`, '--quiet', '--only-categories=performance,accessibility,best-practices,seo', '--max-wait-for-load=45000', `--chrome-flags=${CHROME_ARGS.join(' ')}`];
+				if (strategy === 'desktop') args.push('--preset=desktop');
+				execFile(process.execPath, args, { env: { ...process.env, CHROME_PATH: chrome }, maxBuffer: 10 * 1024 * 1024, timeout: 120_000 }, (err) => {
+					try {
+						resolve(fromLhr(JSON.parse(readFileSync(out, 'utf8')), url, 'local'));
+					} catch {
+						resolve({ speed: null, lighthouse: null, console: null, error: err?.killed ? 'Lighthouse took more than 2 minutes — the page is very slow or blocks robots.' : `Lighthouse could not test the page${err ? ` (${String(err.message).split('\n')[0].slice(0, 140)})` : ''}.` });
+					} finally {
+						rmSync(dir, { recursive: true, force: true });
+					}
+				});
+			})
+	);
+}
+
+// ---- 2. Google PageSpeed Insights API (same Lighthouse, run by Google). Needs PAGESPEED_API_KEY for a real quota. ----
+async function lighthousePsi(url: string, strategy: 'mobile' | 'desktop'): Promise<LhOut & { quota?: boolean }> {
 	const p = new URLSearchParams({ url, strategy });
 	for (const c of ['PERFORMANCE', 'ACCESSIBILITY', 'BEST_PRACTICES', 'SEO']) p.append('category', c);
-	const headers: Record<string, string> = {};
 	if (env.PAGESPEED_API_KEY) p.set('key', env.PAGESPEED_API_KEY);
-	else {
-		// No key: use the connected Google account (quota of your own Google Cloud project instead of the tiny shared one)
-		const token = await projectAccessToken();
-		if (token) headers.authorization = `Bearer ${token}`;
-	}
 	try {
-		const call = (h: Record<string, string>) => fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { headers: h, signal: AbortSignal.timeout(60_000) });
-		let r = await call(headers);
-		// the account token may not be accepted (scope / API off) → fall back to the anonymous quota
-		if (headers.authorization && (r.status === 401 || r.status === 403)) r = await call({});
+		const r = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { signal: AbortSignal.timeout(90_000) });
 		if (!r.ok) {
 			const t = await r.text();
-			const link = t.match(/https:\/\/console\.developers\.google\.com\/apis\/api\/[^\s"\\]+/)?.[0];
-			const error =
-				r.status === 429 ? 'Google’s free PageSpeed quota is used up for now. Add a PAGESPEED_API_KEY (free) or enable the PageSpeed Insights API in your Google Cloud project: https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com'
-				: r.status === 403 ? `The PageSpeed Insights API is not enabled in your Google Cloud project — enable it, then “Check again”: ${link ?? 'https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com'}`
-				: r.status === 400 || r.status === 500 ? `Lighthouse could not load the page (${String(t.match(/"message":\s*"([^"]+)/)?.[1] ?? r.status).slice(0, 160)}).`
-				: `PageSpeed answered ${r.status}.`;
-			return { speed: null, lighthouse: null, console: null, error };
+			const msg = String(t.match(/"message":\s*"([^"]+)/)?.[1] ?? r.status).slice(0, 200);
+			if (r.status === 429 || /quota/i.test(msg)) return { speed: null, lighthouse: null, console: null, quota: true, error: 'Google’s free PageSpeed quota is used up. Add PAGESPEED_API_KEY in the server settings.' };
+			if (r.status === 400 || r.status === 500) return { speed: null, lighthouse: null, console: null, error: `Lighthouse could not load the page (${msg}).` };
+			return { speed: null, lighthouse: null, console: null, quota: r.status === 403, error: `PageSpeed answered ${r.status}: ${msg}` };
 		}
 		const j = await r.json();
-		const lr = j.lighthouseResult ?? {};
-		const a = lr.audits ?? {};
-		const cats = lr.categories ?? {};
-		const score = (k: string) => Math.round((cats[k]?.score ?? 0) * 100);
-		const audits: Lighthouse['audits'] = [];
-		for (const [catKey, cat] of Object.entries<any>(cats)) {
-			for (const ref of cat.auditRefs ?? []) {
-				const au = a[ref.id];
-				if (!au || au.score === null || au.score >= 0.9 || ['manual', 'notApplicable', 'informative'].includes(au.scoreDisplayMode)) continue;
-				if (ref.weight === 0 && catKey !== 'performance') continue;
-				audits.push({ id: ref.id, category: CAT[catKey], title: au.title, value: au.displayValue, level: au.score < 0.5 ? 'bad' : 'warn' });
-			}
-		}
-		const seen = new Set<string>();
-		const metric = (id: string, label: string) => {
-			const m = a[id];
-			return m ? { id, label, value: String(m.displayValue ?? ''), level: (m.score >= 0.9 ? 'good' : m.score >= 0.5 ? 'warn' : 'bad') as Level } : null;
-		};
-		const metrics = [metric('first-contentful-paint', 'First Contentful Paint'), metric('largest-contentful-paint', 'Largest Contentful Paint'), metric('total-blocking-time', 'Total Blocking Time'), metric('cumulative-layout-shift', 'Cumulative Layout Shift'), metric('speed-index', 'Speed Index')].filter((x): x is NonNullable<typeof x> => Boolean(x));
-		const shot = a['final-screenshot']?.details?.data;
-		return {
-			speed: {
-				source: 'psi',
-				performance: score('performance'),
-				lcp: +((a['largest-contentful-paint']?.numericValue ?? 0) / 1000).toFixed(1),
-				cls: +(a['cumulative-layout-shift']?.numericValue ?? 0).toFixed(2),
-				tbt: Math.round(a['total-blocking-time']?.numericValue ?? 0)
-			},
-			lighthouse: {
-				source: 'psi',
-				scores: { performance: score('performance'), accessibility: score('accessibility'), bestPractices: score('best-practices'), seo: score('seo') },
-				audits: audits.filter((x) => !seen.has(x.id) && seen.add(x.id)).slice(0, 14),
-				metrics,
-				screenshot: typeof shot === 'string' && shot.length < 400_000 ? shot : undefined,
-				testedAt: lr.fetchTime ?? new Date().toISOString(),
-				url: lr.finalDisplayedUrl ?? lr.finalUrl ?? url
-			},
-			console: {
-				source: 'psi',
-				items: (a['errors-in-console']?.details?.items ?? []).slice(0, 10).map((it: any) => ({ message: String(it.description ?? '').slice(0, 300), source: it.sourceLocation?.url ?? it.source }))
-			}
-		};
+		return fromLhr(j.lighthouseResult ?? {}, url, 'psi');
 	} catch (e) {
-		return { speed: null, lighthouse: null, console: null, error: (e as Error).name === 'TimeoutError' ? 'Lighthouse took more than 60 s — the page is very slow or blocked the test. Try “Check again”.' : 'Lighthouse could not reach Google PageSpeed.' };
+		return { speed: null, lighthouse: null, console: null, error: (e as Error).name === 'TimeoutError' ? 'Lighthouse took more than 90 s — the page is very slow or blocked the test.' : 'Lighthouse could not reach Google PageSpeed.' };
 	}
 }
 
-/** Lighthouse varies from run to run (like on pagespeed.web.dev). Run it 3× in parallel and keep the median. */
+/** Real Lighthouse: Google PageSpeed when a key is set, otherwise Chrome on our server; each one backs up the other. */
+async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<LhOut> {
+	if (env.PAGESPEED_API_KEY) {
+		const r = await lighthousePsi(url, strategy);
+		if (r.lighthouse || !r.quota) return r;
+		const l = await lighthouseLocal(url, strategy);
+		return l.error === 'no-chrome' ? r : l;
+	}
+	const l = await lighthouseLocal(url, strategy);
+	if (l.error !== 'no-chrome') return l;
+	return lighthousePsi(url, strategy);
+}
+
+/** Lighthouse varies from run to run (like on pagespeed.web.dev). With a PageSpeed key: 3 runs, median kept. */
 async function lighthouseMedian(url: string, strategy: 'mobile' | 'desktop') {
-	// Without an API key Google's shared quota is tiny: one run only, otherwise most calls come back 429.
 	if (!env.PAGESPEED_API_KEY) return lighthouse(url, strategy);
 	const runs = await Promise.all([lighthouse(url, strategy), lighthouse(url, strategy), lighthouse(url, strategy)]);
 	const ok = runs.filter((r) => r.lighthouse).sort((x, y) => x.lighthouse!.scores.performance - y.lighthouse!.scores.performance);

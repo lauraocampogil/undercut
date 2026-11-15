@@ -231,10 +231,7 @@ export async function getIdeas(keywordRaw: string, lang: Lang = 'fr', geo = 'BE'
 				? (risingRes.value.related_queries?.rising ?? risingRes.value.related_queries?.top ?? [])
 						.slice(0, 8)
 						.map((r: any) => ({ query: r.query, value: String(r.value ?? r.extracted_value ?? '') }))
-				: [`${keyword} ${new Date().getFullYear()}`, `${keyword} prix`, `meilleur ${keyword}`, `${keyword} avis`].map((q, i) => ({
-						query: q,
-						value: ['Breakout', '+350%', '+120%', '+60%'][i]
-					}));
+				: []; // no SerpApi key: nothing invented
 
 		let content: IdeasResult['content'];
 		if (contentRes.status === 'fulfilled' && contentRes.value.organic_results?.length) {

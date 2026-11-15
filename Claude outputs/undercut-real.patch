@@ -1,0 +1,2872 @@
+From a113c749b826ac7d0eaa6f80947ccd82ba35b11b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 17:02:28 +0100
+Subject: [PATCH] Make it real: Lighthouse with server Chrome (no quota), live
+ check of published fixes in a real browser, snippet supports single-page
+ sites + robust image matching, keyword push uses Search Console page and real
+ page content, no invented keyword data, Search opportunities for small sites,
+ Maps setup guide
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ Dockerfile                                    |    5 +-
+ package-lock.json                             | 1688 ++++++++++++++++-
+ package.json                                  |    4 +-
+ src/lib/server/chrome.ts                      |   16 +
+ src/lib/server/fix-engine.ts                  |   72 +-
+ src/lib/server/fixes.ts                       |   10 +-
+ src/lib/server/google.ts                      |   12 +
+ src/lib/server/ideas.ts                       |    5 +-
+ src/lib/server/live-check.ts                  |   69 +
+ src/lib/server/seo-audit.ts                   |  164 +-
+ src/routes/api/fix/+server.ts                 |    3 +
+ .../app/clients/[id]/keywords/+page.svelte    |   20 +-
+ .../app/clients/[id]/search/+page.server.ts   |   10 +-
+ .../app/clients/[id]/search/+page.svelte      |   12 +
+ .../app/clients/[id]/seo/+page.server.ts      |    4 +-
+ src/routes/app/clients/[id]/seo/+page.svelte  |   45 +-
+ src/routes/u.js/+server.ts                    |   64 +-
+ 17 files changed, 2073 insertions(+), 130 deletions(-)
+ create mode 100644 src/lib/server/chrome.ts
+ create mode 100644 src/lib/server/live-check.ts
+
+diff --git a/Dockerfile b/Dockerfile
+index 147e021..95718fa 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -8,8 +8,9 @@ RUN npm run build && npm prune --omit=dev
+ 
+ FROM node:22-alpine
+ WORKDIR /app
+-ENV NODE_ENV=production PORT=3000 TZ=Europe/Brussels
+-RUN apk add --no-cache tzdata
++# Chromium: real Lighthouse runs on the server (no Google quota) and live checks of published fixes
++ENV NODE_ENV=production PORT=3000 TZ=Europe/Brussels CHROME_PATH=/usr/bin/chromium-browser
++RUN apk add --no-cache tzdata chromium nss freetype harfbuzz ttf-freefont font-noto
+ COPY --from=build /app/build ./build
+ COPY --from=build /app/node_modules ./node_modules
+ COPY package.json ./
+diff --git a/package-lock.json b/package-lock.json
+index ab68cac..a3659f8 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -11,7 +11,9 @@
+ 				"@fontsource-variable/geist": "^5.3.0",
+ 				"@fontsource/instrument-serif": "^5.3.0",
+ 				"fast-xml-parser": "^5.12.0",
+-				"node-html-parser": "^9.0.7"
++				"lighthouse": "^13.6.0",
++				"node-html-parser": "^9.0.7",
++				"puppeteer-core": "^25.17.0"
+ 			},
+ 			"devDependencies": {
+ 				"@sveltejs/adapter-node": "^6.0.2",
+@@ -78,6 +80,63 @@
+ 				"url": "https://github.com/sponsors/ayuhito"
+ 			}
+ 		},
++		"node_modules/@formatjs/ecma402-abstract": {
++			"version": "2.3.6",
++			"resolved": "https://registry.npmjs.org/@formatjs/ecma402-abstract/-/ecma402-abstract-2.3.6.tgz",
++			"integrity": "sha512-HJnTFeRM2kVFVr5gr5kH1XP6K0JcJtE7Lzvtr3FS/so5f1kpsqqqxy5JF+FRaO6H2qmcMfAUIox7AJteieRtVw==",
++			"license": "MIT",
++			"dependencies": {
++				"@formatjs/fast-memoize": "2.2.7",
++				"@formatjs/intl-localematcher": "0.6.2",
++				"decimal.js": "^10.4.3",
++				"tslib": "^2.8.0"
++			}
++		},
++		"node_modules/@formatjs/fast-memoize": {
++			"version": "2.2.7",
++			"resolved": "https://registry.npmjs.org/@formatjs/fast-memoize/-/fast-memoize-2.2.7.tgz",
++			"integrity": "sha512-Yabmi9nSvyOMrlSeGGWDiH7rf3a7sIwplbvo/dlz9WCIjzIQAfy1RMf4S0X3yG724n5Ghu2GmEl5NJIV6O9sZQ==",
++			"license": "MIT",
++			"dependencies": {
++				"tslib": "^2.8.0"
++			}
++		},
++		"node_modules/@formatjs/icu-messageformat-parser": {
++			"version": "2.11.4",
++			"resolved": "https://registry.npmjs.org/@formatjs/icu-messageformat-parser/-/icu-messageformat-parser-2.11.4.tgz",
++			"integrity": "sha512-7kR78cRrPNB4fjGFZg3Rmj5aah8rQj9KPzuLsmcSn4ipLXQvC04keycTI1F7kJYDwIXtT2+7IDEto842CfZBtw==",
++			"license": "MIT",
++			"dependencies": {
++				"@formatjs/ecma402-abstract": "2.3.6",
++				"@formatjs/icu-skeleton-parser": "1.8.16",
++				"tslib": "^2.8.0"
++			}
++		},
++		"node_modules/@formatjs/icu-skeleton-parser": {
++			"version": "1.8.16",
++			"resolved": "https://registry.npmjs.org/@formatjs/icu-skeleton-parser/-/icu-skeleton-parser-1.8.16.tgz",
++			"integrity": "sha512-H13E9Xl+PxBd8D5/6TVUluSpxGNvFSlN/b3coUp0e0JpuWXXnQDiavIpY3NnvSp4xhEMoXyyBvVfdFX8jglOHQ==",
++			"license": "MIT",
++			"dependencies": {
++				"@formatjs/ecma402-abstract": "2.3.6",
++				"tslib": "^2.8.0"
++			}
++		},
++		"node_modules/@formatjs/intl-localematcher": {
++			"version": "0.6.2",
++			"resolved": "https://registry.npmjs.org/@formatjs/intl-localematcher/-/intl-localematcher-0.6.2.tgz",
++			"integrity": "sha512-XOMO2Hupl0wdd172Y06h6kLpBz6Dv+J4okPLl4LPtzbr8f66WbIoy4ev98EBuZ6ZK4h5ydTN6XneT4QVpD7cdA==",
++			"license": "MIT",
++			"dependencies": {
++				"tslib": "^2.8.0"
++			}
++		},
++		"node_modules/@isaacs/nonrecursive-glob-match": {
++			"version": "1.1.0",
++			"resolved": "https://registry.npmjs.org/@isaacs/nonrecursive-glob-match/-/nonrecursive-glob-match-1.1.0.tgz",
++			"integrity": "sha512-GPm/Dbvk5RLmhRnxXIa7nTpK0xtl4E0wj0MslsuNiJ1FIROU+2+9lgUC/dgF7Ey4QCWhfEsgxilMRMCdHPfDfw==",
++			"license": "BlueOak-1.0.0"
++		},
+ 		"node_modules/@jridgewell/gen-mapping": {
+ 			"version": "0.3.13",
+ 			"resolved": "https://registry.npmjs.org/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz",
+@@ -114,7 +173,6 @@
+ 			"version": "1.6.0",
+ 			"resolved": "https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.6.0.tgz",
+ 			"integrity": "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==",
+-			"dev": true,
+ 			"license": "MIT"
+ 		},
+ 		"node_modules/@jridgewell/trace-mapping": {
+@@ -162,6 +220,319 @@
+ 			],
+ 			"license": "MIT"
+ 		},
++		"node_modules/@opentelemetry/api": {
++			"version": "1.10.0",
++			"resolved": "https://registry.npmjs.org/@opentelemetry/api/-/api-1.10.0.tgz",
++			"integrity": "sha512-lMkyes8iHrG+mk6WH7X70MdCLI2RS0FwNBY1PyQ8UemaijE2m5mv5A0Niy3HtbYTFrgkUEQjFMXmSAk2hQDuPQ==",
++			"license": "Apache-2.0",
++			"engines": {
++				"node": ">=8.0.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-android-arm-eabi": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-android-arm-eabi/-/binding-android-arm-eabi-0.152.0.tgz",
++			"integrity": "sha512-393VtirINkae4XHBTkq/yQxhOwEr4V+r0et37P2fp+sYZSdYgZTRDPo5Um8vBh0QjMZ+RmaMy4PP0qwr4cTMwA==",
++			"cpu": [
++				"arm"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"android"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-android-arm64": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-android-arm64/-/binding-android-arm64-0.152.0.tgz",
++			"integrity": "sha512-iYFcExATJNZ0rZj0o02THbD1Nc9jAW0nVgIQPee6ejbSASpbZXlIMw8jxtpzaG14JQTWwGSZ6U5dEtRJXE6V3Q==",
++			"cpu": [
++				"arm64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"android"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-darwin-arm64": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-darwin-arm64/-/binding-darwin-arm64-0.152.0.tgz",
++			"integrity": "sha512-fnU+DfUzi5/rFy0LzmipYRz06PAUUkOS8kCJQ3Eg6oqlunC1XZXoffFqxmdL51RmcbYtUG3P8DVG1U5fckoa2A==",
++			"cpu": [
++				"arm64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"darwin"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-darwin-x64": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-darwin-x64/-/binding-darwin-x64-0.152.0.tgz",
++			"integrity": "sha512-Y3U2okryWTs7hDld6UhjJwLNf8/do+x4g4C+1U5SiGwrTLwbO83WJYJA8+l9iFSilWBgnfpd/+U76tfeNxUHzA==",
++			"cpu": [
++				"x64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"darwin"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-freebsd-x64": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-freebsd-x64/-/binding-freebsd-x64-0.152.0.tgz",
++			"integrity": "sha512-XkhkRrrPffEw+ZLv/d/5pEni0buxinm/E/N6fLbJCunD1DBbeCTtVP23ESV+4CWCWdSz397asks1ViGslpmWiQ==",
++			"cpu": [
++				"x64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"freebsd"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-arm-gnueabihf": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-arm-gnueabihf/-/binding-linux-arm-gnueabihf-0.152.0.tgz",
++			"integrity": "sha512-MLzsRRbdfmdzo6JEhbC1yKU9ItfvM8tEf18HM32jCiNYZEz6J3bRBRl3cTkKR0vBdrk9ZVlcARXtwHccs+epDA==",
++			"cpu": [
++				"arm"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-arm-musleabihf": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-arm-musleabihf/-/binding-linux-arm-musleabihf-0.152.0.tgz",
++			"integrity": "sha512-HHerTEJz7Iy10Ji6BGsk4gqG6PU0UzFuBu91jIEOX89FnrI5ECWSEr7BLpkYQhp7U0QFtMnBhNfQKI0hYZK78w==",
++			"cpu": [
++				"arm"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-arm64-gnu": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-arm64-gnu/-/binding-linux-arm64-gnu-0.152.0.tgz",
++			"integrity": "sha512-9Bb8GyzZ2uSLzRDZ27usaKokr07mxiBe2dDF5b6bd2janmaJTT1gL51UfP7AU30yFiXrJvcRyFKREAgKwZYs0w==",
++			"cpu": [
++				"arm64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-arm64-musl": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-arm64-musl/-/binding-linux-arm64-musl-0.152.0.tgz",
++			"integrity": "sha512-om7iDMUroI74A/lfRRWY9/Ev3VWrVsrUZ4tyvyh8raBey/sdcfyAD7tYWc+iykAiotnmftyKTpUKFr1QnaBrAQ==",
++			"cpu": [
++				"arm64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-ppc64-gnu": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-ppc64-gnu/-/binding-linux-ppc64-gnu-0.152.0.tgz",
++			"integrity": "sha512-Lf1OL2lMTqwDMFC6jnRb30B+WYHKV0XT+bPHcFM6xHtNVwxpobiTzUIvKH6a0LWpvfwyru8Yu6zCGHqqFHH+gg==",
++			"cpu": [
++				"ppc64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-riscv64-gnu": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-riscv64-gnu/-/binding-linux-riscv64-gnu-0.152.0.tgz",
++			"integrity": "sha512-BYWSMQK+YJ9ZILStPcmmiSVq8KEG9Qdq/c4BHPC3rUEq/fEDCVjUIwdj5ZzjgZ9P9is9PKu0tcAXzq1ZXg4urQ==",
++			"cpu": [
++				"riscv64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-riscv64-musl": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-riscv64-musl/-/binding-linux-riscv64-musl-0.152.0.tgz",
++			"integrity": "sha512-d2LqHNNNqdH185sRK5dPKWZu201JrNu9/CRFuVEuT+ht7n/QaVblEMWT9MALQPrDWYvhG10P+NSKJFquDWZ09w==",
++			"cpu": [
++				"riscv64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-s390x-gnu": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-s390x-gnu/-/binding-linux-s390x-gnu-0.152.0.tgz",
++			"integrity": "sha512-8gBeHt5rA/8+pKhHl+zLggfa3L/V/L2at96p7ty6pBE7id6lFO19nFUc15u2PcjC4OYeYK465MKy1fhhbpFIGw==",
++			"cpu": [
++				"s390x"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-x64-gnu": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-x64-gnu/-/binding-linux-x64-gnu-0.152.0.tgz",
++			"integrity": "sha512-ltgrSF6L+yPTVsIdaAyqKq3zTqzj/1VlNbxWZuxAe8flR3sWdyNsKvdXukoO8/ucJbLickhmieRBge+o/e8Ugw==",
++			"cpu": [
++				"x64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-linux-x64-musl": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-linux-x64-musl/-/binding-linux-x64-musl-0.152.0.tgz",
++			"integrity": "sha512-LcMp6BvrBnewSfdkLHoSqidhoAq4syKOTBV5TYHWd+2VnGkfD/nPRRVIzTBt/Lkbt7pfOFDGtkiTntFS0p6sQQ==",
++			"cpu": [
++				"x64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"linux"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-openharmony-arm64": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-openharmony-arm64/-/binding-openharmony-arm64-0.152.0.tgz",
++			"integrity": "sha512-jbhoMCslVxzRCRNQ8TSHxjYdSKRvk8O6ciLVDkahJvmyHDzBqba/bMQHM6ULKj/rgHNNbSzlIiakdx8SEfkJzA==",
++			"cpu": [
++				"arm64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"openharmony"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-win32-arm64-msvc": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-win32-arm64-msvc/-/binding-win32-arm64-msvc-0.152.0.tgz",
++			"integrity": "sha512-JZYVlhv36mr/nertnRB7vchJECOBb1Lz6lltalILsB+o9M/is+H6BEDRLQKdqA4JKs6NjJszo46+iM5sfwj6jQ==",
++			"cpu": [
++				"arm64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"win32"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-win32-ia32-msvc": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-win32-ia32-msvc/-/binding-win32-ia32-msvc-0.152.0.tgz",
++			"integrity": "sha512-1X9oganvVsunRH0lH10UU05N+H9atpX6WsOybByUjwnfcd3h/0tYwvuv16XuHglrIUOnxV2TodbLVEwwafd64g==",
++			"cpu": [
++				"ia32"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"win32"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
++		"node_modules/@oxc-parser/binding-win32-x64-msvc": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-parser/binding-win32-x64-msvc/-/binding-win32-x64-msvc-0.152.0.tgz",
++			"integrity": "sha512-sw0M80/dn9rcpu+Rqqph/C+MjvDDce6MlXmFjsNQtPEymha0eJy3ml6+foSUTqFfpDIDyHZZ4eoJ43IoMe8bJw==",
++			"cpu": [
++				"x64"
++			],
++			"license": "MIT",
++			"optional": true,
++			"os": [
++				"win32"
++			],
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			}
++		},
+ 		"node_modules/@oxc-project/types": {
+ 			"version": "0.156.0",
+ 			"resolved": "https://registry.npmjs.org/@oxc-project/types/-/types-0.156.0.tgz",
+@@ -172,6 +543,15 @@
+ 				"url": "https://github.com/sponsors/oxc-project"
+ 			}
+ 		},
++		"node_modules/@paulirish/trace_engine": {
++			"version": "0.0.67",
++			"resolved": "https://registry.npmjs.org/@paulirish/trace_engine/-/trace_engine-0.0.67.tgz",
++			"integrity": "sha512-AWZSKQDwbWKIO//xGvM8isSyDgEDZWDq12SbMQMxl6eE9ZgWaoc9n/2d7REjwcRANyA1Zjo1rVfJiSRFFGKUww==",
++			"license": "BSD-3-Clause",
++			"dependencies": {
++				"third-party-web": "*"
++			}
++		},
+ 		"node_modules/@polka/url": {
+ 			"version": "1.0.0-next.29",
+ 			"resolved": "https://registry.npmjs.org/@polka/url/-/url-1.0.0-next.29.tgz",
+@@ -179,6 +559,34 @@
+ 			"dev": true,
+ 			"license": "MIT"
+ 		},
++		"node_modules/@puppeteer/browsers": {
++			"version": "3.2.7",
++			"resolved": "https://registry.npmjs.org/@puppeteer/browsers/-/browsers-3.2.7.tgz",
++			"integrity": "sha512-B3C/v8OEEaJYcN1IzzgbPmt+GbFANr4Mf/NrqNuGk/dIchrv6quNqxgT+A6qE0Ge0MN95NjKUddcR1JMpYRMWA==",
++			"license": "Apache-2.0",
++			"dependencies": {
++				"modern-tar": "^0.8.6",
++				"yargs": "^18.0.0"
++			},
++			"bin": {
++				"browsers": "lib/main-cli.js"
++			},
++			"engines": {
++				"node": ">=22.12.0"
++			},
++			"peerDependencies": {
++				"proxy-agent": ">=8.0.1",
++				"yauzl": "^2.10.0 || ^3.4.0"
++			},
++			"peerDependenciesMeta": {
++				"proxy-agent": {
++					"optional": true
++				},
++				"yauzl": {
++					"optional": true
++				}
++			}
++		},
+ 		"node_modules/@rolldown/binding-android-arm-eabi": {
+ 			"version": "1.2.19",
+ 			"resolved": "https://registry.npmjs.org/@rolldown/binding-android-arm-eabi/-/binding-android-arm-eabi-1.2.19.tgz",
+@@ -460,6 +868,117 @@
+ 			"dev": true,
+ 			"license": "MIT"
+ 		},
++		"node_modules/@sentry/bundler-plugins": {
++			"version": "11.12.0",
++			"resolved": "https://registry.npmjs.org/@sentry/bundler-plugins/-/bundler-plugins-11.12.0.tgz",
++			"integrity": "sha512-7vBXoHMoYKjYu08anYv5I0nplSWOfQyl7BqV0VOrLxEtGoOpk1+DxL2dyBiaWoAtISkaqJEV/ft813OsCGuuMg==",
++			"license": "MIT",
++			"dependencies": {
++				"@sentry/core": "11.12.0",
++				"dotenv": "^17.4.2",
++				"glob": "^14.0.3",
++				"magic-string": "~0.30.8 || ^1.0.0",
++				"oxc-parser": "^0.152.0",
++				"sentry": "^0.49.0"
++			},
++			"engines": {
++				"node": ">=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0"
++			},
++			"peerDependencies": {
++				"rollup": ">=3.2.0",
++				"webpack": ">=5.1.0"
++			},
++			"peerDependenciesMeta": {
++				"rollup": {
++					"optional": true
++				},
++				"webpack": {
++					"optional": true
++				}
++			}
++		},
++		"node_modules/@sentry/conventions": {
++			"version": "0.32.0",
++			"resolved": "https://registry.npmjs.org/@sentry/conventions/-/conventions-0.32.0.tgz",
++			"integrity": "sha512-WkSQcDhUUsz1SwxR23LpmyPKba+dgxxiH0DWV4VSM9yaAvhhl87ppW2Ts3g4piIKCVflc31aJeWy+biUbYfsMQ==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=14"
++			}
++		},
++		"node_modules/@sentry/core": {
++			"version": "11.12.0",
++			"resolved": "https://registry.npmjs.org/@sentry/core/-/core-11.12.0.tgz",
++			"integrity": "sha512-HKER7EcRpPPgC8mLRe5BzP6njfRYFZ53BFLZxVp1whWbY6lp/b2mvTBk4q6+rKsUFhLhRDsd6jL8y/8ddEWv6A==",
++			"license": "MIT",
++			"dependencies": {
++				"@sentry/conventions": "^0.32.0"
++			},
++			"engines": {
++				"node": ">=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0"
++			}
++		},
++		"node_modules/@sentry/node": {
++			"version": "11.12.0",
++			"resolved": "https://registry.npmjs.org/@sentry/node/-/node-11.12.0.tgz",
++			"integrity": "sha512-MNSZDOd92Twrq5Z4ZAkxZdIfhr3YGytFb1T+vh5bNXVHkqByWpI/P2VtTSrzBR4Pi1IDRMz0i8t/OWNOsuAuBg==",
++			"license": "MIT",
++			"dependencies": {
++				"@opentelemetry/api": "^1.9.1",
++				"@sentry/bundler-plugins": "11.12.0",
++				"@sentry/conventions": "^0.32.0",
++				"@sentry/core": "11.12.0",
++				"@sentry/opentelemetry": "11.12.0",
++				"@sentry/server-runtime-injection": "11.12.0",
++				"@sentry/server-utils": "11.12.0"
++			},
++			"engines": {
++				"node": ">=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0"
++			}
++		},
++		"node_modules/@sentry/opentelemetry": {
++			"version": "11.12.0",
++			"resolved": "https://registry.npmjs.org/@sentry/opentelemetry/-/opentelemetry-11.12.0.tgz",
++			"integrity": "sha512-oWJwUdc2OSSvyOPXn/E1nWkC3GV5KNTWfR5prbw/0XxlKJepdlBsW19y+FAE9n3QznZ52aMZmetWEAFMsPJ0KQ==",
++			"license": "MIT",
++			"dependencies": {
++				"@sentry/conventions": "^0.32.0",
++				"@sentry/core": "11.12.0"
++			},
++			"engines": {
++				"node": ">=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0"
++			},
++			"peerDependencies": {
++				"@opentelemetry/api": "^1.9.0"
++			}
++		},
++		"node_modules/@sentry/server-runtime-injection": {
++			"version": "11.12.0",
++			"resolved": "https://registry.npmjs.org/@sentry/server-runtime-injection/-/server-runtime-injection-11.12.0.tgz",
++			"integrity": "sha512-fAZjCFyEfhvyfEdbav0/X13Yqbom5Ka1+hG0Nyl6bd7GxkQIWd68unSIw/Rvzfj/DSO8A1JidezST3D6omALkw==",
++			"license": "MIT",
++			"dependencies": {
++				"@sentry/core": "11.12.0",
++				"@sentry/server-utils": "11.12.0"
++			},
++			"engines": {
++				"node": ">=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0"
++			}
++		},
++		"node_modules/@sentry/server-utils": {
++			"version": "11.12.0",
++			"resolved": "https://registry.npmjs.org/@sentry/server-utils/-/server-utils-11.12.0.tgz",
++			"integrity": "sha512-gAP5FLhXSiMs9vsU7guc54QNY1OzUJmhqyXMjhiP4SYlhQltoKtipcyo8pFWVsmylIzIkA8e2eGR6e0YA6YF3A==",
++			"license": "MIT",
++			"dependencies": {
++				"@opentelemetry/api": "^1.9.1",
++				"@sentry/conventions": "^0.32.0",
++				"@sentry/core": "11.12.0"
++			},
++			"engines": {
++				"node": ">=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0"
++			}
++		},
+ 		"node_modules/@standard-schema/spec": {
+ 			"version": "1.1.0",
+ 			"resolved": "https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz",
+@@ -916,7 +1435,6 @@
+ 			"version": "26.6.6",
+ 			"resolved": "https://registry.npmjs.org/@types/node/-/node-26.6.6.tgz",
+ 			"integrity": "sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==",
+-			"dev": true,
+ 			"license": "MIT",
+ 			"dependencies": {
+ 				"undici-types": "~8.9.0"
+@@ -935,6 +1453,69 @@
+ 				"node": ">=0.4.0"
+ 			}
+ 		},
++		"node_modules/ajv": {
++			"version": "8.20.0",
++			"resolved": "https://registry.npmjs.org/ajv/-/ajv-8.20.0.tgz",
++			"integrity": "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==",
++			"license": "MIT",
++			"dependencies": {
++				"fast-deep-equal": "^3.1.3",
++				"fast-uri": "^3.0.1",
++				"json-schema-traverse": "^1.0.0",
++				"require-from-string": "^2.0.2"
++			},
++			"funding": {
++				"type": "github",
++				"url": "https://github.com/sponsors/epoberezkin"
++			}
++		},
++		"node_modules/ajv-formats": {
++			"version": "3.0.1",
++			"resolved": "https://registry.npmjs.org/ajv-formats/-/ajv-formats-3.0.1.tgz",
++			"integrity": "sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==",
++			"license": "MIT",
++			"dependencies": {
++				"ajv": "^8.0.0"
++			},
++			"peerDependencies": {
++				"ajv": "^8.0.0"
++			},
++			"peerDependenciesMeta": {
++				"ajv": {
++					"optional": true
++				}
++			}
++		},
++		"node_modules/ansi-colors": {
++			"version": "4.1.3",
++			"resolved": "https://registry.npmjs.org/ansi-colors/-/ansi-colors-4.1.3.tgz",
++			"integrity": "sha512-/6w/C21Pm1A7aZitlI5Ni/2J6FFQN8i1Cvz3kHABAAbw93v/NlvKdVOqz7CCWz/3iv/JplRSEEZ83XION15ovw==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=6"
++			}
++		},
++		"node_modules/ansi-regex": {
++			"version": "5.0.1",
++			"resolved": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-5.0.1.tgz",
++			"integrity": "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=8"
++			}
++		},
++		"node_modules/ansi-styles": {
++			"version": "6.2.3",
++			"resolved": "https://registry.npmjs.org/ansi-styles/-/ansi-styles-6.2.3.tgz",
++			"integrity": "sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/chalk/ansi-styles?sponsor=1"
++			}
++		},
+ 		"node_modules/anynum": {
+ 			"version": "1.0.1",
+ 			"resolved": "https://registry.npmjs.org/anynum/-/anynum-1.0.1.tgz",
+@@ -957,6 +1538,25 @@
+ 				"node": ">= 0.4"
+ 			}
+ 		},
++		"node_modules/atomically": {
++			"version": "2.1.1",
++			"resolved": "https://registry.npmjs.org/atomically/-/atomically-2.1.1.tgz",
++			"integrity": "sha512-P4w9o2dqARji6P7MHprklbfiArZAWvo07yW7qs3pdljb3BWr12FIB7W+p0zJiuiVsUpRO0iZn1kFFcpPegg0tQ==",
++			"license": "MIT",
++			"dependencies": {
++				"stubborn-fs": "^2.0.0",
++				"when-exit": "^2.1.4"
++			}
++		},
++		"node_modules/axe-core": {
++			"version": "4.14.0",
++			"resolved": "https://registry.npmjs.org/axe-core/-/axe-core-4.14.0.tgz",
++			"integrity": "sha512-9WTZxEjsZ7b13TH8JPmbV2z8CHbl80/2hm3XPEG4JgNdQLK81IBRXmSxHfMAOkSqQeRxT/0dwNDz2GOm3zzpcQ==",
++			"license": "MPL-2.0",
++			"engines": {
++				"node": ">=4"
++			}
++		},
+ 		"node_modules/axobject-query": {
+ 			"version": "4.1.0",
+ 			"resolved": "https://registry.npmjs.org/axobject-query/-/axobject-query-4.1.0.tgz",
+@@ -964,7 +1564,16 @@
+ 			"dev": true,
+ 			"license": "Apache-2.0",
+ 			"engines": {
+-				"node": ">= 0.4"
++				"node": ">= 0.4"
++			}
++		},
++		"node_modules/balanced-match": {
++			"version": "4.0.4",
++			"resolved": "https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.4.tgz",
++			"integrity": "sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==",
++			"license": "MIT",
++			"engines": {
++				"node": "18 || 20 || >=22"
+ 			}
+ 		},
+ 		"node_modules/boolbase": {
+@@ -973,6 +1582,33 @@
+ 			"integrity": "sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==",
+ 			"license": "ISC"
+ 		},
++		"node_modules/brace-expansion": {
++			"version": "5.0.13",
++			"resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.13.tgz",
++			"integrity": "sha512-Vh3dmFbc4wZeox7M9I/0L9GfFd83Su4+yCck/OF9Gi/P/dAHn0RT7X4K9R7gMNMhDck3DvhR6QXsnQdjjgwNvQ==",
++			"license": "MIT",
++			"dependencies": {
++				"balanced-match": "^4.0.2"
++			},
++			"engines": {
++				"node": "20 || >=22"
++			}
++		},
++		"node_modules/bundle-name": {
++			"version": "4.1.1",
++			"resolved": "https://registry.npmjs.org/bundle-name/-/bundle-name-4.1.1.tgz",
++			"integrity": "sha512-DdH81/zPLVS11EUgWq3tEu/xn+EzljlMYooDNdzWEnFha3R3NBMpMV1UqYIpjYHV/SgpFKMIX1Oh7o06SjM/oA==",
++			"license": "MIT",
++			"dependencies": {
++				"run-applescript": "^7.0.0"
++			},
++			"engines": {
++				"node": ">=18"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/chokidar": {
+ 			"version": "4.0.3",
+ 			"resolved": "https://registry.npmjs.org/chokidar/-/chokidar-4.0.3.tgz",
+@@ -989,6 +1625,98 @@
+ 				"url": "https://paulmillr.com/funding/"
+ 			}
+ 		},
++		"node_modules/chrome-launcher": {
++			"version": "1.2.3",
++			"resolved": "https://registry.npmjs.org/chrome-launcher/-/chrome-launcher-1.2.3.tgz",
++			"integrity": "sha512-IpQuNUYnpXXq3VBRJInM7zTZDiAp/cu+zy0X74NjyQtFcZIQBbI64i0PYQO25wNwgmgw2cPBYitVmFz53N11Rg==",
++			"license": "Apache-2.0",
++			"dependencies": {
++				"@types/node": "*",
++				"escape-string-regexp": "^4.0.0",
++				"is-wsl": "^2.2.0",
++				"lighthouse-logger": "^2.0.1"
++			},
++			"bin": {
++				"print-chrome-path": "bin/print-chrome-path.cjs"
++			},
++			"engines": {
++				"node": ">=12.13.0"
++			}
++		},
++		"node_modules/chromium-bidi": {
++			"version": "157.0.8090-0",
++			"resolved": "https://registry.npmjs.org/chromium-bidi/-/chromium-bidi-157.0.8090-0.tgz",
++			"integrity": "sha512-KJw7IQgqXwxpJgJlEIPg5mr2ZoqA+jkTRtc5EABI7sUJ3bu3cpI7NuEBoj4Gn1AsF78CaT9So5WQWspK3/wYag==",
++			"license": "Apache-2.0",
++			"dependencies": {
++				"mitt": "^3.0.1",
++				"zod": "^4.6.5"
++			},
++			"engines": {
++				"node": ">=20.19.0 <22.0.0 || >=22.12.0"
++			},
++			"peerDependencies": {
++				"devtools-protocol": "*"
++			}
++		},
++		"node_modules/cliui": {
++			"version": "9.0.1",
++			"resolved": "https://registry.npmjs.org/cliui/-/cliui-9.0.1.tgz",
++			"integrity": "sha512-k7ndgKhwoQveBL+/1tqGJYNz097I7WOvwbmmU2AR5+magtbjPWQTS1C5vzGkBC8Ym8UWRzfKUzUUqFLypY4Q+w==",
++			"license": "ISC",
++			"dependencies": {
++				"string-width": "^7.2.0",
++				"strip-ansi": "^7.1.0",
++				"wrap-ansi": "^9.0.0"
++			},
++			"engines": {
++				"node": ">=20"
++			}
++		},
++		"node_modules/cliui/node_modules/ansi-regex": {
++			"version": "6.6.0",
++			"resolved": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-6.6.0.tgz",
++			"integrity": "sha512-XZ5apbzreCbXSKwPjJstu8R0zOi247w3XYwWxtwBXgpZrCyc1Ka7p9/xY0A9/diMewmHbEKz+FIraWaEWjlN5g==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/chalk/ansi-regex?sponsor=1"
++			}
++		},
++		"node_modules/cliui/node_modules/string-width": {
++			"version": "7.2.0",
++			"resolved": "https://registry.npmjs.org/string-width/-/string-width-7.2.0.tgz",
++			"integrity": "sha512-tsaTIkKW9b4N+AEj+SVA+WhJzV7/zMhcSu78mLKWSk7cXMOSHsBKFWUs0fWwq8QyK3MgJBQRX6Gbi4kYbdvGkQ==",
++			"license": "MIT",
++			"dependencies": {
++				"emoji-regex": "^10.3.0",
++				"get-east-asian-width": "^1.0.0",
++				"strip-ansi": "^7.1.0"
++			},
++			"engines": {
++				"node": ">=18"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/cliui/node_modules/strip-ansi": {
++			"version": "7.2.0",
++			"resolved": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-7.2.0.tgz",
++			"integrity": "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w==",
++			"license": "MIT",
++			"dependencies": {
++				"ansi-regex": "^6.2.2"
++			},
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/chalk/strip-ansi?sponsor=1"
++			}
++		},
+ 		"node_modules/clsx": {
+ 			"version": "2.1.1",
+ 			"resolved": "https://registry.npmjs.org/clsx/-/clsx-2.1.1.tgz",
+@@ -999,6 +1727,25 @@
+ 				"node": ">=6"
+ 			}
+ 		},
++		"node_modules/configstore": {
++			"version": "8.0.0",
++			"resolved": "https://registry.npmjs.org/configstore/-/configstore-8.0.0.tgz",
++			"integrity": "sha512-U51WPZg+o6FDFhBCV6yYFEspGMCoHvCgJSGFw9AwsW2u75gYBPoDlYca5XfDs4TdMUu3/y0R6FFdvvgyH31mKQ==",
++			"license": "BSD-2-Clause",
++			"dependencies": {
++				"atomically": "^2.1.0",
++				"dot-prop": "^10.1.0",
++				"graceful-fs": "^4.2.11",
++				"is-safe-filename": "^0.1.0",
++				"xdg-basedir": "^5.1.0"
++			},
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/cookie": {
+ 			"version": "2.0.2",
+ 			"resolved": "https://registry.npmjs.org/cookie/-/cookie-2.0.2.tgz",
+@@ -1013,6 +1760,12 @@
+ 				"url": "https://opencollective.com/express"
+ 			}
+ 		},
++		"node_modules/csp_evaluator": {
++			"version": "1.1.8",
++			"resolved": "https://registry.npmjs.org/csp_evaluator/-/csp_evaluator-1.1.8.tgz",
++			"integrity": "sha512-EwOnfYuNbTytvbMKsLixTrRgnjOa0WZCxGy8A9nnSYAicrdwn+T/epU/yjgymmOxlgKnvH+8wXt+7p/8ak5Feg==",
++			"license": "Apache-2.0"
++		},
+ 		"node_modules/css-select": {
+ 			"version": "5.2.2",
+ 			"resolved": "https://registry.npmjs.org/css-select/-/css-select-5.2.2.tgz",
+@@ -1041,6 +1794,29 @@
+ 				"url": "https://github.com/sponsors/fb55"
+ 			}
+ 		},
++		"node_modules/debug": {
++			"version": "4.4.3",
++			"resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
++			"integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
++			"license": "MIT",
++			"dependencies": {
++				"ms": "^2.1.3"
++			},
++			"engines": {
++				"node": ">=6.0"
++			},
++			"peerDependenciesMeta": {
++				"supports-color": {
++					"optional": true
++				}
++			}
++		},
++		"node_modules/decimal.js": {
++			"version": "10.6.0",
++			"resolved": "https://registry.npmjs.org/decimal.js/-/decimal.js-10.6.0.tgz",
++			"integrity": "sha512-YpgQiITW3JXGntzdUmyUR1V812Hn8T1YVXhCu+wO3OpS4eU9l4YdD3qjyiKdV6mvV29zapkMeD390UVEf2lkUg==",
++			"license": "MIT"
++		},
+ 		"node_modules/deepmerge": {
+ 			"version": "4.3.1",
+ 			"resolved": "https://registry.npmjs.org/deepmerge/-/deepmerge-4.3.1.tgz",
+@@ -1051,6 +1827,46 @@
+ 				"node": ">=0.10.0"
+ 			}
+ 		},
++		"node_modules/default-browser": {
++			"version": "5.5.1",
++			"resolved": "https://registry.npmjs.org/default-browser/-/default-browser-5.5.1.tgz",
++			"integrity": "sha512-m1pAzaJgZ/gssEqlOhJkPJp8Xly7QyW6xcrkUa2KKcDeDSEMP7X8xipU3snUcfisTQx0w1AGae+9UtJSfVnXGw==",
++			"license": "MIT",
++			"dependencies": {
++				"bundle-name": "^4.1.0",
++				"default-browser-id": "^5.0.0"
++			},
++			"engines": {
++				"node": ">=18"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/default-browser-id": {
++			"version": "5.0.1",
++			"resolved": "https://registry.npmjs.org/default-browser-id/-/default-browser-id-5.0.1.tgz",
++			"integrity": "sha512-x1VCxdX4t+8wVfd1so/9w+vQ4vx7lKd2Qp5tDRutErwmR85OgmfX7RlLRMWafRMY7hbEiXIbudNrjOAPa/hL8Q==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=18"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/define-lazy-prop": {
++			"version": "3.0.0",
++			"resolved": "https://registry.npmjs.org/define-lazy-prop/-/define-lazy-prop-3.0.0.tgz",
++			"integrity": "sha512-N+MeXYoqr3pOgn8xfyRPREN7gHakLYjhsHhWGT3fWAiL4IkAt0iDw14QiiEm2bE30c5XX5q0FtAA3CK5f9/BUg==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/detect-libc": {
+ 			"version": "2.1.2",
+ 			"resolved": "https://registry.npmjs.org/detect-libc/-/detect-libc-2.1.2.tgz",
+@@ -1068,6 +1884,12 @@
+ 			"dev": true,
+ 			"license": "MIT"
+ 		},
++		"node_modules/devtools-protocol": {
++			"version": "0.0.1727723",
++			"resolved": "https://registry.npmjs.org/devtools-protocol/-/devtools-protocol-0.0.1727723.tgz",
++			"integrity": "sha512-laxmpDN+zItbpy5klVbHqBsZ38O2rC6VwI9W5daM11Pc3Dj2gruc2wwnHW48CB8wYiWHALDkA6vRg92U2cfdLA==",
++			"license": "BSD-3-Clause"
++		},
+ 		"node_modules/dom-serializer": {
+ 			"version": "2.0.0",
+ 			"resolved": "https://registry.npmjs.org/dom-serializer/-/dom-serializer-2.0.0.tgz",
+@@ -1135,6 +1957,39 @@
+ 				"url": "https://github.com/fb55/domutils?sponsor=1"
+ 			}
+ 		},
++		"node_modules/dot-prop": {
++			"version": "10.2.0",
++			"resolved": "https://registry.npmjs.org/dot-prop/-/dot-prop-10.2.0.tgz",
++			"integrity": "sha512-BTJ9aZYL3vCfZlZOBLy9v8TUqWGQ0pzFnygKwFZt5udj6viBoFIBviKPUoZLDCPn1FoXffv6McQFDenrm5Krfw==",
++			"license": "MIT",
++			"dependencies": {
++				"type-fest": "^5.0.0"
++			},
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/dotenv": {
++			"version": "17.4.2",
++			"resolved": "https://registry.npmjs.org/dotenv/-/dotenv-17.4.2.tgz",
++			"integrity": "sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==",
++			"license": "BSD-2-Clause",
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://dotenvx.com"
++			}
++		},
++		"node_modules/emoji-regex": {
++			"version": "10.6.0",
++			"resolved": "https://registry.npmjs.org/emoji-regex/-/emoji-regex-10.6.0.tgz",
++			"integrity": "sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==",
++			"license": "MIT"
++		},
+ 		"node_modules/enhanced-resolve": {
+ 			"version": "5.26.1",
+ 			"resolved": "https://registry.npmjs.org/enhanced-resolve/-/enhanced-resolve-5.26.1.tgz",
+@@ -1149,6 +2004,19 @@
+ 				"node": ">=10.13.0"
+ 			}
+ 		},
++		"node_modules/enquirer": {
++			"version": "2.4.1",
++			"resolved": "https://registry.npmjs.org/enquirer/-/enquirer-2.4.1.tgz",
++			"integrity": "sha512-rRqJg/6gd538VHvR3PSrdRBb/1Vy2YfzHqzvbhGIQpDRKIa4FgV/54b5Q1xYSxOOwKvjXweS26E0Q+nAMwp2pQ==",
++			"license": "MIT",
++			"dependencies": {
++				"ansi-colors": "^4.1.1",
++				"strip-ansi": "^6.0.1"
++			},
++			"engines": {
++				"node": ">=8.6"
++			}
++		},
+ 		"node_modules/entities": {
+ 			"version": "8.1.0",
+ 			"resolved": "https://registry.npmjs.org/entities/-/entities-8.1.0.tgz",
+@@ -1161,6 +2029,27 @@
+ 				"url": "https://github.com/fb55/entities?sponsor=1"
+ 			}
+ 		},
++		"node_modules/escalade": {
++			"version": "3.2.0",
++			"resolved": "https://registry.npmjs.org/escalade/-/escalade-3.2.0.tgz",
++			"integrity": "sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=6"
++			}
++		},
++		"node_modules/escape-string-regexp": {
++			"version": "4.0.0",
++			"resolved": "https://registry.npmjs.org/escape-string-regexp/-/escape-string-regexp-4.0.0.tgz",
++			"integrity": "sha512-TtpcNJ3XAzx3Gq8sWRzJaVajRs0uVxA2YAkdb1jm2YkPz4G6egUFAyA3n5vtEIZefPk5Wa4UXbKuS5fKkJWdgA==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=10"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/esm-env": {
+ 			"version": "1.2.2",
+ 			"resolved": "https://registry.npmjs.org/esm-env/-/esm-env-1.2.2.tgz",
+@@ -1186,6 +2075,28 @@
+ 				}
+ 			}
+ 		},
++		"node_modules/fast-deep-equal": {
++			"version": "3.1.3",
++			"resolved": "https://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz",
++			"integrity": "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==",
++			"license": "MIT"
++		},
++		"node_modules/fast-uri": {
++			"version": "3.1.9",
++			"resolved": "https://registry.npmjs.org/fast-uri/-/fast-uri-3.1.9.tgz",
++			"integrity": "sha512-hS/0Wt3Ya043oKXs0sIxrMpKQITXhMLIrVAKKXi4gozGC9v7YRWVnXIZzjNPTO02M9BdxLCWqK1yRXgNziVyJQ==",
++			"funding": [
++				{
++					"type": "github",
++					"url": "https://github.com/sponsors/fastify"
++				},
++				{
++					"type": "opencollective",
++					"url": "https://opencollective.com/fastify"
++				}
++			],
++			"license": "BSD-3-Clause"
++		},
+ 		"node_modules/fast-xml-builder": {
+ 			"version": "1.3.1",
+ 			"resolved": "https://registry.npmjs.org/fast-xml-builder/-/fast-xml-builder-1.3.1.tgz",
+@@ -1258,13 +2169,137 @@
+ 				"node": "^8.16.0 || ^10.6.0 || >=11.0.0"
+ 			}
+ 		},
++		"node_modules/get-caller-file": {
++			"version": "2.0.5",
++			"resolved": "https://registry.npmjs.org/get-caller-file/-/get-caller-file-2.0.5.tgz",
++			"integrity": "sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==",
++			"license": "ISC",
++			"engines": {
++				"node": "6.* || 8.* || >= 10.*"
++			}
++		},
++		"node_modules/get-east-asian-width": {
++			"version": "1.7.0",
++			"resolved": "https://registry.npmjs.org/get-east-asian-width/-/get-east-asian-width-1.7.0.tgz",
++			"integrity": "sha512-XjH1AECxf0giL2V1aU8vKyRR2ppRUb5c0EvT7zuJTokQ74bNo52zOtghqdWIqrhUD79fo3x0WfKZdOqxF6LG1Q==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=18"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/glob": {
++			"version": "14.0.6",
++			"resolved": "https://registry.npmjs.org/glob/-/glob-14.0.6.tgz",
++			"integrity": "sha512-OwXjVP2svY5EyLY75Vek96C8qK43gqrt4xsZ+qSILdnaEiJPXkd62mcfUSNx/TQErQRdu5uM5kF67sfONragKw==",
++			"license": "BlueOak-1.0.0",
++			"dependencies": {
++				"minimatch": "^11.0.5",
++				"minipass": "^7.1.3",
++				"path-scurry": "^3.0.0"
++			},
++			"engines": {
++				"node": "18 || 20 || >=22"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/isaacs"
++			}
++		},
+ 		"node_modules/graceful-fs": {
+ 			"version": "4.2.11",
+ 			"resolved": "https://registry.npmjs.org/graceful-fs/-/graceful-fs-4.2.11.tgz",
+ 			"integrity": "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==",
+-			"dev": true,
+ 			"license": "ISC"
+ 		},
++		"node_modules/http-link-header": {
++			"version": "1.1.4",
++			"resolved": "https://registry.npmjs.org/http-link-header/-/http-link-header-1.1.4.tgz",
++			"integrity": "sha512-xT3GPW6/ZbGuw4UvwHqErSCEjNUlwbQJuZn9/q5U4WEKfp2kENVCAlousG1zLxHeaQ/ffOHUNpWamvkbBW0eNw==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=6.0.0"
++			}
++		},
++		"node_modules/image-ssim": {
++			"version": "0.2.0",
++			"resolved": "https://registry.npmjs.org/image-ssim/-/image-ssim-0.2.0.tgz",
++			"integrity": "sha512-W7+sO6/yhxy83L0G7xR8YAc5Z5QFtYEXXRV6EaE8tuYBZJnA3gVgp3q7X7muhLZVodeb9UfvjSbwt9VJwjIYAg==",
++			"license": "MIT"
++		},
++		"node_modules/intl-messageformat": {
++			"version": "10.7.18",
++			"resolved": "https://registry.npmjs.org/intl-messageformat/-/intl-messageformat-10.7.18.tgz",
++			"integrity": "sha512-m3Ofv/X/tV8Y3tHXLohcuVuhWKo7BBq62cqY15etqmLxg2DZ34AGGgQDeR+SCta2+zICb1NX83af0GJmbQ1++g==",
++			"license": "BSD-3-Clause",
++			"dependencies": {
++				"@formatjs/ecma402-abstract": "2.3.6",
++				"@formatjs/fast-memoize": "2.2.7",
++				"@formatjs/icu-messageformat-parser": "2.11.4",
++				"tslib": "^2.8.0"
++			}
++		},
++		"node_modules/is-docker": {
++			"version": "2.2.1",
++			"resolved": "https://registry.npmjs.org/is-docker/-/is-docker-2.2.1.tgz",
++			"integrity": "sha512-F+i2BKsFrH66iaUFc0woD8sLy8getkwTwtOBjvs56Cx4CgJDeKQeqfz8wAYiSb8JOprWhHH5p77PbmYCvvUuXQ==",
++			"license": "MIT",
++			"bin": {
++				"is-docker": "cli.js"
++			},
++			"engines": {
++				"node": ">=8"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/is-in-ssh": {
++			"version": "1.0.0",
++			"resolved": "https://registry.npmjs.org/is-in-ssh/-/is-in-ssh-1.0.0.tgz",
++			"integrity": "sha512-jYa6Q9rH90kR1vKB6NM7qqd1mge3Fx4Dhw5TVlK1MUBqhEOuCagrEHMevNuCcbECmXZ0ThXkRm+Ymr51HwEPAw==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/is-inside-container": {
++			"version": "1.0.0",
++			"resolved": "https://registry.npmjs.org/is-inside-container/-/is-inside-container-1.0.0.tgz",
++			"integrity": "sha512-KIYLCCJghfHZxqjYBE7rEy0OBuTd5xCHS7tHVgvCLkx7StIoaxwNW3hCALgEUjFfeRk+MG/Qxmp/vtETEF3tRA==",
++			"license": "MIT",
++			"dependencies": {
++				"is-docker": "^3.0.0"
++			},
++			"bin": {
++				"is-inside-container": "cli.js"
++			},
++			"engines": {
++				"node": ">=14.16"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/is-inside-container/node_modules/is-docker": {
++			"version": "3.0.0",
++			"resolved": "https://registry.npmjs.org/is-docker/-/is-docker-3.0.0.tgz",
++			"integrity": "sha512-eljcgEDlEns/7AXFosB5K/2nCM4P7FQPkGc/DWLy5rmFEWvZayGrik1d9/QIY5nJ4f9YsVvBkA6kJpHn9rISdQ==",
++			"license": "MIT",
++			"bin": {
++				"is-docker": "cli.js"
++			},
++			"engines": {
++				"node": "^12.20.0 || ^14.13.1 || >=16.0.0"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/is-reference": {
+ 			"version": "3.0.3",
+ 			"resolved": "https://registry.npmjs.org/is-reference/-/is-reference-3.0.3.tgz",
+@@ -1275,6 +2310,18 @@
+ 				"@types/estree": "^1.0.6"
+ 			}
+ 		},
++		"node_modules/is-safe-filename": {
++			"version": "0.1.1",
++			"resolved": "https://registry.npmjs.org/is-safe-filename/-/is-safe-filename-0.1.1.tgz",
++			"integrity": "sha512-4SrR7AdnY11LHfDKTZY1u6Ga3RuxZdl3YKWWShO5iyuG5h8QS4GD2tOb04peBJ5I7pXbR+CGBNEhTcwK+FzN3g==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/is-unsafe": {
+ 			"version": "2.0.3",
+ 			"resolved": "https://registry.npmjs.org/is-unsafe/-/is-unsafe-2.0.3.tgz",
+@@ -1287,6 +2334,18 @@
+ 			],
+ 			"license": "MIT"
+ 		},
++		"node_modules/is-wsl": {
++			"version": "2.2.0",
++			"resolved": "https://registry.npmjs.org/is-wsl/-/is-wsl-2.2.0.tgz",
++			"integrity": "sha512-fKzAra0rGJUUBwGBgNkHZuToZcn+TtXHpeCgmkMJMMYx1sQDYaCSyjJBSCa2nH1DGm7s3n1oBnohoVTBaN7Lww==",
++			"license": "MIT",
++			"dependencies": {
++				"is-docker": "^2.0.0"
++			},
++			"engines": {
++				"node": ">=8"
++			}
++		},
+ 		"node_modules/jiti": {
+ 			"version": "2.7.0",
+ 			"resolved": "https://registry.npmjs.org/jiti/-/jiti-2.7.0.tgz",
+@@ -1297,6 +2356,81 @@
+ 				"jiti": "lib/jiti-cli.mjs"
+ 			}
+ 		},
++		"node_modules/jpeg-js": {
++			"version": "0.4.4",
++			"resolved": "https://registry.npmjs.org/jpeg-js/-/jpeg-js-0.4.4.tgz",
++			"integrity": "sha512-WZzeDOEtTOBK4Mdsar0IqEU5sMr3vSV2RqkAIzUEV2BHnUfKGyswWFPFwK5EeDo93K3FohSHbLAjj0s1Wzd+dg==",
++			"license": "BSD-3-Clause"
++		},
++		"node_modules/js-library-detector": {
++			"version": "6.7.0",
++			"resolved": "https://registry.npmjs.org/js-library-detector/-/js-library-detector-6.7.0.tgz",
++			"integrity": "sha512-c80Qupofp43y4cJ7+8TTDN/AsDwLi5oOm/plBrWI+iQt485vKXCco+yVmOwEgdo9VOdsYTuV0UlTeetVPTriXA==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=12"
++			}
++		},
++		"node_modules/json-schema-traverse": {
++			"version": "1.0.0",
++			"resolved": "https://registry.npmjs.org/json-schema-traverse/-/json-schema-traverse-1.0.0.tgz",
++			"integrity": "sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==",
++			"license": "MIT"
++		},
++		"node_modules/lighthouse": {
++			"version": "13.6.0",
++			"resolved": "https://registry.npmjs.org/lighthouse/-/lighthouse-13.6.0.tgz",
++			"integrity": "sha512-2/HUPUpQyGm01VEgYCUjSlNZY7Zkhk1v3QI4c7UTbnaoRB7HF0qYMPzzaiidNf5iqw5wnmtm9LpGawKKqCfLmg==",
++			"license": "Apache-2.0",
++			"dependencies": {
++				"@paulirish/trace_engine": "0.0.67",
++				"@sentry/node": "^11.8.0",
++				"ajv-formats": "^3.0.1",
++				"axe-core": "4.14.0",
++				"chrome-launcher": "^1.2.2",
++				"configstore": "^8.0.0",
++				"csp_evaluator": "1.1.8",
++				"devtools-protocol": "0.0.1727723",
++				"enquirer": "^2.3.6",
++				"http-link-header": "^1.1.1",
++				"intl-messageformat": "^10.5.3",
++				"js-library-detector": "^6.7.0",
++				"lighthouse-logger": "^2.0.2",
++				"lighthouse-stack-packs": "1.12.3",
++				"open": "^11.0.4",
++				"puppeteer-core": "^25.16.0",
++				"robots-parser": "^3.0.1",
++				"speedline-core": "^1.4.3",
++				"third-party-web": "^0.30.0",
++				"tldts-icann": "^7.4.19",
++				"yargs": "^18.2.0",
++				"yargs-parser": "^22.0.0"
++			},
++			"bin": {
++				"chrome-debug": "core/scripts/manual-chrome-launcher.js",
++				"lighthouse": "cli/index.js",
++				"smokehouse": "cli/test/smokehouse/frontends/smokehouse-bin.js"
++			},
++			"engines": {
++				"node": ">=22.19"
++			}
++		},
++		"node_modules/lighthouse-logger": {
++			"version": "2.0.2",
++			"resolved": "https://registry.npmjs.org/lighthouse-logger/-/lighthouse-logger-2.0.2.tgz",
++			"integrity": "sha512-vWl2+u5jgOQuZR55Z1WM0XDdrJT6mzMP8zHUct7xTlWhuQs+eV0g+QL0RQdFjT54zVmbhLCP8vIVpy1wGn/gCg==",
++			"license": "Apache-2.0",
++			"dependencies": {
++				"debug": "^4.4.1",
++				"marky": "^1.2.2"
++			}
++		},
++		"node_modules/lighthouse-stack-packs": {
++			"version": "1.12.3",
++			"resolved": "https://registry.npmjs.org/lighthouse-stack-packs/-/lighthouse-stack-packs-1.12.3.tgz",
++			"integrity": "sha512-d8IsOpE83kbANgnM+Tp8+x6HcMpX9o2ITBiUERssgzAIFdZCQzs/f4k6D0DLQTE59enml9mbAOU52Wu35exWtg==",
++			"license": "Apache-2.0"
++		},
+ 		"node_modules/lightningcss": {
+ 			"version": "1.33.0",
+ 			"resolved": "https://registry.npmjs.org/lightningcss/-/lightningcss-1.33.0.tgz",
+@@ -1565,16 +2699,70 @@
+ 			"dev": true,
+ 			"license": "MIT"
+ 		},
++		"node_modules/lru-cache": {
++			"version": "11.5.3",
++			"resolved": "https://registry.npmjs.org/lru-cache/-/lru-cache-11.5.3.tgz",
++			"integrity": "sha512-U4N8FgzmWxc8k1VH8Kr6lQg18U7Fjvby6wXHVRX/ZZ7IwWbRMgrRbP0Wrb5q5NVinryp4SQampHKdvtecItxUg==",
++			"license": "BlueOak-1.0.0",
++			"engines": {
++				"node": "20 || >=22"
++			}
++		},
+ 		"node_modules/magic-string": {
+ 			"version": "1.4.5",
+ 			"resolved": "https://registry.npmjs.org/magic-string/-/magic-string-1.4.5.tgz",
+ 			"integrity": "sha512-oLLC2+YvQUfAa+vxoufE/yc1icb87M9iXIRqAoR/2EhE/8cb3SF/+Gi0c2By1B+5Vz2e2vQtUvHiu1+63Znh+w==",
+-			"dev": true,
+ 			"license": "MIT",
+ 			"dependencies": {
+ 				"@jridgewell/sourcemap-codec": "^1.6.0"
+ 			}
+ 		},
++		"node_modules/marky": {
++			"version": "1.3.0",
++			"resolved": "https://registry.npmjs.org/marky/-/marky-1.3.0.tgz",
++			"integrity": "sha512-ocnPZQLNpvbedwTy9kNrQEsknEfgvcLMvOtz3sFeWApDq1MXH1TqkCIx58xlpESsfwQOnuBO9beyQuNGzVvuhQ==",
++			"license": "Apache-2.0"
++		},
++		"node_modules/minimatch": {
++			"version": "11.0.8",
++			"resolved": "https://registry.npmjs.org/minimatch/-/minimatch-11.0.8.tgz",
++			"integrity": "sha512-nFQuYSTVrGvysVBps5Ih+0BdnYFN/Cj3C816r6+p7yK+FHrVLGE4O4N9AFwykrlNlvM2HYt+Rad1Uiro6h88Ig==",
++			"license": "BlueOak-1.0.0",
++			"dependencies": {
++				"@isaacs/nonrecursive-glob-match": "^1.1.0",
++				"brace-expansion": "^5.0.12"
++			},
++			"engines": {
++				"node": "20 || >=22"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/isaacs"
++			}
++		},
++		"node_modules/minipass": {
++			"version": "7.1.3",
++			"resolved": "https://registry.npmjs.org/minipass/-/minipass-7.1.3.tgz",
++			"integrity": "sha512-tEBHqDnIoM/1rXME1zgka9g6Q2lcoCkxHLuc7ODJ5BxbP5d4c2Z5cGgtXAku59200Cx7diuHTOYfSBD8n6mm8A==",
++			"license": "BlueOak-1.0.0",
++			"engines": {
++				"node": ">=16 || 14 >=14.17"
++			}
++		},
++		"node_modules/mitt": {
++			"version": "3.0.1",
++			"resolved": "https://registry.npmjs.org/mitt/-/mitt-3.0.1.tgz",
++			"integrity": "sha512-vKivATfr97l2/QBCYAkXYDbrIWPM2IIKEl7YPhjCvKlG3kE2gm+uBo6nEXK3M5/Ffh/FLpKExzOQ3JJoJGFKBw==",
++			"license": "MIT"
++		},
++		"node_modules/modern-tar": {
++			"version": "0.8.6",
++			"resolved": "https://registry.npmjs.org/modern-tar/-/modern-tar-0.8.6.tgz",
++			"integrity": "sha512-LYSks0tNVqbtez/9OB0YFP6qLRSqkdAxJWOQpVaR67lNTbj2zNLyYpowkRMia5lXLCZKzxwoxkxH2MbbBR2aEg==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=18.0.0"
++			}
++		},
+ 		"node_modules/mri": {
+ 			"version": "1.2.0",
+ 			"resolved": "https://registry.npmjs.org/mri/-/mri-1.2.0.tgz",
+@@ -1595,6 +2783,12 @@
+ 				"node": ">=10"
+ 			}
+ 		},
++		"node_modules/ms": {
++			"version": "2.1.3",
++			"resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++			"integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++			"license": "MIT"
++		},
+ 		"node_modules/nanoid": {
+ 			"version": "3.3.20",
+ 			"resolved": "https://registry.npmjs.org/nanoid/-/nanoid-3.3.20.tgz",
+@@ -1650,6 +2844,71 @@
+ 				"node": ">=12.20.0"
+ 			}
+ 		},
++		"node_modules/open": {
++			"version": "11.0.4",
++			"resolved": "https://registry.npmjs.org/open/-/open-11.0.4.tgz",
++			"integrity": "sha512-++Zlftm0kVLPmzC06t6epuWmcRMDbI4z5P3NNX979WA/k23+NtSOynEGzsVfZwguKw2mi5umVgnBlJQMwRz4Pg==",
++			"license": "MIT",
++			"dependencies": {
++				"default-browser": "^5.5.1",
++				"define-lazy-prop": "^3.0.0",
++				"is-in-ssh": "^1.0.0",
++				"is-inside-container": "^1.0.0",
++				"powershell-utils": "^0.2.1",
++				"wsl-utils": "^1.0.0"
++			},
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/oxc-parser": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/oxc-parser/-/oxc-parser-0.152.0.tgz",
++			"integrity": "sha512-ZztsZgaCWmPeKYMdoTT5e0oV/oxD1NeLWNR3kAtr/G707cUPYaaozRlVDHLCGnszHJRszN9mJwmPNpqgwloC0A==",
++			"license": "MIT",
++			"dependencies": {
++				"@oxc-project/types": "^0.152.0"
++			},
++			"engines": {
++				"node": "^20.19.0 || >=22.12.0"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/oxc-project"
++			},
++			"optionalDependencies": {
++				"@oxc-parser/binding-android-arm-eabi": "0.152.0",
++				"@oxc-parser/binding-android-arm64": "0.152.0",
++				"@oxc-parser/binding-darwin-arm64": "0.152.0",
++				"@oxc-parser/binding-darwin-x64": "0.152.0",
++				"@oxc-parser/binding-freebsd-x64": "0.152.0",
++				"@oxc-parser/binding-linux-arm-gnueabihf": "0.152.0",
++				"@oxc-parser/binding-linux-arm-musleabihf": "0.152.0",
++				"@oxc-parser/binding-linux-arm64-gnu": "0.152.0",
++				"@oxc-parser/binding-linux-arm64-musl": "0.152.0",
++				"@oxc-parser/binding-linux-ppc64-gnu": "0.152.0",
++				"@oxc-parser/binding-linux-riscv64-gnu": "0.152.0",
++				"@oxc-parser/binding-linux-riscv64-musl": "0.152.0",
++				"@oxc-parser/binding-linux-s390x-gnu": "0.152.0",
++				"@oxc-parser/binding-linux-x64-gnu": "0.152.0",
++				"@oxc-parser/binding-linux-x64-musl": "0.152.0",
++				"@oxc-parser/binding-openharmony-arm64": "0.152.0",
++				"@oxc-parser/binding-win32-arm64-msvc": "0.152.0",
++				"@oxc-parser/binding-win32-ia32-msvc": "0.152.0",
++				"@oxc-parser/binding-win32-x64-msvc": "0.152.0"
++			}
++		},
++		"node_modules/oxc-parser/node_modules/@oxc-project/types": {
++			"version": "0.152.0",
++			"resolved": "https://registry.npmjs.org/@oxc-project/types/-/types-0.152.0.tgz",
++			"integrity": "sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw==",
++			"license": "MIT",
++			"funding": {
++				"url": "https://github.com/sponsors/oxc-project"
++			}
++		},
+ 		"node_modules/path-expression-matcher": {
+ 			"version": "1.6.2",
+ 			"resolved": "https://registry.npmjs.org/path-expression-matcher/-/path-expression-matcher-1.6.2.tgz",
+@@ -1665,6 +2924,22 @@
+ 				"node": ">=14.0.0"
+ 			}
+ 		},
++		"node_modules/path-scurry": {
++			"version": "3.0.0",
++			"resolved": "https://registry.npmjs.org/path-scurry/-/path-scurry-3.0.0.tgz",
++			"integrity": "sha512-1pTbQqH1wIwMi/eleQ5leFTTCkzFsPcgXNjwOA8YGGW/W4/kHT3dssE7Z6NH+zuqNLOzOB0uaD61yl7cAcVhgg==",
++			"license": "BlueOak-1.0.0",
++			"dependencies": {
++				"lru-cache": "^11.0.0",
++				"minipass": "^7.1.2"
++			},
++			"engines": {
++				"node": "18 || 20 || >=22"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/isaacs"
++			}
++		},
+ 		"node_modules/picocolors": {
+ 			"version": "1.1.1",
+ 			"resolved": "https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz",
+@@ -1714,6 +2989,41 @@
+ 				"node": "^10 || ^12 || >=14"
+ 			}
+ 		},
++		"node_modules/powershell-utils": {
++			"version": "0.2.1",
++			"resolved": "https://registry.npmjs.org/powershell-utils/-/powershell-utils-0.2.1.tgz",
++			"integrity": "sha512-C+y9x90UElAddDZmV4qOx9W53B61PO7cIqWz2dQsWlwswuq4mr8NEwytdGKboYbQlGZ3awrkTeNvcZiZNHnQ8A==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/puppeteer-core": {
++			"version": "25.17.0",
++			"resolved": "https://registry.npmjs.org/puppeteer-core/-/puppeteer-core-25.17.0.tgz",
++			"integrity": "sha512-YAgBitkd+K9gxRt+wzBAFTTkGjkC8aC2o4OxofsU8JUy2nnK/RflTCJ9bRCvCMNbq9TPhqFk4Phz98otN9FrGg==",
++			"license": "Apache-2.0",
++			"dependencies": {
++				"@puppeteer/browsers": "3.2.7",
++				"chromium-bidi": "157.0.8090-0",
++				"devtools-protocol": "0.0.1717327",
++				"typed-query-selector": "^2.12.3",
++				"webdriver-bidi-protocol": "1.0.2",
++				"ws": "^8.22.1"
++			},
++			"engines": {
++				"node": ">=22.12.0"
++			}
++		},
++		"node_modules/puppeteer-core/node_modules/devtools-protocol": {
++			"version": "0.0.1717327",
++			"resolved": "https://registry.npmjs.org/devtools-protocol/-/devtools-protocol-0.0.1717327.tgz",
++			"integrity": "sha512-3RDLDzyvv8XAYf1L+TL1og0EEk0eOW1Jn0yi88uG6Bj8fUKO1ZKfgNtwbJkqf5SWdPDS4VGEPxwdUWz78V6Xcg==",
++			"license": "BSD-3-Clause"
++		},
+ 		"node_modules/readdirp": {
+ 			"version": "4.1.2",
+ 			"resolved": "https://registry.npmjs.org/readdirp/-/readdirp-4.1.2.tgz",
+@@ -1728,6 +3038,24 @@
+ 				"url": "https://paulmillr.com/funding/"
+ 			}
+ 		},
++		"node_modules/require-from-string": {
++			"version": "2.0.2",
++			"resolved": "https://registry.npmjs.org/require-from-string/-/require-from-string-2.0.2.tgz",
++			"integrity": "sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=0.10.0"
++			}
++		},
++		"node_modules/robots-parser": {
++			"version": "3.0.1",
++			"resolved": "https://registry.npmjs.org/robots-parser/-/robots-parser-3.0.1.tgz",
++			"integrity": "sha512-s+pyvQeIKIZ0dx5iJiQk1tPLJAWln39+MI5jtM8wnyws+G5azk+dMnMX0qfbqNetKKNgcWWOdi0sfm+FbQbgdQ==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=10.0.0"
++			}
++		},
+ 		"node_modules/rolldown": {
+ 			"version": "1.2.19",
+ 			"resolved": "https://registry.npmjs.org/rolldown/-/rolldown-1.2.19.tgz",
+@@ -1763,6 +3091,18 @@
+ 				"@rolldown/binding-win32-x64-msvc": "1.2.19"
+ 			}
+ 		},
++		"node_modules/run-applescript": {
++			"version": "7.1.0",
++			"resolved": "https://registry.npmjs.org/run-applescript/-/run-applescript-7.1.0.tgz",
++			"integrity": "sha512-DPe5pVFaAsinSaV6QjQ6gdiedWDcRCbUuiQfQa2wmWV7+xC9bGulGI8+TdRmoFkAPaBXk8CrAbnlY2ISniJ47Q==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=18"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/sade": {
+ 			"version": "1.8.1",
+ 			"resolved": "https://registry.npmjs.org/sade/-/sade-1.8.1.tgz",
+@@ -1776,6 +3116,18 @@
+ 				"node": ">=6"
+ 			}
+ 		},
++		"node_modules/sentry": {
++			"version": "0.49.0",
++			"resolved": "https://registry.npmjs.org/sentry/-/sentry-0.49.0.tgz",
++			"integrity": "sha512-9tjS0jTx5FQzhwAGhpcnwvqE0MlQiwJtunsIUNqGkw6E9CBOMbijlamIDUqvZTDtJAveVwa9L5ziP44bOJUzcQ==",
++			"license": "FSL-1.1-Apache-2.0",
++			"bin": {
++				"sentry": "dist/bin.cjs"
++			},
++			"engines": {
++				"node": ">=20.0"
++			}
++		},
+ 		"node_modules/sirv": {
+ 			"version": "3.0.2",
+ 			"resolved": "https://registry.npmjs.org/sirv/-/sirv-3.0.2.tgz",
+@@ -1801,6 +3153,75 @@
+ 				"node": ">=0.10.0"
+ 			}
+ 		},
++		"node_modules/speedline-core": {
++			"version": "1.4.3",
++			"resolved": "https://registry.npmjs.org/speedline-core/-/speedline-core-1.4.3.tgz",
++			"integrity": "sha512-DI7/OuAUD+GMpR6dmu8lliO2Wg5zfeh+/xsdyJZCzd8o5JgFUjCeLsBDuZjIQJdwXS3J0L/uZYrELKYqx+PXog==",
++			"license": "MIT",
++			"dependencies": {
++				"@types/node": "*",
++				"image-ssim": "^0.2.0",
++				"jpeg-js": "^0.4.1"
++			},
++			"engines": {
++				"node": ">=8.0"
++			}
++		},
++		"node_modules/string-width": {
++			"version": "8.3.0",
++			"resolved": "https://registry.npmjs.org/string-width/-/string-width-8.3.0.tgz",
++			"integrity": "sha512-ZbmZM0JCihQN91dWnxoipT2KOEyHqEyfRXUyjuRhW8b/xnqPDoq4gWEVApTVa9db2wN8mmoikgFBbjh71+cGeQ==",
++			"license": "MIT",
++			"dependencies": {
++				"get-east-asian-width": "^1.5.0",
++				"strip-ansi": "^7.1.2"
++			},
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/string-width/node_modules/ansi-regex": {
++			"version": "6.6.0",
++			"resolved": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-6.6.0.tgz",
++			"integrity": "sha512-XZ5apbzreCbXSKwPjJstu8R0zOi247w3XYwWxtwBXgpZrCyc1Ka7p9/xY0A9/diMewmHbEKz+FIraWaEWjlN5g==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/chalk/ansi-regex?sponsor=1"
++			}
++		},
++		"node_modules/string-width/node_modules/strip-ansi": {
++			"version": "7.2.0",
++			"resolved": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-7.2.0.tgz",
++			"integrity": "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w==",
++			"license": "MIT",
++			"dependencies": {
++				"ansi-regex": "^6.2.2"
++			},
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/chalk/strip-ansi?sponsor=1"
++			}
++		},
++		"node_modules/strip-ansi": {
++			"version": "6.0.1",
++			"resolved": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-6.0.1.tgz",
++			"integrity": "sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==",
++			"license": "MIT",
++			"dependencies": {
++				"ansi-regex": "^5.0.1"
++			},
++			"engines": {
++				"node": ">=8"
++			}
++		},
+ 		"node_modules/strnum": {
+ 			"version": "2.5.1",
+ 			"resolved": "https://registry.npmjs.org/strnum/-/strnum-2.5.1.tgz",
+@@ -1816,6 +3237,21 @@
+ 				"anynum": "^1.0.1"
+ 			}
+ 		},
++		"node_modules/stubborn-fs": {
++			"version": "2.0.0",
++			"resolved": "https://registry.npmjs.org/stubborn-fs/-/stubborn-fs-2.0.0.tgz",
++			"integrity": "sha512-Y0AvSwDw8y+nlSNFXMm2g6L51rBGdAQT20J3YSOqxC53Lo3bjWRtr2BKcfYoAf352WYpsZSTURrA0tqhfgudPA==",
++			"license": "MIT",
++			"dependencies": {
++				"stubborn-utils": "^1.0.1"
++			}
++		},
++		"node_modules/stubborn-utils": {
++			"version": "1.0.2",
++			"resolved": "https://registry.npmjs.org/stubborn-utils/-/stubborn-utils-1.0.2.tgz",
++			"integrity": "sha512-zOh9jPYI+xrNOyisSelgym4tolKTJCQd5GBhK0+0xJvcYDcwlOoxF/rnFKQ2KRZknXSG9jWAp66fwP6AxN9STg==",
++			"license": "MIT"
++		},
+ 		"node_modules/svelte": {
+ 			"version": "5.57.3",
+ 			"resolved": "https://registry.npmjs.org/svelte/-/svelte-5.57.3.tgz",
+@@ -1878,6 +3314,18 @@
+ 				"@jridgewell/sourcemap-codec": "^1.5.5"
+ 			}
+ 		},
++		"node_modules/tagged-tag": {
++			"version": "1.0.0",
++			"resolved": "https://registry.npmjs.org/tagged-tag/-/tagged-tag-1.0.0.tgz",
++			"integrity": "sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/tailwindcss": {
+ 			"version": "4.3.5",
+ 			"resolved": "https://registry.npmjs.org/tailwindcss/-/tailwindcss-4.3.5.tgz",
+@@ -1899,6 +3347,12 @@
+ 				"url": "https://opencollective.com/webpack"
+ 			}
+ 		},
++		"node_modules/third-party-web": {
++			"version": "0.30.0",
++			"resolved": "https://registry.npmjs.org/third-party-web/-/third-party-web-0.30.0.tgz",
++			"integrity": "sha512-p+PfyL5U0ediGzvwPzMSdD9MnC8rHW6nWJJVLIQvqN7RsSqfaZ+7n4c9GILqH36EYR0eXB9CzAeCRnKFr/9uJg==",
++			"license": "MIT"
++		},
+ 		"node_modules/tinyglobby": {
+ 			"version": "0.2.17",
+ 			"resolved": "https://registry.npmjs.org/tinyglobby/-/tinyglobby-0.2.17.tgz",
+@@ -1916,6 +3370,21 @@
+ 				"url": "https://github.com/sponsors/SuperchupuDev"
+ 			}
+ 		},
++		"node_modules/tldts-core": {
++			"version": "7.5.4",
++			"resolved": "https://registry.npmjs.org/tldts-core/-/tldts-core-7.5.4.tgz",
++			"integrity": "sha512-9+4zWtKEDZ3V3FoZ1B97rv+5z5oqp7yeXGVze3CxgQ+CJro9do9DCPD00wxstYZDXDMXsurkBerFfiB6GYtPbA==",
++			"license": "MIT"
++		},
++		"node_modules/tldts-icann": {
++			"version": "7.5.4",
++			"resolved": "https://registry.npmjs.org/tldts-icann/-/tldts-icann-7.5.4.tgz",
++			"integrity": "sha512-zbUdr6OsYNmfUwQbreYcmp1oMNWe7unNB6XOOuTil1FGpW31LAN3IS+buwB73uPxQlBDmDLFNyOmpYIBAKBf8A==",
++			"license": "MIT",
++			"dependencies": {
++				"tldts-core": "^7.5.4"
++			}
++		},
+ 		"node_modules/totalist": {
+ 			"version": "3.0.1",
+ 			"resolved": "https://registry.npmjs.org/totalist/-/totalist-3.0.1.tgz",
+@@ -1930,9 +3399,28 @@
+ 			"version": "2.9.1",
+ 			"resolved": "https://registry.npmjs.org/tslib/-/tslib-2.9.1.tgz",
+ 			"integrity": "sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA==",
+-			"dev": true,
+-			"license": "0BSD",
+-			"optional": true
++			"license": "0BSD"
++		},
++		"node_modules/type-fest": {
++			"version": "5.10.0",
++			"resolved": "https://registry.npmjs.org/type-fest/-/type-fest-5.10.0.tgz",
++			"integrity": "sha512-NoSdpq/WEiAg5sjmBkmV/hfxv6HJH4NqPNrqjtSO5CwRmpsDfaf4begxW34KdJykH/l1yHtwBWQkCRdoXO8mPA==",
++			"license": "(MIT OR CC0-1.0)",
++			"dependencies": {
++				"tagged-tag": "^1.0.0"
++			},
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/typed-query-selector": {
++			"version": "2.12.3",
++			"resolved": "https://registry.npmjs.org/typed-query-selector/-/typed-query-selector-2.12.3.tgz",
++			"integrity": "sha512-/dtuMZyutHLlrxWhhC1uib00ELUr2dZ8C9B8YzZYsJmeE3V56OxRblrSM2UaF142pcMtak7ehZ6+poWGeehNIg==",
++			"license": "MIT"
+ 		},
+ 		"node_modules/typescript": {
+ 			"version": "6.0.3",
+@@ -1952,7 +3440,6 @@
+ 			"version": "8.9.0",
+ 			"resolved": "https://registry.npmjs.org/undici-types/-/undici-types-8.9.0.tgz",
+ 			"integrity": "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==",
+-			"dev": true,
+ 			"license": "MIT"
+ 		},
+ 		"node_modules/vite": {
+@@ -2053,6 +3540,143 @@
+ 				}
+ 			}
+ 		},
++		"node_modules/webdriver-bidi-protocol": {
++			"version": "1.0.2",
++			"resolved": "https://registry.npmjs.org/webdriver-bidi-protocol/-/webdriver-bidi-protocol-1.0.2.tgz",
++			"integrity": "sha512-nghazPI+J5RrLZ+qb6vMjC6l1/tnwqr2muVEax4Ufd6eIdcjeqNnhLsAxTG9s+7Zf4umgf0DrEwDC8CoU91nAA==",
++			"license": "Apache-2.0"
++		},
++		"node_modules/when-exit": {
++			"version": "2.1.5",
++			"resolved": "https://registry.npmjs.org/when-exit/-/when-exit-2.1.5.tgz",
++			"integrity": "sha512-VGkKJ564kzt6Ms1dbgPP/yuIoQCrsFAnRbptpC5wOEsDaNsbCB2bnfnaA8i/vRs5tjUSEOtIuvl9/MyVsvQZCg==",
++			"license": "MIT"
++		},
++		"node_modules/wrap-ansi": {
++			"version": "9.0.2",
++			"resolved": "https://registry.npmjs.org/wrap-ansi/-/wrap-ansi-9.0.2.tgz",
++			"integrity": "sha512-42AtmgqjV+X1VpdOfyTGOYRi0/zsoLqtXQckTmqTeybT+BDIbM/Guxo7x3pE2vtpr1ok6xRqM9OpBe+Jyoqyww==",
++			"license": "MIT",
++			"dependencies": {
++				"ansi-styles": "^6.2.1",
++				"string-width": "^7.0.0",
++				"strip-ansi": "^7.1.0"
++			},
++			"engines": {
++				"node": ">=18"
++			},
++			"funding": {
++				"url": "https://github.com/chalk/wrap-ansi?sponsor=1"
++			}
++		},
++		"node_modules/wrap-ansi/node_modules/ansi-regex": {
++			"version": "6.6.0",
++			"resolved": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-6.6.0.tgz",
++			"integrity": "sha512-XZ5apbzreCbXSKwPjJstu8R0zOi247w3XYwWxtwBXgpZrCyc1Ka7p9/xY0A9/diMewmHbEKz+FIraWaEWjlN5g==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/chalk/ansi-regex?sponsor=1"
++			}
++		},
++		"node_modules/wrap-ansi/node_modules/string-width": {
++			"version": "7.2.0",
++			"resolved": "https://registry.npmjs.org/string-width/-/string-width-7.2.0.tgz",
++			"integrity": "sha512-tsaTIkKW9b4N+AEj+SVA+WhJzV7/zMhcSu78mLKWSk7cXMOSHsBKFWUs0fWwq8QyK3MgJBQRX6Gbi4kYbdvGkQ==",
++			"license": "MIT",
++			"dependencies": {
++				"emoji-regex": "^10.3.0",
++				"get-east-asian-width": "^1.0.0",
++				"strip-ansi": "^7.1.0"
++			},
++			"engines": {
++				"node": ">=18"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/wrap-ansi/node_modules/strip-ansi": {
++			"version": "7.2.0",
++			"resolved": "https://registry.npmjs.org/strip-ansi/-/strip-ansi-7.2.0.tgz",
++			"integrity": "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w==",
++			"license": "MIT",
++			"dependencies": {
++				"ansi-regex": "^6.2.2"
++			},
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/chalk/strip-ansi?sponsor=1"
++			}
++		},
++		"node_modules/ws": {
++			"version": "8.23.0",
++			"resolved": "https://registry.npmjs.org/ws/-/ws-8.23.0.tgz",
++			"integrity": "sha512-wCkmX8QMOrKjgO8HW2WyDbTSGeqkocxgDzS9iR79rEAexty6/2qzilx3Ag8Tqf9ykop3irLKle0MtVn5qjVnoQ==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=10.0.0"
++			},
++			"peerDependencies": {
++				"bufferutil": "^4.0.1",
++				"utf-8-validate": ">=5.0.2"
++			},
++			"peerDependenciesMeta": {
++				"bufferutil": {
++					"optional": true
++				},
++				"utf-8-validate": {
++					"optional": true
++				}
++			}
++		},
++		"node_modules/wsl-utils": {
++			"version": "1.0.1",
++			"resolved": "https://registry.npmjs.org/wsl-utils/-/wsl-utils-1.0.1.tgz",
++			"integrity": "sha512-c16PKLIRxBYpR3jSWsdS7SFp0COm5SOQdiFjY818dYFHJbMGuLBszpF07LBWmOS1uzrHa9VGdynsEgoeKy0oOQ==",
++			"license": "MIT",
++			"dependencies": {
++				"is-wsl": "^3.1.0",
++				"powershell-utils": "^0.2.0"
++			},
++			"engines": {
++				"node": ">=20"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/wsl-utils/node_modules/is-wsl": {
++			"version": "3.1.1",
++			"resolved": "https://registry.npmjs.org/is-wsl/-/is-wsl-3.1.1.tgz",
++			"integrity": "sha512-e6rvdUCiQCAuumZslxRJWR/Doq4VpPR82kqclvcS0efgt430SlGIk05vdCN58+VrzgtIcfNODjozVielycD4Sw==",
++			"license": "MIT",
++			"dependencies": {
++				"is-inside-container": "^1.0.0"
++			},
++			"engines": {
++				"node": ">=16"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
++		"node_modules/xdg-basedir": {
++			"version": "5.1.0",
++			"resolved": "https://registry.npmjs.org/xdg-basedir/-/xdg-basedir-5.1.0.tgz",
++			"integrity": "sha512-GCPAHLvrIH13+c0SuacwvRYj2SxJXQ4kaVTT5xgL3kPrz56XxkF21IGhjSE1+W0aw7gpBWRGXLCPnPby6lSpmQ==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=12"
++			},
++			"funding": {
++				"url": "https://github.com/sponsors/sindresorhus"
++			}
++		},
+ 		"node_modules/xml-naming": {
+ 			"version": "0.3.0",
+ 			"resolved": "https://registry.npmjs.org/xml-naming/-/xml-naming-0.3.0.tgz",
+@@ -2068,12 +3692,56 @@
+ 				"node": ">=16.0.0"
+ 			}
+ 		},
++		"node_modules/y18n": {
++			"version": "5.0.8",
++			"resolved": "https://registry.npmjs.org/y18n/-/y18n-5.0.8.tgz",
++			"integrity": "sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==",
++			"license": "ISC",
++			"engines": {
++				"node": ">=10"
++			}
++		},
++		"node_modules/yargs": {
++			"version": "18.2.0",
++			"resolved": "https://registry.npmjs.org/yargs/-/yargs-18.2.0.tgz",
++			"integrity": "sha512-9OpKOLeaoNFecEp7P6iYbzze/5CqWoH7N3SMs/6y1XF4nMvFMspEGZzJ6uFi9MmQwXhyzqYoSEKO3tvA3Z/o2w==",
++			"license": "MIT",
++			"dependencies": {
++				"cliui": "^9.0.1",
++				"escalade": "^3.1.1",
++				"get-caller-file": "^2.0.5",
++				"string-width": "^8.2.1",
++				"y18n": "^5.0.5",
++				"yargs-parser": "^22.0.0"
++			},
++			"engines": {
++				"node": "^20.19.0 || ^22.12.0 || >=23"
++			}
++		},
++		"node_modules/yargs-parser": {
++			"version": "22.0.0",
++			"resolved": "https://registry.npmjs.org/yargs-parser/-/yargs-parser-22.0.0.tgz",
++			"integrity": "sha512-rwu/ClNdSMpkSrUb+d6BRsSkLUq1fmfsY6TOpYzTwvwkg1/NRG85KBy3kq++A8LKQwX6lsu+aWad+2khvuXrqw==",
++			"license": "ISC",
++			"engines": {
++				"node": "^20.19.0 || ^22.12.0 || >=23"
++			}
++		},
+ 		"node_modules/zimmerframe": {
+ 			"version": "1.1.5",
+ 			"resolved": "https://registry.npmjs.org/zimmerframe/-/zimmerframe-1.1.5.tgz",
+ 			"integrity": "sha512-msJxIvYDYcoNL+PJsu+7qmpDWsYmAxTY+2TNYXXF0hzBzBk0BMecOqDOG/EckUoKCuKwObfbugIl8QpqHDXeFA==",
+ 			"dev": true,
+ 			"license": "MIT"
++		},
++		"node_modules/zod": {
++			"version": "4.6.7",
++			"resolved": "https://registry.npmjs.org/zod/-/zod-4.6.7.tgz",
++			"integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==",
++			"license": "MIT",
++			"funding": {
++				"url": "https://github.com/sponsors/colinhacks"
++			}
+ 		}
+ 	}
+ }
+diff --git a/package.json b/package.json
+index d2afcda..7c4cf2e 100644
+--- a/package.json
++++ b/package.json
+@@ -31,6 +31,8 @@
+ 		"@fontsource-variable/geist": "^5.3.0",
+ 		"@fontsource/instrument-serif": "^5.3.0",
+ 		"fast-xml-parser": "^5.12.0",
+-		"node-html-parser": "^9.0.7"
++		"lighthouse": "^13.6.0",
++		"node-html-parser": "^9.0.7",
++		"puppeteer-core": "^25.17.0"
+ 	}
+ }
+diff --git a/src/lib/server/chrome.ts b/src/lib/server/chrome.ts
+new file mode 100644
+index 0000000..9a6190d
+--- /dev/null
++++ b/src/lib/server/chrome.ts
+@@ -0,0 +1,16 @@
++// Finds a Chrome/Chromium on the server (installed in the Docker image) for Lighthouse and live checks.
++import { existsSync } from 'node:fs';
++
++const CANDIDATES = [process.env.CHROME_PATH, '/usr/bin/chromium-browser', '/usr/bin/chromium', '/usr/bin/google-chrome', '/opt/google/chrome/chrome'];
++export function chromePath(): string | null {
++	return (CANDIDATES.filter(Boolean) as string[]).find((p) => existsSync(p)) ?? null;
++}
++export const CHROME_ARGS = ['--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'];
++
++let queue: Promise<unknown> = Promise.resolve();
++/** One headless Chrome job at a time: keeps a small server responsive. */
++export function inChromeQueue<T>(fn: () => Promise<T>): Promise<T> {
++	const run = queue.then(fn, fn);
++	queue = run.catch(() => null);
++	return run;
++}
+diff --git a/src/lib/server/fix-engine.ts b/src/lib/server/fix-engine.ts
+index d230891..c6ea428 100644
+--- a/src/lib/server/fix-engine.ts
++++ b/src/lib/server/fix-engine.ts
+@@ -7,7 +7,7 @@ import * as env from '$app/env/private';
+ import type { Client } from '#lib/types.ts';
+ import { getSeoAudit } from './seo-audit.ts';
+ import { generateFixes, listFixes, publishIssue, upsertFix } from './fixes.ts';
+-import { getSearchConsole } from './google.ts';
++import { gscPagesFor } from './google.ts';
+ import { track } from './usage.ts';
+ 
+ import { AUTO_FIX_ISSUES, canAutoFix } from '#lib/fixable.ts';
+@@ -35,15 +35,69 @@ export async function fixAll(client: Client) {
+ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+ const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…');
+ 
++/** Read a page's current title, description and main heading (what Google sees today). */
++async function readPage(url: string) {
++	try {
++		const r = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0 (UndercutBot)' } });
++		const html = (await r.text()).slice(0, 400_000);
++		const pick = (re: RegExp) => html.match(re)?.[1]?.replace(/\s+/g, ' ').trim() ?? '';
++		const dec = (t: string) => t.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
++		return {
++			title: dec(pick(/<title[^>]*>([^<]*)<\/title>/i)),
++			desc: dec(pick(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']*)["']/i) || pick(/<meta[^>]+content=["']([^"']*)["'][^>]*name=["']description["']/i)),
++			h1: dec(pick(/<h1[^>]*>([\s\S]*?)<\/h1>/i).replace(/<[^>]+>/g, '')),
++			lang: pick(/<html[^>]+lang=["']([a-z]{2})/i) || 'fr'
++		};
++	} catch {
++		return { title: '', desc: '', h1: '', lang: 'fr' };
++	}
++}
++
++async function aiTitleDesc(keyword: string, client: Client, page: { title: string; desc: string; h1: string; lang: string }) {
++	if (!env.ANTHROPIC_API_KEY) return null;
++	try {
++		const res = await fetch('https://api.anthropic.com/v1/messages', {
++			method: 'POST',
++			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
++			body: JSON.stringify({
++				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
++				max_tokens: 300,
++				messages: [{ role: 'user', content: `Rewrite the Google title (max 60 characters) and meta description (max 155 characters) of this page so it ranks for the search "${keyword}". Language: ${page.lang}. Keep the facts of the current page, no invented claims or prices. Put the keyword near the start of the title, end the title with the brand "${client.name}". Answer as JSON {"title":"…","description":"…"} only.\n\nCurrent title: ${page.title}\nCurrent description: ${page.desc}\nMain heading: ${page.h1}` }]
++			})
++		});
++		if (!res.ok) return null;
++		const t = (await res.json()).content?.[0]?.text ?? '';
++		const j = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
++		return j.title && j.description ? { title: clip(String(j.title), 60), description: clip(String(j.description), 155) } : null;
++	} catch {
++		return null;
++	}
++}
++
++/**
++ * Keyword → publishable title + description on the page that already appears in Google for it
++ * (Search Console), written from the page's real content.
++ */
+ export async function keywordToFix(client: Client, keyword: string) {
+-	const gsc = await getSearchConsole(client).catch(() => null);
+-	// best page: the page that already gets clicks for a similar search, otherwise the homepage
+-	const path = gsc?.pages[0]?.key && keyword.split(' ').some((w) => gsc.pages[0].key.includes(w)) ? gsc.pages[0].key : '/';
+-	const title = clip(`${cap(keyword)} | ${client.name}`, 60);
+-	const description = clip(`${cap(keyword)}: ${client.name} vous accueille à Bruxelles. Infos, prix et contact rapide — découvrez-nous dès aujourd'hui.`, 155);
+-	upsertFix(client.id, { id: `title:${path}`, kind: 'title', path, value: title, by: 'rules', issue: `keyword:${keyword}` });
+-	upsertFix(client.id, { id: `description:${path}`, kind: 'description', path, value: description, by: 'rules', issue: `keyword:${keyword}` });
+-	return { path, title, description };
++	const origin = new URL(client.domain).origin;
++	const pages = await gscPagesFor(client, keyword).catch(() => []);
++	let path = '/';
++	let why = 'No page appears in Google for this search yet — the homepage is used.';
++	const best = pages.find((p) => p.page.startsWith(origin) || new URL(p.page).host.replace(/^www\./, '') === new URL(origin).host.replace(/^www\./, ''));
++	if (best) {
++		path = new URL(best.page).pathname || '/';
++		why = `Google already shows ${path} for this search (${best.impressions} times, position ${best.position}).`;
++	}
++	const page = await readPage(origin + path);
++	const brand = client.name;
++	const ai = await aiTitleDesc(keyword, client, page);
++	const kw = cap(keyword);
++	const title = ai?.title ?? clip(page.title.toLowerCase().includes(keyword.toLowerCase()) ? page.title : `${kw} | ${brand}`, 60);
++	const baseDesc = page.desc || page.h1;
++	const description = ai?.description ?? clip(baseDesc.toLowerCase().includes(keyword.toLowerCase()) ? baseDesc : baseDesc ? `${kw} — ${baseDesc}` : `${kw} — ${brand}.`, 155);
++	upsertFix(client.id, { id: `title:${path}`, kind: 'title', path, value: title, by: ai ? 'ai' : 'rules', issue: `keyword:${keyword}`, current: page.title });
++	upsertFix(client.id, { id: `description:${path}`, kind: 'description', path, value: description, by: ai ? 'ai' : 'rules', issue: `keyword:${keyword}`, current: page.desc });
++	return { path, title, description, before: { title: page.title, description: page.desc }, why };
+ }
+ 
+ // ---------- how to fix (not automatable) ----------
+diff --git a/src/lib/server/fixes.ts b/src/lib/server/fixes.ts
+index e505e09..f9f8d1a 100644
+--- a/src/lib/server/fixes.ts
++++ b/src/lib/server/fixes.ts
+@@ -28,9 +28,15 @@ export type Fix = {
+ const file = (clientId: string) => `fixes/${clientId.replace(/[^a-z0-9-]/gi, '')}.json`;
+ 
+ export function listFixes(clientId: string): Fix[] {
+-	const all = readData<Fix[]>(file(clientId), []);
++	const all = readData<Fix[]>(file(clientId), []).map((f) =>
++		// older audits kept spaces/new lines around image addresses ("   https://…"): the snippet could never match them
++		f.kind === 'alt' && f.target && f.target !== f.target.trim() ? { ...f, target: f.target.trim(), id: `alt:${f.path}:${f.target.trim()}` } : f
++	);
++	// older files could hold duplicates; keep the live one when there is one, in the original order
++	const best = new Map<string, Fix>();
++	for (const f of all) if (!best.has(f.id) || (f.status === 'live' && best.get(f.id)!.status !== 'live')) best.set(f.id, f);
+ 	const seen = new Set<string>();
+-	return all.filter((f) => !seen.has(f.id) && seen.add(f.id)); // older files could hold duplicates
++	return all.filter((f) => !seen.has(f.id) && seen.add(f.id)).map((f) => best.get(f.id)!);
+ }
+ 
+ function saveFixes(clientId: string, fixes: Fix[]) {
+diff --git a/src/lib/server/google.ts b/src/lib/server/google.ts
+index f23d7fa..74aa719 100644
+--- a/src/lib/server/google.ts
++++ b/src/lib/server/google.ts
+@@ -659,6 +659,18 @@ export async function gscQuery(client: Client, query: string, days = 28): Promis
+ 	return r ? { key: query, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: +r.position.toFixed(1) } : null;
+ }
+ 
++/** Pages of the site that Google already shows for searches containing this keyword (best first). */
++export async function gscPagesFor(client: Client, keyword: string, days = 90): Promise<{ page: string; clicks: number; impressions: number; position: number }[]> {
++	const site = client.google.gscSiteUrl;
++	if (!site || !isConnected() || !googleConfigured()) return [];
++	const range = demoSearchConsole(client, days).range;
++	const j = await g(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
++		method: 'POST',
++		body: JSON.stringify({ startDate: range.start, endDate: range.end, dimensions: ['page'], rowLimit: 10, dimensionFilterGroups: [{ filters: [{ dimension: 'query', operator: 'contains', expression: keyword }] }] })
++	});
++	return (j.rows ?? []).map((r: any) => ({ page: String(r.keys[0]), clicks: r.clicks, impressions: r.impressions, position: +r.position.toFixed(1) })).sort((a: any, b: any) => b.impressions - a.impressions);
++}
++
+ // ---------- Matching: which Google properties belong to this client? ----------
+ const hostOf = (u: string) => u.replace(/^sc-domain:/, '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/:].*$/, '').toLowerCase();
+ 
+diff --git a/src/lib/server/ideas.ts b/src/lib/server/ideas.ts
+index ba4d1dc..231e8c5 100644
+--- a/src/lib/server/ideas.ts
++++ b/src/lib/server/ideas.ts
+@@ -231,10 +231,7 @@ export async function getIdeas(keywordRaw: string, lang: Lang = 'fr', geo = 'BE'
+ 				? (risingRes.value.related_queries?.rising ?? risingRes.value.related_queries?.top ?? [])
+ 						.slice(0, 8)
+ 						.map((r: any) => ({ query: r.query, value: String(r.value ?? r.extracted_value ?? '') }))
+-				: [`${keyword} ${new Date().getFullYear()}`, `${keyword} prix`, `meilleur ${keyword}`, `${keyword} avis`].map((q, i) => ({
+-						query: q,
+-						value: ['Breakout', '+350%', '+120%', '+60%'][i]
+-					}));
++				: []; // no SerpApi key: nothing invented
+ 
+ 		let content: IdeasResult['content'];
+ 		if (contentRes.status === 'fulfilled' && contentRes.value.organic_results?.length) {
+diff --git a/src/lib/server/live-check.ts b/src/lib/server/live-check.ts
+new file mode 100644
+index 0000000..8304a00
+--- /dev/null
++++ b/src/lib/server/live-check.ts
+@@ -0,0 +1,69 @@
++// Proof that published fixes are really on the client's site: open the page in a real (headless) Chrome,
++// like Google's renderer does, let the Undercut snippet run, then read the title, description and image texts.
++import type { Client } from '#lib/types.ts';
++import { chromePath, CHROME_ARGS, inChromeQueue } from './chrome.ts';
++import { livePayload } from './fixes.ts';
++import { readData, writeData } from './store.ts';
++
++export type CheckItem = { kind: 'title' | 'description' | 'alt' | 'schema'; expected: string; found: string | null; ok: boolean; target?: string };
++export type LiveCheck = { path: string; at: string; snippet: boolean; items: CheckItem[]; error?: string };
++
++const file = (id: string) => `livecheck-${id}.json`;
++export function lastChecks(client: Client): Record<string, LiveCheck> {
++	return readData<Record<string, LiveCheck>>(file(client.id), {});
++}
++
++export async function checkLive(client: Client, path: string): Promise<LiveCheck> {
++	const at = new Date().toISOString();
++	const expected = livePayload(client.id, path);
++	const fail = (error: string): LiveCheck => ({ path, at, snippet: false, items: [], error });
++	const chrome = chromePath();
++	if (!chrome) return fail('The live check needs Chrome on the server (included in the Docker image — redeploy).');
++	if (!client.domain) return fail('This client has no website.');
++	const result = await inChromeQueue(async () => {
++		const { default: puppeteer } = await import('puppeteer-core');
++		const browser = await puppeteer.launch({ executablePath: chrome, args: CHROME_ARGS });
++		try {
++			const page = await browser.newPage();
++			await page.setUserAgent('Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36 UndercutCheck');
++			// tell the snippet this is a check: apply the fixes, but record no visit
++			await page.evaluateOnNewDocument(() => Object.assign(window, { __ucCheck: 1 }));
++			const url = new URL(path, client.domain).toString();
++			await page.goto(url, { waitUntil: 'networkidle2', timeout: 30_000 }).catch(() => page.goto(url, { waitUntil: 'load', timeout: 30_000 }));
++			const ready = await page.waitForFunction(() => (window as unknown as { __ucReady?: number }).__ucReady === 1, { timeout: 8000 }).then(() => true).catch(() => false);
++			await new Promise((r) => setTimeout(r, 2500)); // fixes are applied right after the snippet loads them
++			const seen = await page.evaluate(() => ({
++				title: document.title,
++				description: document.querySelector('meta[name="description"]')?.getAttribute('content') ?? null,
++				schema: [...document.querySelectorAll('script[type="application/ld+json"]')].map((s) => s.textContent ?? ''),
++				imgs: [...document.images].map((i) => ({ src: (i.getAttribute('src') ?? '').trim(), abs: i.currentSrc || i.src, alt: i.getAttribute('alt') }))
++			}));
++			return { ready, seen };
++		} finally {
++			await browser.close().catch(() => null);
++		}
++	}).catch((e: Error) => ({ error: e.message }) as const);
++	if ('error' in result) return fail(`Could not open the page (${String(result.error).slice(0, 140)}).`);
++	const { ready, seen } = result;
++	const bare = (u: string) => {
++		try {
++			const x = new URL(u.trim(), client.domain);
++			return x.host + x.pathname;
++		} catch {
++			return u.trim();
++		}
++	};
++	const items: CheckItem[] = [];
++	if (expected.title) items.push({ kind: 'title', expected: expected.title, found: seen.title, ok: seen.title === expected.title });
++	if (expected.description) items.push({ kind: 'description', expected: expected.description, found: seen.description, ok: seen.description === expected.description });
++	for (const [target, alt] of Object.entries(expected.alts)) {
++		const img = seen.imgs.find((i) => bare(i.src) === bare(target) || bare(i.abs) === bare(target));
++		items.push({ kind: 'alt', target, expected: alt, found: img ? img.alt : null, ok: Boolean(img?.alt?.trim()) });
++	}
++	for (const s of expected.schema) items.push({ kind: 'schema', expected: 'structured data', found: seen.schema.some((x) => x.trim() === s.trim()) ? 'present' : null, ok: seen.schema.some((x) => x.trim() === s.trim()) });
++	const check: LiveCheck = { path, at, snippet: ready, items, error: ready ? undefined : 'The Undercut snippet was not found on this page — fixes cannot go live until it is installed.' };
++	const all = lastChecks(client);
++	all[path] = check;
++	writeData(file(client.id), all);
++	return check;
++}
+diff --git a/src/lib/server/seo-audit.ts b/src/lib/server/seo-audit.ts
+index f4a698e..8fe5cef 100644
+--- a/src/lib/server/seo-audit.ts
++++ b/src/lib/server/seo-audit.ts
+@@ -4,7 +4,11 @@
+ import { parse } from 'node-html-parser';
+ import * as env from '$app/env/private';
+ import type { Client, Level } from '#lib/types.ts';
+-import { projectAccessToken } from './google.ts';
++import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { chromePath, CHROME_ARGS, inChromeQueue } from './chrome.ts';
++import { join } from 'node:path';
++import { execFile } from 'node:child_process';
+ import { normaliseSite, sitemapFor } from './sitemap.ts';
+ import type { Draft } from './insights.ts';
+ import { track } from './usage.ts';
+@@ -48,6 +52,7 @@ export type Lighthouse = {
+ 	screenshot?: string; // what Google saw (data URI)
+ 	testedAt?: string;
+ 	runs?: number[]; // performance score of each run (median is shown)
++	engine?: 'psi' | 'local'; // who ran it: Google PageSpeed or Chrome on the Undercut server
+ 	url?: string;
+ };
+ export type W3C = {
+@@ -127,12 +132,12 @@ function auditPage(url: string, status: number, ms: number, html: string): PageA
+ 		imagesNoAlt: imgs.filter((i) => !i.getAttribute('alt')?.trim()).length,
+ 		words: text ? text.split(' ').length : 0,
+ 		h1Text: root.querySelector('h1')?.textContent.replace(/\s+/g, ' ').trim().slice(0, 90),
+-		noAltSrcs: [...new Set(imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => i.getAttribute('src') ?? '').filter(Boolean))].slice(0, 12),
++		noAltSrcs: [...new Set(imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => (i.getAttribute('src') ?? '').trim()).filter(Boolean))].slice(0, 12),
+ 		noAltImgs: (() => {
+ 			const seen = new Set<string>();
+ 			const out: { src: string; abs: string; context: string }[] = [];
+ 			for (const i of imgs) {
+-				const src = i.getAttribute('src') ?? '';
++				const src = (i.getAttribute('src') ?? '').trim();
+ 				if (!src || i.getAttribute('alt')?.trim() || seen.has(src)) continue;
+ 				seen.add(src);
+ 				let abs = src;
+@@ -156,83 +161,108 @@ const CAT: Record<string, Lighthouse['audits'][number]['category']> = {
+ 	seo: 'SEO'
+ };
+ 
+-// Google Lighthouse through the PageSpeed Insights API: the same 4 scores as Chrome DevTools.
+-async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<{ speed: SeoAudit['speed']; lighthouse: Lighthouse | null; console: SeoAudit['console']; error?: string }> {
++type LhOut = { speed: SeoAudit['speed']; lighthouse: Lighthouse | null; console: SeoAudit['console']; error?: string };
++
++/** Turn a Lighthouse result (from PageSpeed or from our own Chrome) into what the SEO page shows. */
++function fromLhr(lr: any, url: string, source: 'psi' | 'local'): LhOut {
++	const a = lr.audits ?? {};
++	const cats = lr.categories ?? {};
++	if (lr.runtimeError?.code) return { speed: null, lighthouse: null, console: null, error: `Lighthouse could not load the page (${String(lr.runtimeError.message ?? lr.runtimeError.code).slice(0, 160)}).` };
++	const score = (k: string) => Math.round((cats[k]?.score ?? 0) * 100);
++	const audits: Lighthouse['audits'] = [];
++	for (const [catKey, cat] of Object.entries<any>(cats)) {
++		for (const ref of cat.auditRefs ?? []) {
++			const au = a[ref.id];
++			if (!au || au.score === null || au.score >= 0.9 || ['manual', 'notApplicable', 'informative'].includes(au.scoreDisplayMode)) continue;
++			if (ref.weight === 0 && catKey !== 'performance') continue;
++			audits.push({ id: ref.id, category: CAT[catKey], title: au.title, value: au.displayValue, level: au.score < 0.5 ? 'bad' : 'warn' });
++		}
++	}
++	const seen = new Set<string>();
++	const metric = (id: string, label: string) => {
++		const m = a[id];
++		return m ? { id, label, value: String(m.displayValue ?? ''), level: (m.score >= 0.9 ? 'good' : m.score >= 0.5 ? 'warn' : 'bad') as Level } : null;
++	};
++	const metrics = [metric('first-contentful-paint', 'First Contentful Paint'), metric('largest-contentful-paint', 'Largest Contentful Paint'), metric('total-blocking-time', 'Total Blocking Time'), metric('cumulative-layout-shift', 'Cumulative Layout Shift'), metric('speed-index', 'Speed Index')].filter((x): x is NonNullable<typeof x> => Boolean(x));
++	const shot = a['final-screenshot']?.details?.data;
++	return {
++		speed: { source: 'psi', performance: score('performance'), lcp: +((a['largest-contentful-paint']?.numericValue ?? 0) / 1000).toFixed(1), cls: +(a['cumulative-layout-shift']?.numericValue ?? 0).toFixed(2), tbt: Math.round(a['total-blocking-time']?.numericValue ?? 0) },
++		lighthouse: {
++			source: 'psi',
++			engine: source,
++			scores: { performance: score('performance'), accessibility: score('accessibility'), bestPractices: score('best-practices'), seo: score('seo') },
++			audits: audits.filter((x) => !seen.has(x.id) && seen.add(x.id)).slice(0, 14),
++			metrics,
++			screenshot: typeof shot === 'string' && shot.length < 400_000 ? shot : undefined,
++			testedAt: lr.fetchTime ?? new Date().toISOString(),
++			url: lr.finalDisplayedUrl ?? lr.finalUrl ?? url
++		},
++		console: { source: 'psi', items: (a['errors-in-console']?.details?.items ?? []).slice(0, 10).map((it: any) => ({ message: String(it.description ?? '').slice(0, 300), source: it.sourceLocation?.url ?? it.source })) }
++	};
++}
++
++// ---- 1. Our own Chrome on the server (no quota, no key). Used when Chrome is installed (Docker image has it). ----
++async function lighthouseLocal(url: string, strategy: 'mobile' | 'desktop'): Promise<LhOut> {
++	const chrome = chromePath();
++	if (!chrome) return { speed: null, lighthouse: null, console: null, error: 'no-chrome' };
++	const cli = join(process.cwd(), 'node_modules', 'lighthouse', 'cli', 'index.js');
++	if (!existsSync(cli)) return { speed: null, lighthouse: null, console: null, error: 'no-chrome' };
++	return inChromeQueue(
++		() =>
++			new Promise<LhOut>((resolve) => {
++				const dir = mkdtempSync(join(tmpdir(), 'uc-lh-'));
++				const out = join(dir, 'report.json');
++				const args = [cli, url, '--output=json', `--output-path=${out}`, '--quiet', '--only-categories=performance,accessibility,best-practices,seo', '--max-wait-for-load=45000', `--chrome-flags=${CHROME_ARGS.join(' ')}`];
++				if (strategy === 'desktop') args.push('--preset=desktop');
++				execFile(process.execPath, args, { env: { ...process.env, CHROME_PATH: chrome }, maxBuffer: 10 * 1024 * 1024, timeout: 120_000 }, (err) => {
++					try {
++						resolve(fromLhr(JSON.parse(readFileSync(out, 'utf8')), url, 'local'));
++					} catch {
++						resolve({ speed: null, lighthouse: null, console: null, error: err?.killed ? 'Lighthouse took more than 2 minutes — the page is very slow or blocks robots.' : `Lighthouse could not test the page${err ? ` (${String(err.message).split('\n')[0].slice(0, 140)})` : ''}.` });
++					} finally {
++						rmSync(dir, { recursive: true, force: true });
++					}
++				});
++			})
++	);
++}
++
++// ---- 2. Google PageSpeed Insights API (same Lighthouse, run by Google). Needs PAGESPEED_API_KEY for a real quota. ----
++async function lighthousePsi(url: string, strategy: 'mobile' | 'desktop'): Promise<LhOut & { quota?: boolean }> {
+ 	const p = new URLSearchParams({ url, strategy });
+ 	for (const c of ['PERFORMANCE', 'ACCESSIBILITY', 'BEST_PRACTICES', 'SEO']) p.append('category', c);
+-	const headers: Record<string, string> = {};
+ 	if (env.PAGESPEED_API_KEY) p.set('key', env.PAGESPEED_API_KEY);
+-	else {
+-		// No key: use the connected Google account (quota of your own Google Cloud project instead of the tiny shared one)
+-		const token = await projectAccessToken();
+-		if (token) headers.authorization = `Bearer ${token}`;
+-	}
+ 	try {
+-		const call = (h: Record<string, string>) => fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { headers: h, signal: AbortSignal.timeout(60_000) });
+-		let r = await call(headers);
+-		// the account token may not be accepted (scope / API off) → fall back to the anonymous quota
+-		if (headers.authorization && (r.status === 401 || r.status === 403)) r = await call({});
++		const r = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { signal: AbortSignal.timeout(90_000) });
+ 		if (!r.ok) {
+ 			const t = await r.text();
+-			const link = t.match(/https:\/\/console\.developers\.google\.com\/apis\/api\/[^\s"\\]+/)?.[0];
+-			const error =
+-				r.status === 429 ? 'Google’s free PageSpeed quota is used up for now. Add a PAGESPEED_API_KEY (free) or enable the PageSpeed Insights API in your Google Cloud project: https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com'
+-				: r.status === 403 ? `The PageSpeed Insights API is not enabled in your Google Cloud project — enable it, then “Check again”: ${link ?? 'https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com'}`
+-				: r.status === 400 || r.status === 500 ? `Lighthouse could not load the page (${String(t.match(/"message":\s*"([^"]+)/)?.[1] ?? r.status).slice(0, 160)}).`
+-				: `PageSpeed answered ${r.status}.`;
+-			return { speed: null, lighthouse: null, console: null, error };
++			const msg = String(t.match(/"message":\s*"([^"]+)/)?.[1] ?? r.status).slice(0, 200);
++			if (r.status === 429 || /quota/i.test(msg)) return { speed: null, lighthouse: null, console: null, quota: true, error: 'Google’s free PageSpeed quota is used up. Add PAGESPEED_API_KEY in the server settings.' };
++			if (r.status === 400 || r.status === 500) return { speed: null, lighthouse: null, console: null, error: `Lighthouse could not load the page (${msg}).` };
++			return { speed: null, lighthouse: null, console: null, quota: r.status === 403, error: `PageSpeed answered ${r.status}: ${msg}` };
+ 		}
+ 		const j = await r.json();
+-		const lr = j.lighthouseResult ?? {};
+-		const a = lr.audits ?? {};
+-		const cats = lr.categories ?? {};
+-		const score = (k: string) => Math.round((cats[k]?.score ?? 0) * 100);
+-		const audits: Lighthouse['audits'] = [];
+-		for (const [catKey, cat] of Object.entries<any>(cats)) {
+-			for (const ref of cat.auditRefs ?? []) {
+-				const au = a[ref.id];
+-				if (!au || au.score === null || au.score >= 0.9 || ['manual', 'notApplicable', 'informative'].includes(au.scoreDisplayMode)) continue;
+-				if (ref.weight === 0 && catKey !== 'performance') continue;
+-				audits.push({ id: ref.id, category: CAT[catKey], title: au.title, value: au.displayValue, level: au.score < 0.5 ? 'bad' : 'warn' });
+-			}
+-		}
+-		const seen = new Set<string>();
+-		const metric = (id: string, label: string) => {
+-			const m = a[id];
+-			return m ? { id, label, value: String(m.displayValue ?? ''), level: (m.score >= 0.9 ? 'good' : m.score >= 0.5 ? 'warn' : 'bad') as Level } : null;
+-		};
+-		const metrics = [metric('first-contentful-paint', 'First Contentful Paint'), metric('largest-contentful-paint', 'Largest Contentful Paint'), metric('total-blocking-time', 'Total Blocking Time'), metric('cumulative-layout-shift', 'Cumulative Layout Shift'), metric('speed-index', 'Speed Index')].filter((x): x is NonNullable<typeof x> => Boolean(x));
+-		const shot = a['final-screenshot']?.details?.data;
+-		return {
+-			speed: {
+-				source: 'psi',
+-				performance: score('performance'),
+-				lcp: +((a['largest-contentful-paint']?.numericValue ?? 0) / 1000).toFixed(1),
+-				cls: +(a['cumulative-layout-shift']?.numericValue ?? 0).toFixed(2),
+-				tbt: Math.round(a['total-blocking-time']?.numericValue ?? 0)
+-			},
+-			lighthouse: {
+-				source: 'psi',
+-				scores: { performance: score('performance'), accessibility: score('accessibility'), bestPractices: score('best-practices'), seo: score('seo') },
+-				audits: audits.filter((x) => !seen.has(x.id) && seen.add(x.id)).slice(0, 14),
+-				metrics,
+-				screenshot: typeof shot === 'string' && shot.length < 400_000 ? shot : undefined,
+-				testedAt: lr.fetchTime ?? new Date().toISOString(),
+-				url: lr.finalDisplayedUrl ?? lr.finalUrl ?? url
+-			},
+-			console: {
+-				source: 'psi',
+-				items: (a['errors-in-console']?.details?.items ?? []).slice(0, 10).map((it: any) => ({ message: String(it.description ?? '').slice(0, 300), source: it.sourceLocation?.url ?? it.source }))
+-			}
+-		};
++		return fromLhr(j.lighthouseResult ?? {}, url, 'psi');
+ 	} catch (e) {
+-		return { speed: null, lighthouse: null, console: null, error: (e as Error).name === 'TimeoutError' ? 'Lighthouse took more than 60 s — the page is very slow or blocked the test. Try “Check again”.' : 'Lighthouse could not reach Google PageSpeed.' };
++		return { speed: null, lighthouse: null, console: null, error: (e as Error).name === 'TimeoutError' ? 'Lighthouse took more than 90 s — the page is very slow or blocked the test.' : 'Lighthouse could not reach Google PageSpeed.' };
++	}
++}
++
++/** Real Lighthouse: Google PageSpeed when a key is set, otherwise Chrome on our server; each one backs up the other. */
++async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<LhOut> {
++	if (env.PAGESPEED_API_KEY) {
++		const r = await lighthousePsi(url, strategy);
++		if (r.lighthouse || !r.quota) return r;
++		const l = await lighthouseLocal(url, strategy);
++		return l.error === 'no-chrome' ? r : l;
+ 	}
++	const l = await lighthouseLocal(url, strategy);
++	if (l.error !== 'no-chrome') return l;
++	return lighthousePsi(url, strategy);
+ }
+ 
+-/** Lighthouse varies from run to run (like on pagespeed.web.dev). Run it 3× in parallel and keep the median. */
++/** Lighthouse varies from run to run (like on pagespeed.web.dev). With a PageSpeed key: 3 runs, median kept. */
+ async function lighthouseMedian(url: string, strategy: 'mobile' | 'desktop') {
+-	// Without an API key Google's shared quota is tiny: one run only, otherwise most calls come back 429.
+ 	if (!env.PAGESPEED_API_KEY) return lighthouse(url, strategy);
+ 	const runs = await Promise.all([lighthouse(url, strategy), lighthouse(url, strategy), lighthouse(url, strategy)]);
+ 	const ok = runs.filter((r) => r.lighthouse).sort((x, y) => x.lighthouse!.scores.performance - y.lighthouse!.scores.performance);
+diff --git a/src/routes/api/fix/+server.ts b/src/routes/api/fix/+server.ts
+index 8856572..c6fd623 100644
+--- a/src/routes/api/fix/+server.ts
++++ b/src/routes/api/fix/+server.ts
+@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
+ import { getClient } from '#lib/server/store.ts';
+ import { fixAll, fixIssue, howToFix, keywordToFix } from '#lib/server/fix-engine.ts';
+ import { publishIssue } from '#lib/server/fixes.ts';
++import { checkLive } from '#lib/server/live-check.ts';
+ 
+ // Used by every "Fix" / "How to fix" button in the app.
+ export const POST = async ({ request }) => {
+@@ -18,6 +19,8 @@ export const POST = async ({ request }) => {
+ 			if (b.publish) publishIssue(client.id, `keyword:${b.keyword}`);
+ 			return json({ ok: true, ...r, published: Boolean(b.publish) });
+ 		}
++		case 'verify':
++			return json({ ok: true, check: await checkLive(client, String(b.path ?? '/').slice(0, 300) || '/') });
+ 		case 'howto':
+ 			return json({ ok: true, howto: await howToFix(client, String(b.problem ?? ''), String(b.detail ?? '')) });
+ 		default:
+diff --git a/src/routes/app/clients/[id]/keywords/+page.svelte b/src/routes/app/clients/[id]/keywords/+page.svelte
+index dc97bb0..5802487 100644
+--- a/src/routes/app/clients/[id]/keywords/+page.svelte
++++ b/src/routes/app/clients/[id]/keywords/+page.svelte
+@@ -10,6 +10,7 @@
+ 	const trackedWeb = $derived(new Set(data.webKw?.tracked.map((t) => t.keyword) ?? []));
+ 	const trackedApp = $derived(new Set(data.appKw?.tracked.map((t) => t.keyword) ?? []));
+ 	let used = $state<Record<string, string>>({});
++	let pushed = $state<{ keyword: string; path: string; title: string; description: string; before: { title: string; description: string }; why: string } | null>(null);
+ 	let copied = $state<string | null>(null);
+ 	let showAlpha = $state(false);
+ 
+@@ -17,7 +18,8 @@
+ 		used[k] = '…';
+ 		const res = await fetch('/api/fix', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: data.client.id, action: 'keyword', keyword: k, publish: true }) });
+ 		const j = await res.json().catch(() => ({}));
+-		used[k] = j.path ? `Live on ${j.path}` : 'Failed';
++		used[k] = j.path ? `Published on ${j.path}` : 'Failed';
++		if (j.path) pushed = { keyword: k, ...j };
+ 	}
+ 	function copy(text: string) {
+ 		navigator.clipboard?.writeText(text);
+@@ -81,6 +83,20 @@
+ 	</form>
+ </div>
+ 
++{#if pushed}
++	<section class="mt-4 rounded-[24px] bg-[#E4F5B8] p-5 sm:p-6">
++		<div class="flex flex-wrap items-start justify-between gap-3">
++			<div><p class="text-sm font-medium">⚡ “{pushed.keyword}” pushed on <b>{pushed.path}</b></p><p class="text-xs text-ink-2">{pushed.why}</p></div>
++			<button class="icon-btn size-8 text-xs" onclick={() => (pushed = null)} aria-label="Close">✕</button>
++		</div>
++		<div class="mt-4 grid gap-3 lg:grid-cols-2">
++			<div class="rounded-[18px] bg-white/70 p-4"><p class="mb-1 text-[11px] font-medium text-muted uppercase">Before</p><p class="text-[#1a0dab] line-through decoration-bad/60">{pushed.before.title || '(no title)'}</p><p class="mt-1 text-sm text-ink-2">{pushed.before.description || '(no description)'}</p></div>
++			<div class="rounded-[18px] border-2 border-ink bg-white p-4"><p class="mb-1 text-[11px] font-medium text-accent-ink uppercase">Now on the site (via the snippet)</p><p class="text-[#1a0dab]">{pushed.title}</p><p class="mt-1 text-sm text-ink-2">{pushed.description}</p></div>
++		</div>
++		<a href="/app/clients/{data.client.id}/seo" class="mt-3 inline-block text-sm font-medium underline">Edit it or check it on the site in SEO & fixes →</a>
++	</section>
++{/if}
++
+ {#if data.mode === 'web' && data.webKw}
+ 	{@const kw = data.webKw}
+ 	<!-- tracked -->
+@@ -103,7 +119,7 @@
+ 							{@const d = t.clicks - t.prevClicks}
+ 							<tr class="border-t border-line">
+ 								<td class="px-3 py-2.5 font-medium">{t.keyword}</td>
+-								<td class="px-3 py-2.5"><span class="rounded-full px-2.5 py-0.5 text-xs font-medium {posClass(t.position)}">{t.position ? `#${t.position}` : 'not in top 100'}</span></td>
++								<td class="px-3 py-2.5"><span class="rounded-full px-2.5 py-0.5 text-xs font-medium {posClass(t.position)}" title={t.position ? 'Average position in Google' : 'Search Console has no data for this exact search yet'}>{t.position ? `#${t.position}` : 'no Google data yet'}</span></td>
+ 								<td class="px-3 py-2.5">{t.clicks}{#if d}<span class="ml-1.5 text-[11px] {d > 0 ? 'text-good' : 'text-bad'}">{d > 0 ? '↑' : '↓'}{Math.abs(d)}</span>{/if}</td>
+ 								<td class="px-3 py-2.5 text-muted">{t.impressions.toLocaleString('en-US')}</td>
+ 								<td class="px-3 py-2.5 text-right whitespace-nowrap">
+diff --git a/src/routes/app/clients/[id]/search/+page.server.ts b/src/routes/app/clients/[id]/search/+page.server.ts
+index 365ab62..7f128a0 100644
+--- a/src/routes/app/clients/[id]/search/+page.server.ts
++++ b/src/routes/app/clients/[id]/search/+page.server.ts
+@@ -5,8 +5,10 @@ export const load = async ({ parent, url }) => {
+ 	const days = [7, 28, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 28;
+ 	const [gsc, metrics] = await Promise.all([getSearchConsole(client, days), getMetrics(client, days)]);
+ 	// Opportunities: where a small change brings the most clicks
+-	const page2 = gsc.queries.filter((q) => q.position > 10 && q.position <= 20 && q.impressions >= 30).sort((a, b) => b.impressions - a.impressions).slice(0, 6);
+-	const almostTop = gsc.queries.filter((q) => q.position > 3 && q.position <= 10 && q.impressions >= 30).sort((a, b) => b.impressions - a.impressions).slice(0, 6);
+-	const lowCtr = gsc.queries.filter((q) => q.position <= 5 && q.impressions >= 80 && q.ctr < 0.03).sort((a, b) => b.impressions - a.impressions).slice(0, 6);
+-	return { days, gsc, maps: metrics.maps, mapsSource: metrics.sources.gbp, opportunities: { page2, almostTop, lowCtr } };
++	// small sites: the minimum number of impressions scales with the site's traffic
++	const min = Math.max(3, Math.min(30, Math.round(gsc.totals.impressions * 0.02)));
++	const page2 = gsc.queries.filter((q) => q.position > 10 && q.position <= 20 && q.impressions >= min).sort((a, b) => b.impressions - a.impressions).slice(0, 6);
++	const almostTop = gsc.queries.filter((q) => q.position > 3 && q.position <= 10 && q.impressions >= min).sort((a, b) => b.impressions - a.impressions).slice(0, 6);
++	const lowCtr = gsc.queries.filter((q) => q.position <= 5 && q.impressions >= min * 2 && q.ctr < 0.03).sort((a, b) => b.impressions - a.impressions).slice(0, 6);
++	return { days, gsc, maps: metrics.maps, mapsSource: metrics.sources.gbp, gbpLinked: Boolean(client.google.gbpLocation), mapsError: metrics.errors.find((e) => /business|mybusiness/i.test(e)) ?? null, opportunities: { page2, almostTop, lowCtr } };
+ };
+diff --git a/src/routes/app/clients/[id]/search/+page.svelte b/src/routes/app/clients/[id]/search/+page.svelte
+index f9c903d..43a2c8d 100644
+--- a/src/routes/app/clients/[id]/search/+page.svelte
++++ b/src/routes/app/clients/[id]/search/+page.svelte
+@@ -100,6 +100,18 @@
+ 	</div>
+ </section>
+ 
++{#if !data.maps}
++	<section id="maps" class="card mt-10 scroll-mt-6 p-6 sm:p-8">
++		<h2 class="text-xl font-medium">Google Maps (Business Profile)</h2>
++		<p class="mt-2 max-w-3xl text-sm text-ink-2">Calls, route requests and website clicks from Google Maps come from the Business Profile API. Google only opens it to apps it has approved — it is the one Google source that needs a request.</p>
++		<ol class="mt-4 max-w-3xl list-decimal space-y-1.5 pl-5 text-sm text-ink-2">
++			<li>Request access (free, answer in ~1–2 weeks): <a class="underline" href="https://developers.google.com/my-business/content/prereqs#request-access" target="_blank" rel="noreferrer">Business Profile API access form</a> — project <b>undercut-project</b>.</li>
++			<li>Once approved, enable <i>My Business Account Management</i>, <i>Business Information</i> and <i>Business Profile Performance</i> in Google Cloud.</li>
++			<li>In Setup, reconnect Google and pick the Business Profile of this client.</li>
++		</ol>
++		{#if data.mapsError}<p class="mt-4 rounded-[14px] bg-warn-bg p-3 text-xs text-warn">Google says: {data.mapsError}</p>{/if}
++	</section>
++{/if}
+ {#if data.maps}
+ 	{@const mp = data.maps}
+ 	{@const total = mp.calls + mp.directions + mp.websiteClicks}
+diff --git a/src/routes/app/clients/[id]/seo/+page.server.ts b/src/routes/app/clients/[id]/seo/+page.server.ts
+index 0e21136..646445e 100644
+--- a/src/routes/app/clients/[id]/seo/+page.server.ts
++++ b/src/routes/app/clients/[id]/seo/+page.server.ts
+@@ -3,6 +3,7 @@ import { getSeoAudit } from '#lib/server/seo-audit.ts';
+ import { getClient, hasWeb } from '#lib/server/store.ts';
+ import { codeFor, fixedIssues, generateFixes, listFixes, setAll, updateFix } from '#lib/server/fixes.ts';
+ import { getHeatmap } from '#lib/server/tracking.ts';
++import { lastChecks } from '#lib/server/live-check.ts';
+ 
+ export const load = async ({ parent }) => {
+ 	const { client } = await parent();
+@@ -18,7 +19,8 @@ export const load = async ({ parent }) => {
+ 		titles: Object.fromEntries(audit.pages.map((p) => [p.path, p.title])) as Record<string, string>,
+ 		descs: Object.fromEntries(audit.pages.map((p) => [p.path, p.desc])) as Record<string, string>,
+ 		fixed: [...fixedIssues(client.id)],
+-		snippetInstalled: client.demo || getHeatmap(client).installed
++		snippetInstalled: client.demo || getHeatmap(client).installed,
++		checks: lastChecks(client)
+ 	};
+ };
+ 
+diff --git a/src/routes/app/clients/[id]/seo/+page.svelte b/src/routes/app/clients/[id]/seo/+page.svelte
+index c8063d4..e9ca796 100644
+--- a/src/routes/app/clients/[id]/seo/+page.svelte
++++ b/src/routes/app/clients/[id]/seo/+page.svelte
+@@ -32,6 +32,30 @@
+ 	);
+ 	const shown = $derived(data.fixes.filter((f) => f.kind === (group ?? groups.find((g) => g.live < g.all.length)?.kind ?? groups[0]?.kind)));
+ 	const activeKind = $derived(shown[0]?.kind);
++	// live check: a real Chrome opens the client's page and reads what Google will see
++	let checks = $state<Record<string, any>>({});
++	$effect(() => {
++		checks = { ...data.checks };
++	});
++	let checking = $state<string | null>(null);
++	async function verify(path: string) {
++		checking = path;
++		const r = await fetch('/api/fix', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: data.client.id, action: 'verify', path }) }).then((x) => x.json()).catch(() => null);
++		if (r?.check) checks[path] = r.check;
++		checking = null;
++	}
++	function liveState(f: { kind: string; path: string; target?: string; value: string }) {
++		const c = checks[f.path];
++		if (!c) return 'unchecked';
++		if (!c.snippet) return 'nosnippet';
++		const it = c.items.find((i: any) => i.kind === f.kind && (f.kind !== 'alt' || i.target === f.target));
++		if (!it) return 'unchecked';
++		return it.ok ? 'verified' : 'missing';
++	}
++	const ago = (iso: string) => {
++		const m = Math.round((Date.now() - Date.parse(iso)) / 6e4);
++		return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
++	};
+ 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+ </script>
+ 
+@@ -84,7 +108,7 @@
+ 						</ul>
+ 					{/if}
+ 					<p class="mt-auto text-[11px] text-muted">
+-						{lh.testedAt ? `Tested ${new Date(lh.testedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}{lh.runs && lh.runs.length > 1 ? ` · median of ${lh.runs.length} runs (${lh.runs.join(', ')})` : ''} · scores move a few points between runs, like on Google.
++						{lh.engine === 'local' ? 'Real Lighthouse, run with Chrome on the Undercut server. ' : 'Real Lighthouse, run by Google PageSpeed Insights. '}{lh.testedAt ? `Tested ${new Date(lh.testedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}{lh.runs && lh.runs.length > 1 ? ` · median of ${lh.runs.length} runs (${lh.runs.join(', ')})` : ''} · scores move a few points between runs, like on Google.
+ 						<a class="underline" href="https://pagespeed.web.dev/analysis?url={encodeURIComponent(lh.url ?? data.client.domain)}&form_factor={device}" target="_blank" rel="noreferrer">Open on PageSpeed Insights ↗</a>
+ 					</p>
+ 				</div>
+@@ -129,7 +153,10 @@
+ 	</div>
+ 
+ 	{#if !data.snippetInstalled}
+-		<p class="mt-4 rounded-[18px] bg-warn-bg p-4 text-sm text-warn">Fixes go live through the Undercut snippet. <a class="font-medium underline" href="/app/clients/{data.client.id}/settings">Install it in Setup</a> (one line, same as heatmaps).</p>
++		<div class="mt-4 rounded-[18px] bg-bad-bg p-4 text-sm text-bad">
++			<b>The snippet is not on {data.client.domain.replace(/^https?:\/\//, '')} yet</b> — published fixes are saved, but they are <b>not on the site</b> until it is installed.
++			<a class="font-medium underline" href="/app/clients/{data.client.id}/settings">Copy it from Setup</a> and paste it before &lt;/head&gt; (one line, same as heatmaps). Then use “Check on the site”.
++		</div>
+ 	{/if}
+ 
+ 	<!-- one tile per kind of fix: the whole job at a glance -->
+@@ -152,7 +179,12 @@
+ 			<li class="flex flex-col gap-4 p-5 sm:p-6 {f.status === 'live' ? 'rounded-[28px] bg-[#E4F5B8]' : 'card'}">
+ 				<div class="flex items-center justify-between gap-2">
+ 					<p class="text-sm"><span class="text-muted">Page</span> <a href="{data.client.domain.replace(/\/$/, '')}{f.path}" target="_blank" rel="noreferrer" class="font-medium underline-offset-4 hover:underline">{f.path} ↗</a></p>
+-					<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium {f.status === 'live' ? 'bg-good text-white' : 'bg-tile text-muted'}">{f.status === 'live' ? '● Live on the site' : f.by === 'ai' ? '✦ Written by AI' : 'Suggestion'}</span>
++					{#if f.status === 'live'}
++						{@const st = liveState(f)}
++						<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium {st === 'verified' ? 'bg-good text-white' : st === 'unchecked' ? 'bg-ink text-white' : 'bg-bad text-white'}">{st === 'verified' ? '✓ Verified on the site' : st === 'nosnippet' ? '✕ Snippet missing on this page' : st === 'missing' ? '✕ Not visible on the site yet' : 'Published'}</span>
++					{:else}
++						<span class="shrink-0 rounded-full bg-tile px-2.5 py-1 text-[11px] font-medium text-muted">{f.by === 'ai' ? '✦ Written by AI' : 'Suggestion'}</span>
++					{/if}
+ 				</div>
+ 				<form method="POST" action={act('publish')} use:enhance={keep} class="flex flex-col gap-4">
+ 					<input type="hidden" name="id" value={f.id} />
+@@ -197,7 +229,9 @@
+ 					{/if}
+ 					<div class="flex flex-wrap items-center gap-2">
+ 						{#if f.status === 'live'}
++							<button type="button" class="btn btn-primary py-2" disabled={checking === f.path} onclick={() => verify(f.path)}>{checking === f.path ? 'Opening the page in Chrome…' : 'Check on the site'}</button>
+ 							<button formaction={act('undo')} class="pill">Undo</button>
++							{#if checks[f.path]}<span class="text-[11px] text-muted">checked {ago(checks[f.path].at)}</span>{/if}
+ 						{:else}
+ 							<button class="btn btn-primary py-2">Publish</button>
+ 							<button formaction={act('save')} class="pill">Save</button>
+@@ -206,6 +240,11 @@
+ 						<button type="button" class="ml-auto text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onclick={() => (showCode = showCode === f.id ? null : f.id)}>{showCode === f.id ? 'Hide code' : 'Code for the developer'}</button>
+ 					</div>
+ 					{#if showCode === f.id}<pre class="overflow-x-auto rounded-[14px] bg-ink p-3 text-xs text-accent">{f.code}</pre>{/if}
++					{#if f.status === 'live' && checks[f.path] && liveState(f) !== 'verified'}
++						{@const c = checks[f.path]}
++						{@const it = c.items.find((i: any) => i.kind === f.kind && (f.kind !== 'alt' || i.target === f.target))}
++						<p class="rounded-[14px] bg-white/70 p-3 text-xs text-ink-2">{c.error ?? (it ? `On the page right now: “${it.found ?? 'nothing'}”. The site may cache pages for a few minutes — check again shortly.` : 'This fix was not part of the last check — check again.')}</p>
++					{/if}
+ 				</form>
+ 			</li>
+ 		{:else}
+diff --git a/src/routes/u.js/+server.ts b/src/routes/u.js/+server.ts
+index 4cc8c85..4b52270 100644
+--- a/src/routes/u.js/+server.ts
++++ b/src/routes/u.js/+server.ts
+@@ -2,25 +2,52 @@
+ // <script defer src="https://YOUR-UNDERCUT/u.js" data-site="CLIENT_ID"></script>
+ // Cookieless: no cookies, no IP stored, form values never captured.
+ const SCRIPT = `(()=>{try{
+-var s=document.currentScript,site=s&&s.dataset.site;if(!site||navigator.webdriver)return;
+-var api=new URL(s.src).origin,q=[],vid=Math.random().toString(36).slice(2,10),sent=0,dev=innerWidth<768?'mobile':'desktop',path=location.pathname;
++var s=document.currentScript,site=s&&s.dataset.site,check=!!window.__ucCheck;if(!site||(navigator.webdriver&&!check)||window.__uc)return;window.__uc=1;
++var api=new URL(s.src).origin,q=[],vid,sent,maxD,dev=innerWidth<768?'mobile':'desktop',path=location.pathname,first=true;
+ var S=null,ent=false;try{S=JSON.parse(sessionStorage.getItem('uc_s')||'null')}catch(e){}
+ if(!S||Date.now()-S.ts>18e5){var u=new URLSearchParams(location.search),rf=document.referrer?new URL(document.referrer).hostname:'';if(rf===location.hostname)rf='';
+-S={id:vid,src:u.get('utm_source')||(u.get('gclid')?'google':u.get('fbclid')?'facebook':rf)||'',med:u.get('utm_medium')||(u.get('gclid')?'cpc':u.get('fbclid')?'social':rf?'referral':'none'),camp:u.get('utm_campaign')||'',cont:u.get('utm_content')||'',land:path};ent=true}
++S={id:Math.random().toString(36).slice(2,10),src:u.get('utm_source')||(u.get('gclid')?'google':u.get('fbclid')?'facebook':rf)||'',med:u.get('utm_medium')||(u.get('gclid')?'cpc':u.get('fbclid')?'social':rf?'referral':'none'),camp:u.get('utm_campaign')||'',cont:u.get('utm_content')||'',land:path};ent=true}
+ S.ts=Date.now();try{sessionStorage.setItem('uc_s',JSON.stringify(S))}catch(e){}
+ var ctx={sid:S.id,src:S.src,med:S.med,camp:S.camp,cont:S.cont||'',land:S.land};
+ function ev(o){for(var k in ctx)o[k]=ctx[k];o.p=path;o.d=dev;q.push(o)}
+ var leadSeen={};function lead(kind,label){var k=kind+label;if(leadSeen[k]&&Date.now()-leadSeen[k]<5000)return;leadSeen[k]=Date.now();ev({t:'l',kind:kind,label:(label||'').slice(0,80)});send()}
+ function docH(){return Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0)}
+-function send(){if(maxD>sent+0.02){sent=maxD;q.push({t:'s',v:vid,p:path,d:dev,depth:+maxD.toFixed(3),h:docH()})}if(!q.length)return;var b=JSON.stringify({site:site,events:q.splice(0)});
++function send(){if(check){q=[];return}if(maxD>sent+0.02){sent=maxD;q.push({t:'s',v:vid,p:path,d:dev,depth:+maxD.toFixed(3),h:docH()})}if(!q.length)return;var b=JSON.stringify({site:site,events:q.splice(0)});
+ fetch(api+'/api/collect',{method:'POST',body:b,keepalive:true,headers:{'content-type':'application/json'}}).catch(function(){})}
+-ev({t:'pv',v:vid,ent:ent,r:document.referrer?new URL(document.referrer).hostname:'',w:innerWidth,h:innerHeight,lang:(navigator.language||'').slice(0,5)});
++// ---- one "page": first load, and every route change of single-page sites (SvelteKit, Next, Nuxt, React…) ----
++var F={};
++function page(){vid=Math.random().toString(36).slice(2,10);sent=0;maxD=0;F={};
++ev({t:'pv',v:vid,ent:first&&ent,r:first&&document.referrer?new URL(document.referrer).hostname:'',w:innerWidth,h:innerHeight,lang:(navigator.language||'').slice(0,5)});first=false;
++setTimeout(function(){if(!maxD)maxD=Math.min(1,innerHeight/docH())},1000);setTimeout(send,1200);
++var at=path;fetch(api+'/api/fixes?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(f){if(at!==path)return;F=f;
++if(f.gtm&&!window.google_tag_manager){window.dataLayer=window.dataLayer||[];window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});var gt=document.createElement('script');gt.async=true;gt.src='https://www.googletagmanager.com/gtm.js?id='+f.gtm;document.head.appendChild(gt)}
++apply();setTimeout(apply,400);setTimeout(apply,2000)}).catch(function(){});
++if(!check)setTimeout(function(){if(at!==path)return;fetch(api+'/api/snapshot?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)+'&device='+dev).then(function(r){return r.json()}).then(function(j){if(!j.need||at!==path)return;
++var c=document.documentElement.cloneNode(true);c.querySelectorAll('script,noscript,iframe').forEach(function(n){n.remove()});
++c.querySelectorAll('input,textarea,select').forEach(function(n){n.removeAttribute('value');n.textContent=''});
++c.querySelectorAll('[data-undercut-mask]').forEach(function(n){n.textContent='•••'});
++var head=c.querySelector('head');if(head){var b=document.createElement('base');b.href=location.origin+'/';head.insertBefore(b,head.firstChild)}
++fetch(api+'/api/snapshot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({site:site,path:path,device:dev,height:docH(),html:'<!doctype html>'+c.outerHTML})})}).catch(function(){})},2500)}
++// ---- live SEO fixes published in Undercut ----
++function meta(n,v){var m=document.querySelector('meta[name="'+n+'"]');if(!m){m=document.createElement('meta');m.setAttribute('name',n);document.head.appendChild(m)}m.setAttribute('content',v)}
++function bare(u){try{var x=new URL(String(u).trim(),location.href);return x.host+x.pathname}catch(e){return String(u).trim()}}
++function apply(){var f=F;if(!f)return;if(f.title&&document.title!==f.title)document.title=f.title;if(f.description)meta('description',f.description);
++if(f.canonical){var c=document.querySelector('link[rel=canonical]');if(!c){c=document.createElement('link');c.rel='canonical';document.head.appendChild(c)}c.href=f.canonical}
++document.querySelectorAll('script[id^=uc-ld-]').forEach(function(n){n.remove()});(f.schema||[]).forEach(function(j,i){var s2=document.createElement('script');s2.type='application/ld+json';s2.id='uc-ld-'+i;s2.text=j;document.head.appendChild(s2)});
++var a=f.alts||{},keys={};for(var k in a)keys[bare(k)]=a[k];var n=0;for(var kk in keys)n++;if(!n)return;
++document.querySelectorAll('img').forEach(function(im){if((im.getAttribute('alt')||'').trim())return;var v=keys[bare(im.getAttribute('src')||'')]||keys[bare(im.currentSrc||im.src||'')];if(v)im.setAttribute('alt',v)})}
++// images added later (lazy loading, sliders, client-side rendering)
++var mo,moT;try{mo=new MutationObserver(function(){clearTimeout(moT);moT=setTimeout(apply,300)});mo.observe(document.documentElement,{childList:true,subtree:true})}catch(e){}
++function route(){if(location.pathname===path)return;send();path=location.pathname;page()}
++['pushState','replaceState'].forEach(function(m){var o=history[m];history[m]=function(){var r=o.apply(this,arguments);setTimeout(route,0);return r}});
++addEventListener('popstate',function(){setTimeout(route,0)});
++page();
+ // leads & outbound clicks, detected automatically — no events to configure
+ addEventListener('click',function(e){var l=e.target&&e.target.closest&&e.target.closest('a[href]');if(!l)return;var h=l.getAttribute('href')||'';
+ if(/^tel:/i.test(h))return lead('phone',h.slice(4));if(/^mailto:/i.test(h))return lead('email',h.slice(7).split('?')[0]);
+-if(/wa\.me|whatsapp\.com|^whatsapp:/i.test(h))return lead('whatsapp','WhatsApp');
++if(/wa\\.me|whatsapp\\.com|^whatsapp:/i.test(h))return lead('whatsapp','WhatsApp');
+ var url;try{url=new URL(l.href)}catch(x){return}
+-if(/\.(pdf|zip|docx?|xlsx?|pptx?|csv)$/i.test(url.pathname))return ev({t:'o',kind:'download',label:url.pathname.split('/').pop().slice(0,80)});
++if(/\\.(pdf|zip|docx?|xlsx?|pptx?|csv)$/i.test(url.pathname))return ev({t:'o',kind:'download',label:url.pathname.split('/').pop().slice(0,80)});
+ if(url.hostname&&url.hostname!==location.hostname&&/^https?:/.test(url.protocol))ev({t:'o',kind:'out',label:url.hostname})},true);
+ addEventListener('submit',function(e){var f=e.target;if(!f||f.matches('[role=search],[data-undercut-ignore]'))return;var fields=f.querySelectorAll('input:not([type=hidden]):not([type=submit]),textarea,select');
+ if(fields.length<2&&f.querySelector('input[type=search],input[name=q],input[name=s]'))return;lead('form',f.getAttribute('name')||f.id||f.getAttribute('action')||'form')},true);
+@@ -32,31 +59,18 @@ var txt=((a||el).innerText||(a||el).getAttribute('aria-label')||(a||el).getAttri
+ if((a||el).closest('[data-undercut-mask]')||(a||el).matches('input,textarea'))txt='';
+ q.push({t:'c',sid:S.id,p:path,d:dev,x:+(e.pageX/document.documentElement.scrollWidth).toFixed(4),y:Math.round(e.pageY),w:innerWidth,s:(a||el).tagName.toLowerCase(),txt:txt,i:!!a,rage:last.length>=3});
+ if(q.length>20)send()},true);
+-var maxD=0;setTimeout(function(){if(!maxD)maxD=Math.min(1,innerHeight/docH())},1000);addEventListener('scroll',function(){var d=(scrollY+innerHeight)/docH();if(d>maxD)maxD=Math.min(1,d)},{passive:true});
++addEventListener('scroll',function(){var d=(scrollY+innerHeight)/docH();if(d>maxD)maxD=Math.min(1,d)},{passive:true});
+ function leave(){if(!maxD)maxD=Math.min(1,innerHeight/docH());send()}
+ // JavaScript errors on the site → Errors page (max 10 distinct per page view, no personal data)
+-var errN=0,errSeen={};function jsErr(m,st){m=String(m||'');if(!m||m==='Script error.'||errN>=10||errSeen[m])return;errSeen[m]=1;errN++;
++var errN=0,errSeen={};function jsErr(m,st){m=String(m||'');if(check||!m||m==='Script error.'||errN>=10||errSeen[m])return;errSeen[m]=1;errN++;
+ fetch(api+'/api/app',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({site:site,events:[{t:'error',pf:'web',u:S.id,msg:m.slice(0,400),stack:String(st||'').slice(0,3000),url:location.origin+path,name:path,os:dev}]})}).catch(function(){})}
+ addEventListener('error',function(e){if(e.target&&e.target!==window)return;jsErr(e.message,(e.error&&e.error.stack)||(e.filename?'at '+e.filename+':'+e.lineno+':'+e.colno:''))});
+ addEventListener('unhandledrejection',function(e){var r=e.reason;jsErr(r&&r.message||r,r&&r.stack)});
+-addEventListener('pagehide',leave);setInterval(send,4000);setTimeout(send,1200);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')send()});
+-fetch(api+'/api/fixes?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(f){
+-if(f.gtm&&!window.google_tag_manager){window.dataLayer=window.dataLayer||[];window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});var gt=document.createElement('script');gt.async=true;gt.src='https://www.googletagmanager.com/gtm.js?id='+f.gtm;document.head.appendChild(gt)}
+-function meta(n,v){var m=document.querySelector('meta[name="'+n+'"]');if(!m){m=document.createElement('meta');m.setAttribute('name',n);document.head.appendChild(m)}m.setAttribute('content',v)}
+-function run(){if(f.title)document.title=f.title;if(f.description)meta('description',f.description);
+-if(f.canonical){var c=document.querySelector('link[rel=canonical]');if(!c){c=document.createElement('link');c.rel='canonical';document.head.appendChild(c)}c.href=f.canonical}
+-(f.schema||[]).forEach(function(j,i){if(document.getElementById('uc-ld-'+i))return;var s2=document.createElement('script');s2.type='application/ld+json';s2.id='uc-ld-'+i;s2.text=j;document.head.appendChild(s2)});
+-var a=f.alts||{};document.querySelectorAll('img').forEach(function(im){var src=im.getAttribute('src')||'';for(var k in a){if(src===k||im.src.split('?')[0].slice(-k.length)===k.split('?')[0]){if(!im.getAttribute('alt'))im.alt=a[k]}}})}
+-run();setTimeout(run,2000)}).catch(function(){});
+-setTimeout(function(){fetch(api+'/api/snapshot?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)+'&device='+dev).then(function(r){return r.json()}).then(function(j){if(!j.need)return;
+-var c=document.documentElement.cloneNode(true);c.querySelectorAll('script,noscript,iframe').forEach(function(n){n.remove()});
+-c.querySelectorAll('input,textarea,select').forEach(function(n){n.removeAttribute('value');n.textContent=''});
+-c.querySelectorAll('[data-undercut-mask]').forEach(function(n){n.textContent='•••'});
+-var head=c.querySelector('head');if(head){var b=document.createElement('base');b.href=location.origin+'/';head.insertBefore(b,head.firstChild)}
+-fetch(api+'/api/snapshot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({site:site,path:path,device:dev,height:docH(),html:'<!doctype html>'+c.outerHTML})})}).catch(function(){})},2500);
++addEventListener('pagehide',leave);setInterval(send,4000);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')send()});
++window.__ucReady=1;
+ }catch(e){}})();`;
+ 
+ export const GET = () =>
+ 	new Response(SCRIPT, {
+-		headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=3600', 'access-control-allow-origin': '*' }
++		headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=600', 'access-control-allow-origin': '*' }
+ 	});
+-- 
+2.43.0
+

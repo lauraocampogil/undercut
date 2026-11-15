@@ -7,7 +7,7 @@ import * as env from '$app/env/private';
 import type { Client } from '#lib/types.ts';
 import { getSeoAudit } from './seo-audit.ts';
 import { generateFixes, listFixes, publishIssue, upsertFix } from './fixes.ts';
-import { getSearchConsole } from './google.ts';
+import { gscPagesFor } from './google.ts';
 import { track } from './usage.ts';
 
 import { AUTO_FIX_ISSUES, canAutoFix } from '#lib/fixable.ts';
@@ -35,15 +35,69 @@ export async function fixAll(client: Client) {
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const clip = (s: string, n: number) => (s.length <= n ? s : s.slice(0, n - 1).replace(/\s+\S*$/, '') + '…');
 
+/** Read a page's current title, description and main heading (what Google sees today). */
+async function readPage(url: string) {
+	try {
+		const r = await fetch(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0 (UndercutBot)' } });
+		const html = (await r.text()).slice(0, 400_000);
+		const pick = (re: RegExp) => html.match(re)?.[1]?.replace(/\s+/g, ' ').trim() ?? '';
+		const dec = (t: string) => t.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+		return {
+			title: dec(pick(/<title[^>]*>([^<]*)<\/title>/i)),
+			desc: dec(pick(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']*)["']/i) || pick(/<meta[^>]+content=["']([^"']*)["'][^>]*name=["']description["']/i)),
+			h1: dec(pick(/<h1[^>]*>([\s\S]*?)<\/h1>/i).replace(/<[^>]+>/g, '')),
+			lang: pick(/<html[^>]+lang=["']([a-z]{2})/i) || 'fr'
+		};
+	} catch {
+		return { title: '', desc: '', h1: '', lang: 'fr' };
+	}
+}
+
+async function aiTitleDesc(keyword: string, client: Client, page: { title: string; desc: string; h1: string; lang: string }) {
+	if (!env.ANTHROPIC_API_KEY) return null;
+	try {
+		const res = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+			body: JSON.stringify({
+				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+				max_tokens: 300,
+				messages: [{ role: 'user', content: `Rewrite the Google title (max 60 characters) and meta description (max 155 characters) of this page so it ranks for the search "${keyword}". Language: ${page.lang}. Keep the facts of the current page, no invented claims or prices. Put the keyword near the start of the title, end the title with the brand "${client.name}". Answer as JSON {"title":"…","description":"…"} only.\n\nCurrent title: ${page.title}\nCurrent description: ${page.desc}\nMain heading: ${page.h1}` }]
+			})
+		});
+		if (!res.ok) return null;
+		const t = (await res.json()).content?.[0]?.text ?? '';
+		const j = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
+		return j.title && j.description ? { title: clip(String(j.title), 60), description: clip(String(j.description), 155) } : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Keyword → publishable title + description on the page that already appears in Google for it
+ * (Search Console), written from the page's real content.
+ */
 export async function keywordToFix(client: Client, keyword: string) {
-	const gsc = await getSearchConsole(client).catch(() => null);
-	// best page: the page that already gets clicks for a similar search, otherwise the homepage
-	const path = gsc?.pages[0]?.key && keyword.split(' ').some((w) => gsc.pages[0].key.includes(w)) ? gsc.pages[0].key : '/';
-	const title = clip(`${cap(keyword)} | ${client.name}`, 60);
-	const description = clip(`${cap(keyword)}: ${client.name} vous accueille à Bruxelles. Infos, prix et contact rapide — découvrez-nous dès aujourd'hui.`, 155);
-	upsertFix(client.id, { id: `title:${path}`, kind: 'title', path, value: title, by: 'rules', issue: `keyword:${keyword}` });
-	upsertFix(client.id, { id: `description:${path}`, kind: 'description', path, value: description, by: 'rules', issue: `keyword:${keyword}` });
-	return { path, title, description };
+	const origin = new URL(client.domain).origin;
+	const pages = await gscPagesFor(client, keyword).catch(() => []);
+	let path = '/';
+	let why = 'No page appears in Google for this search yet — the homepage is used.';
+	const best = pages.find((p) => p.page.startsWith(origin) || new URL(p.page).host.replace(/^www\./, '') === new URL(origin).host.replace(/^www\./, ''));
+	if (best) {
+		path = new URL(best.page).pathname || '/';
+		why = `Google already shows ${path} for this search (${best.impressions} times, position ${best.position}).`;
+	}
+	const page = await readPage(origin + path);
+	const brand = client.name;
+	const ai = await aiTitleDesc(keyword, client, page);
+	const kw = cap(keyword);
+	const title = ai?.title ?? clip(page.title.toLowerCase().includes(keyword.toLowerCase()) ? page.title : `${kw} | ${brand}`, 60);
+	const baseDesc = page.desc || page.h1;
+	const description = ai?.description ?? clip(baseDesc.toLowerCase().includes(keyword.toLowerCase()) ? baseDesc : baseDesc ? `${kw} — ${baseDesc}` : `${kw} — ${brand}.`, 155);
+	upsertFix(client.id, { id: `title:${path}`, kind: 'title', path, value: title, by: ai ? 'ai' : 'rules', issue: `keyword:${keyword}`, current: page.title });
+	upsertFix(client.id, { id: `description:${path}`, kind: 'description', path, value: description, by: ai ? 'ai' : 'rules', issue: `keyword:${keyword}`, current: page.desc });
+	return { path, title, description, before: { title: page.title, description: page.desc }, why };
 }
 
 // ---------- how to fix (not automatable) ----------

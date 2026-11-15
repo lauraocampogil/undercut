@@ -10,6 +10,7 @@
 	const trackedWeb = $derived(new Set(data.webKw?.tracked.map((t) => t.keyword) ?? []));
 	const trackedApp = $derived(new Set(data.appKw?.tracked.map((t) => t.keyword) ?? []));
 	let used = $state<Record<string, string>>({});
+	let pushed = $state<{ keyword: string; path: string; title: string; description: string; before: { title: string; description: string }; why: string } | null>(null);
 	let copied = $state<string | null>(null);
 	let showAlpha = $state(false);
 
@@ -17,7 +18,8 @@
 		used[k] = '…';
 		const res = await fetch('/api/fix', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: data.client.id, action: 'keyword', keyword: k, publish: true }) });
 		const j = await res.json().catch(() => ({}));
-		used[k] = j.path ? `Live on ${j.path}` : 'Failed';
+		used[k] = j.path ? `Published on ${j.path}` : 'Failed';
+		if (j.path) pushed = { keyword: k, ...j };
 	}
 	function copy(text: string) {
 		navigator.clipboard?.writeText(text);
@@ -81,6 +83,20 @@
 	</form>
 </div>
 
+{#if pushed}
+	<section class="mt-4 rounded-[24px] bg-[#E4F5B8] p-5 sm:p-6">
+		<div class="flex flex-wrap items-start justify-between gap-3">
+			<div><p class="text-sm font-medium">⚡ “{pushed.keyword}” pushed on <b>{pushed.path}</b></p><p class="text-xs text-ink-2">{pushed.why}</p></div>
+			<button class="icon-btn size-8 text-xs" onclick={() => (pushed = null)} aria-label="Close">✕</button>
+		</div>
+		<div class="mt-4 grid gap-3 lg:grid-cols-2">
+			<div class="rounded-[18px] bg-white/70 p-4"><p class="mb-1 text-[11px] font-medium text-muted uppercase">Before</p><p class="text-[#1a0dab] line-through decoration-bad/60">{pushed.before.title || '(no title)'}</p><p class="mt-1 text-sm text-ink-2">{pushed.before.description || '(no description)'}</p></div>
+			<div class="rounded-[18px] border-2 border-ink bg-white p-4"><p class="mb-1 text-[11px] font-medium text-accent-ink uppercase">Now on the site (via the snippet)</p><p class="text-[#1a0dab]">{pushed.title}</p><p class="mt-1 text-sm text-ink-2">{pushed.description}</p></div>
+		</div>
+		<a href="/app/clients/{data.client.id}/seo" class="mt-3 inline-block text-sm font-medium underline">Edit it or check it on the site in SEO & fixes →</a>
+	</section>
+{/if}
+
 {#if data.mode === 'web' && data.webKw}
 	{@const kw = data.webKw}
 	<!-- tracked -->
@@ -103,7 +119,7 @@
 							{@const d = t.clicks - t.prevClicks}
 							<tr class="border-t border-line">
 								<td class="px-3 py-2.5 font-medium">{t.keyword}</td>
-								<td class="px-3 py-2.5"><span class="rounded-full px-2.5 py-0.5 text-xs font-medium {posClass(t.position)}">{t.position ? `#${t.position}` : 'not in top 100'}</span></td>
+								<td class="px-3 py-2.5"><span class="rounded-full px-2.5 py-0.5 text-xs font-medium {posClass(t.position)}" title={t.position ? 'Average position in Google' : 'Search Console has no data for this exact search yet'}>{t.position ? `#${t.position}` : 'no Google data yet'}</span></td>
 								<td class="px-3 py-2.5">{t.clicks}{#if d}<span class="ml-1.5 text-[11px] {d > 0 ? 'text-good' : 'text-bad'}">{d > 0 ? '↑' : '↓'}{Math.abs(d)}</span>{/if}</td>
 								<td class="px-3 py-2.5 text-muted">{t.impressions.toLocaleString('en-US')}</td>
 								<td class="px-3 py-2.5 text-right whitespace-nowrap">

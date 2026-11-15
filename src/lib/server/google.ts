@@ -659,6 +659,18 @@ export async function gscQuery(client: Client, query: string, days = 28): Promis
 	return r ? { key: query, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: +r.position.toFixed(1) } : null;
 }
 
+/** Pages of the site that Google already shows for searches containing this keyword (best first). */
+export async function gscPagesFor(client: Client, keyword: string, days = 90): Promise<{ page: string; clicks: number; impressions: number; position: number }[]> {
+	const site = client.google.gscSiteUrl;
+	if (!site || !isConnected() || !googleConfigured()) return [];
+	const range = demoSearchConsole(client, days).range;
+	const j = await g(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
+		method: 'POST',
+		body: JSON.stringify({ startDate: range.start, endDate: range.end, dimensions: ['page'], rowLimit: 10, dimensionFilterGroups: [{ filters: [{ dimension: 'query', operator: 'contains', expression: keyword }] }] })
+	});
+	return (j.rows ?? []).map((r: any) => ({ page: String(r.keys[0]), clicks: r.clicks, impressions: r.impressions, position: +r.position.toFixed(1) })).sort((a: any, b: any) => b.impressions - a.impressions);
+}
+
 // ---------- Matching: which Google properties belong to this client? ----------
 const hostOf = (u: string) => u.replace(/^sc-domain:/, '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/:].*$/, '').toLowerCase();
 

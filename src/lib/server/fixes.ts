@@ -28,9 +28,15 @@ export type Fix = {
 const file = (clientId: string) => `fixes/${clientId.replace(/[^a-z0-9-]/gi, '')}.json`;
 
 export function listFixes(clientId: string): Fix[] {
-	const all = readData<Fix[]>(file(clientId), []);
+	const all = readData<Fix[]>(file(clientId), []).map((f) =>
+		// older audits kept spaces/new lines around image addresses ("   https://…"): the snippet could never match them
+		f.kind === 'alt' && f.target && f.target !== f.target.trim() ? { ...f, target: f.target.trim(), id: `alt:${f.path}:${f.target.trim()}` } : f
+	);
+	// older files could hold duplicates; keep the live one when there is one, in the original order
+	const best = new Map<string, Fix>();
+	for (const f of all) if (!best.has(f.id) || (f.status === 'live' && best.get(f.id)!.status !== 'live')) best.set(f.id, f);
 	const seen = new Set<string>();
-	return all.filter((f) => !seen.has(f.id) && seen.add(f.id)); // older files could hold duplicates
+	return all.filter((f) => !seen.has(f.id) && seen.add(f.id)).map((f) => best.get(f.id)!);
 }
 
 function saveFixes(clientId: string, fixes: Fix[]) {

@@ -32,6 +32,30 @@
 	);
 	const shown = $derived(data.fixes.filter((f) => f.kind === (group ?? groups.find((g) => g.live < g.all.length)?.kind ?? groups[0]?.kind)));
 	const activeKind = $derived(shown[0]?.kind);
+	// live check: a real Chrome opens the client's page and reads what Google will see
+	let checks = $state<Record<string, any>>({});
+	$effect(() => {
+		checks = { ...data.checks };
+	});
+	let checking = $state<string | null>(null);
+	async function verify(path: string) {
+		checking = path;
+		const r = await fetch('/api/fix', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientId: data.client.id, action: 'verify', path }) }).then((x) => x.json()).catch(() => null);
+		if (r?.check) checks[path] = r.check;
+		checking = null;
+	}
+	function liveState(f: { kind: string; path: string; target?: string; value: string }) {
+		const c = checks[f.path];
+		if (!c) return 'unchecked';
+		if (!c.snippet) return 'nosnippet';
+		const it = c.items.find((i: any) => i.kind === f.kind && (f.kind !== 'alt' || i.target === f.target));
+		if (!it) return 'unchecked';
+		return it.ok ? 'verified' : 'missing';
+	}
+	const ago = (iso: string) => {
+		const m = Math.round((Date.now() - Date.parse(iso)) / 6e4);
+		return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+	};
 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
 </script>
 
@@ -84,7 +108,7 @@
 						</ul>
 					{/if}
 					<p class="mt-auto text-[11px] text-muted">
-						{lh.testedAt ? `Tested ${new Date(lh.testedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}{lh.runs && lh.runs.length > 1 ? ` · median of ${lh.runs.length} runs (${lh.runs.join(', ')})` : ''} · scores move a few points between runs, like on Google.
+						{lh.engine === 'local' ? 'Real Lighthouse, run with Chrome on the Undercut server. ' : 'Real Lighthouse, run by Google PageSpeed Insights. '}{lh.testedAt ? `Tested ${new Date(lh.testedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}{lh.runs && lh.runs.length > 1 ? ` · median of ${lh.runs.length} runs (${lh.runs.join(', ')})` : ''} · scores move a few points between runs, like on Google.
 						<a class="underline" href="https://pagespeed.web.dev/analysis?url={encodeURIComponent(lh.url ?? data.client.domain)}&form_factor={device}" target="_blank" rel="noreferrer">Open on PageSpeed Insights ↗</a>
 					</p>
 				</div>
@@ -129,7 +153,10 @@
 	</div>
 
 	{#if !data.snippetInstalled}
-		<p class="mt-4 rounded-[18px] bg-warn-bg p-4 text-sm text-warn">Fixes go live through the Undercut snippet. <a class="font-medium underline" href="/app/clients/{data.client.id}/settings">Install it in Setup</a> (one line, same as heatmaps).</p>
+		<div class="mt-4 rounded-[18px] bg-bad-bg p-4 text-sm text-bad">
+			<b>The snippet is not on {data.client.domain.replace(/^https?:\/\//, '')} yet</b> — published fixes are saved, but they are <b>not on the site</b> until it is installed.
+			<a class="font-medium underline" href="/app/clients/{data.client.id}/settings">Copy it from Setup</a> and paste it before &lt;/head&gt; (one line, same as heatmaps). Then use “Check on the site”.
+		</div>
 	{/if}
 
 	<!-- one tile per kind of fix: the whole job at a glance -->
@@ -152,7 +179,12 @@
 			<li class="flex flex-col gap-4 p-5 sm:p-6 {f.status === 'live' ? 'rounded-[28px] bg-[#E4F5B8]' : 'card'}">
 				<div class="flex items-center justify-between gap-2">
 					<p class="text-sm"><span class="text-muted">Page</span> <a href="{data.client.domain.replace(/\/$/, '')}{f.path}" target="_blank" rel="noreferrer" class="font-medium underline-offset-4 hover:underline">{f.path} ↗</a></p>
-					<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium {f.status === 'live' ? 'bg-good text-white' : 'bg-tile text-muted'}">{f.status === 'live' ? '● Live on the site' : f.by === 'ai' ? '✦ Written by AI' : 'Suggestion'}</span>
+					{#if f.status === 'live'}
+						{@const st = liveState(f)}
+						<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium {st === 'verified' ? 'bg-good text-white' : st === 'unchecked' ? 'bg-ink text-white' : 'bg-bad text-white'}">{st === 'verified' ? '✓ Verified on the site' : st === 'nosnippet' ? '✕ Snippet missing on this page' : st === 'missing' ? '✕ Not visible on the site yet' : 'Published'}</span>
+					{:else}
+						<span class="shrink-0 rounded-full bg-tile px-2.5 py-1 text-[11px] font-medium text-muted">{f.by === 'ai' ? '✦ Written by AI' : 'Suggestion'}</span>
+					{/if}
 				</div>
 				<form method="POST" action={act('publish')} use:enhance={keep} class="flex flex-col gap-4">
 					<input type="hidden" name="id" value={f.id} />
@@ -197,7 +229,9 @@
 					{/if}
 					<div class="flex flex-wrap items-center gap-2">
 						{#if f.status === 'live'}
+							<button type="button" class="btn btn-primary py-2" disabled={checking === f.path} onclick={() => verify(f.path)}>{checking === f.path ? 'Opening the page in Chrome…' : 'Check on the site'}</button>
 							<button formaction={act('undo')} class="pill">Undo</button>
+							{#if checks[f.path]}<span class="text-[11px] text-muted">checked {ago(checks[f.path].at)}</span>{/if}
 						{:else}
 							<button class="btn btn-primary py-2">Publish</button>
 							<button formaction={act('save')} class="pill">Save</button>
@@ -206,6 +240,11 @@
 						<button type="button" class="ml-auto text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onclick={() => (showCode = showCode === f.id ? null : f.id)}>{showCode === f.id ? 'Hide code' : 'Code for the developer'}</button>
 					</div>
 					{#if showCode === f.id}<pre class="overflow-x-auto rounded-[14px] bg-ink p-3 text-xs text-accent">{f.code}</pre>{/if}
+					{#if f.status === 'live' && checks[f.path] && liveState(f) !== 'verified'}
+						{@const c = checks[f.path]}
+						{@const it = c.items.find((i: any) => i.kind === f.kind && (f.kind !== 'alt' || i.target === f.target))}
+						<p class="rounded-[14px] bg-white/70 p-3 text-xs text-ink-2">{c.error ?? (it ? `On the page right now: “${it.found ?? 'nothing'}”. The site may cache pages for a few minutes — check again shortly.` : 'This fix was not part of the last check — check again.')}</p>
+					{/if}
 				</form>
 			</li>
 		{:else}
