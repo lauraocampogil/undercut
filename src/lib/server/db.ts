@@ -9,7 +9,8 @@ async function rest<T = any>(path: string, init: RequestInit & { prefer?: string
 		...init,
 		headers: {
 			apikey: env.SUPABASE_SERVICE_ROLE_KEY!,
-			authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+			// legacy service_role keys are JWTs (also sent as Bearer); new secret keys (sb_secret_…) only go in apikey
+			...(env.SUPABASE_SERVICE_ROLE_KEY!.startsWith('sb_') ? {} : { authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }),
 			'content-type': 'application/json',
 			...(init.prefer ? { prefer: init.prefer } : {}),
 			...(init.headers ?? {})
