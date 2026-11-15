@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import Logo from '#lib/components/Logo.svelte';
+	import Linkify from '#lib/components/Linkify.svelte';
 	let { data, form } = $props();
 
 	const steps = ['Client', 'Google', 'Snippet', 'Done'];
@@ -51,7 +52,7 @@
 		{#if data.step === 1}
 			<p class="label">Hi {data.account.name.split(' ')[0] || 'there'} 👋</p>
 			<h1 class="display mt-2 text-[44px] leading-none sm:text-[56px]">Add your first <em>client</em></h1>
-			<form method="POST" action="?/client" class="card mt-8 space-y-5">
+			<form method="POST" action="?/client" class="card mt-8 space-y-6 p-6 sm:p-10">
 				{#if form?.error}<p class="rounded-[16px] bg-bad-bg p-3 text-sm text-bad">{form.error}</p>{/if}
 				<div>
 					<span class="label">What do you manage for them?</span>
@@ -80,9 +81,16 @@
 			{/if}
 
 			{#if data.google.connected && data.matches.length}
-				<form method="POST" action="?/link" class="card mt-8">
+				<form method="POST" action="?/link" class="card mt-8 p-6 sm:p-10">
 					<input type="hidden" name="client" value={data.client.id} />
 					<p class="flex items-center gap-2 text-sm font-medium"><span class="size-2 rounded-full bg-good"></span>Google connected — here’s what we found</p>
+					{#if data.googleErrors.length}
+						<div class="mt-4 space-y-1.5 rounded-[18px] bg-warn-bg p-4 text-sm text-warn">
+							<p class="font-medium text-ink">Google answered with an error — usually an API that is not switched on yet:</p>
+							{#each data.googleErrors as e, i (i)}<p><Linkify text={e} /></p>{/each}
+							<p class="pt-1 text-xs text-ink-2">Enable it in Google Cloud (same project as your OAuth client), wait 2 minutes, then <a class="underline" href="/onboarding?step=2&client={data.client.id}">check again</a>.</p>
+						</div>
+					{/if}
 					<ul class="mt-4 grid gap-2 sm:grid-cols-2">
 						{#each data.matches as m (m.key)}
 							<li class="rounded-[18px] p-4 {m.option ? 'bg-[#E4F5B8]' : 'bg-tile'}">
@@ -96,7 +104,7 @@
 					<button class="btn btn-primary mt-5 w-full py-3 text-base">Looks good →</button>
 				</form>
 			{:else}
-				<div class="card mt-8 flex flex-col items-center gap-4 py-10 text-center">
+				<div class="card mt-8 flex flex-col items-center gap-5 px-6 py-12 text-center sm:px-10">
 					<div class="flex -space-x-2">
 						{#each ['#4285F4', '#EA4335', '#FBBC05', '#34A853'] as c (c)}<span class="size-10 rounded-full border-4 border-white" style="background:{c}"></span>{/each}
 					</div>
@@ -117,12 +125,12 @@
 			<h1 class="display mt-2 text-[44px] leading-none sm:text-[56px]">Paste one <em>line</em></h1>
 			<p class="mt-3 text-ink-2">Leads, heatmaps and one-click fixes start the minute it’s live. No cookies, no banner needed.</p>
 
-			<div class="card-dark mt-8">
+			<div class="card-dark mt-8 p-6 sm:p-8">
 				<pre class="overflow-x-auto rounded-[16px] bg-white/[.07] p-4 text-[13px] text-accent">{data.snippet}</pre>
 				<button type="button" class="btn btn-accent mt-3" onclick={copy}>{copied ? 'Copied ✓' : 'Copy snippet'}</button>
 			</div>
 
-			<div class="card mt-4">
+			<div class="card mt-4 p-6 sm:p-8">
 				<div class="flex flex-wrap gap-2">
 					{#each Object.entries(platforms) as [k, p] (k)}
 						<button type="button" class="pill {platform === k ? 'pill-active' : ''}" onclick={() => (platform = k)}>{p.label}</button>
@@ -138,7 +146,7 @@
 			<form method="POST" action="?/check" class="mt-4" use:enhance={() => { checking = true; return async ({ update }) => { await update({ reset: false }); checking = false; }; }}>
 				<input type="hidden" name="client" value={data.client.id} />
 				{#if form?.check === 'ok' || data.installed}
-					<div class="card flex items-center gap-4 bg-[#E4F5B8]">
+					<div class="card flex items-center gap-4 bg-[#E4F5B8] p-5 sm:p-6">
 						<span class="grid size-10 place-items-center rounded-full bg-ink text-accent">✓</span>
 						<p class="flex-1 font-medium">Snippet found on {data.client.domain.replace(/^https?:\/\//, '')}</p>
 						<a href="/onboarding?step=4&client={data.client.id}" class="btn btn-primary">Next →</a>
@@ -153,7 +161,7 @@
 				{/if}
 			</form>
 		{:else if data.step === 4 && data.client}
-			<div class="card-dark relative overflow-hidden py-14 text-center">
+			<div class="card-dark relative overflow-hidden px-6 py-16 text-center">
 				<div class="absolute -top-20 left-1/2 size-80 -translate-x-1/2 rounded-full bg-accent/60 blur-3xl"></div>
 				<p class="relative text-5xl">✦</p>
 				<h1 class="display relative mt-4 text-[44px] leading-none sm:text-[64px]">You’re <em>set</em></h1>
@@ -164,8 +172,8 @@
 				</div>
 			</div>
 			<ul class="mt-4 grid gap-2 sm:grid-cols-3">
-				{#each [[data.client.google.ga4PropertyId || data.client.google.gscSiteUrl, 'Google'], [data.installed, 'Snippet'], [true, 'Weekly report']] as [ok, l] (l)}
-					<li class="card flex items-center gap-3 py-4"><span class="size-2.5 rounded-full {ok ? 'bg-good' : 'bg-[#E3A21A]'}"></span><span class="text-sm">{l}</span><span class="ml-auto text-xs text-muted">{ok ? 'On' : 'Later'}</span></li>
+				{#each [[data.google.connected, 'Google'], [data.installed, 'Snippet'], [true, 'Weekly report']] as [ok, l] (l)}
+					<li class="card flex items-center gap-3 px-5 py-4"><span class="size-2.5 rounded-full {ok ? 'bg-good' : 'bg-[#E3A21A]'}"></span><span class="text-sm">{l}</span><span class="ml-auto text-xs text-muted">{ok ? 'On' : 'Later'}</span></li>
 				{/each}
 			</ul>
 		{/if}

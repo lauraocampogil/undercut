@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Linkify from '#lib/components/Linkify.svelte';
 	import { untrack } from 'svelte';
 	import { page } from '$app/state';
 	let { data } = $props();
@@ -75,7 +76,7 @@
 				{#if !data.connected}<a href="/app/settings#connections" class="btn btn-primary">Connect Google</a>{:else}<span class="rounded-full bg-good-bg px-3 py-1 text-xs text-good">Google connected</span>{/if}
 			</div>
 			{#if data.options?.errors.length}
-				<div class="bg-warn-bg p-4 text-sm text-warn">{#each data.options.errors as e (e)}<p>{e}</p>{/each}</div>
+				<div class="space-y-1 bg-warn-bg p-4 text-sm text-warn">{#each data.options.errors as e, i (i)}<p><Linkify text={e} /></p>{/each}</div>
 			{/if}
 			{#each fields as f (f.key)}
 				{#if f.show()}

@@ -191,7 +191,7 @@ async function g<T = any>(url: string, init: RequestInit = {}, opts: { cache?: b
 					continue;
 				}
 				if (!res.ok) {
-					const text = (await res.text()).slice(0, 200);
+					const text = (await res.text()).slice(0, 1200);
 					throw new Error(`${new URL(url).hostname.split('.')[0]}: ${res.status} ${humanError(res.status, text)}`);
 				}
 				const value = (await res.json()) as T;
@@ -217,7 +217,12 @@ async function g<T = any>(url: string, init: RequestInit = {}, opts: { cache?: b
 }
 
 function humanError(status: number, text: string) {
-	if (status === 403 && /has not been used|disabled/i.test(text)) return 'this API is not enabled in your Google Cloud project';
+	if (status === 403 && /has not been used|disabled/i.test(text)) {
+		const project = text.match(/project (\d+)/)?.[1];
+		const link = text.match(/https:\/\/console\.developers\.google\.com\/apis\/api\/[^\s"\\]+/)?.[0];
+		return `this API is not enabled${project ? ` in Google Cloud project ${project}` : ''} (enable it, wait 2 minutes, then reconnect)${link ? ` → ${link}` : ''}`;
+	}
+	if (status === 403 && /insufficient|scope/i.test(text)) return 'permission missing — reconnect Google and tick every box on the consent screen';
 	if (status === 403) return 'no access to this property with the connected Google account';
 	if (status === 404) return 'property not found — pick it again in Setup';
 	return text.replace(/\s+/g, ' ');

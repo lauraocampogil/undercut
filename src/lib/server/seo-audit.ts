@@ -105,7 +105,7 @@ function auditPage(url: string, status: number, ms: number, html: string): PageA
 		imagesNoAlt: imgs.filter((i) => !i.getAttribute('alt')?.trim()).length,
 		words: text ? text.split(' ').length : 0,
 		h1Text: root.querySelector('h1')?.textContent.replace(/\s+/g, ' ').trim().slice(0, 90),
-		noAltSrcs: imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => i.getAttribute('src') ?? '').filter(Boolean).slice(0, 12)
+		noAltSrcs: [...new Set(imgs.filter((i) => !i.getAttribute('alt')?.trim()).map((i) => i.getAttribute('src') ?? '').filter(Boolean))].slice(0, 12)
 	};
 }
 

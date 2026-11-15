@@ -84,7 +84,7 @@
 
 	<!-- sidebar -->
 	<aside
-		class="no-print fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col gap-1 overflow-y-auto border-r border-line bg-paper px-3 py-4 transition-transform lg:sticky lg:top-0 lg:z-auto lg:h-dvh lg:w-auto lg:translate-x-0"
+		class="no-print fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col gap-1 overflow-y-auto border-r border-line bg-paper px-3 py-4 transition-transform lg:sticky lg:top-0 lg:z-40 lg:h-dvh lg:w-auto lg:translate-x-0"
 		class:-translate-x-full={!drawer}
 	>
 		<div class="flex items-center justify-between px-2 pb-3">

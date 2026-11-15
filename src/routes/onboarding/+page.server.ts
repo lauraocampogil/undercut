@@ -21,9 +21,11 @@ export const load = async ({ url }) => {
 	const configured = googleConfigured();
 	const connected = configured && isConnected();
 	let matches: { key: string; label: string; option: Option | undefined }[] = [];
+	let googleErrors: string[] = [];
 	if (step === 2 && client && connected) {
 		try {
 			const o = await listAccounts();
+			googleErrors = o.errors;
 			const g = guessFor(client);
 			matches = [
 				{ key: 'ga4', label: 'Google Analytics', option: g(o.ga4) },
@@ -43,6 +45,7 @@ export const load = async ({ url }) => {
 		client: client ? { id: client.id, name: client.name, domain: client.domain, type: client.type ?? 'web', google: client.google } : null,
 		google: { configured, connected, error: url.searchParams.get('error'), ok: url.searchParams.has('ok') },
 		matches,
+		googleErrors,
 		snippet: client ? `<script defer src="${base}/u.js" data-site="${client.id}"></script>` : '',
 		installed: client ? getHeatmap(client).installed : false
 	};

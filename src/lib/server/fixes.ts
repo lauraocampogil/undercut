@@ -29,7 +29,9 @@ const file = (clientId: string) => join(DIR, `${clientId.replace(/[^a-z0-9-]/gi,
 export function listFixes(clientId: string): Fix[] {
 	if (!existsSync(file(clientId))) return [];
 	try {
-		return JSON.parse(readFileSync(file(clientId), 'utf8'));
+		const all = JSON.parse(readFileSync(file(clientId), 'utf8')) as Fix[];
+		const seen = new Set<string>();
+		return all.filter((f) => !seen.has(f.id) && seen.add(f.id)); // older files could hold duplicates
 	} catch {
 		return [];
 	}
@@ -145,6 +147,7 @@ export async function generateFixes(client: Client, audit: SeoAudit): Promise<Fi
 	const now = new Date().toISOString();
 	const out: Fix[] = [];
 	const add = (f: Omit<Fix, 'status' | 'updatedAt'>) => {
+		if (out.some((o) => o.id === f.id)) return; // same image twice on a page, etc.
 		const prev = existing.get(f.id);
 		// keep what the agency already edited / published
 		out.push(prev ? { ...f, value: prev.value, status: prev.status, updatedAt: prev.updatedAt } : { ...f, status: 'suggested', updatedAt: now });
