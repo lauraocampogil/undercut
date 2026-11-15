@@ -4,6 +4,7 @@
 import * as env from '$app/env/private';
 import { allWorkspaces, loadWorkspace, readData, writeData } from './store.ts';
 import { runAlerts, weeklyDigest } from './alerts.ts';
+import { snapshotAllApps } from './appstore.ts';
 import { inWorkspace } from './context.ts';
 import { dbOn } from './db.ts';
 
@@ -12,7 +13,13 @@ let started = false;
 async function runFor(base: string) {
 	const now = new Date();
 	const today = now.toLocaleDateString('sv-SE'); // YYYY-MM-DD in server time zone
-	const state = readData<{ alerts?: string; digest?: string }>('scheduler.json', {});
+	const state = readData<{ alerts?: string; digest?: string; store?: string }>('scheduler.json', {});
+	if (state.store !== today) {
+		// App Store positions, ratings and competitors: one snapshot per day
+		state.store = today;
+		writeData('scheduler.json', state);
+		await snapshotAllApps().catch((e) => console.error('[scheduler] store', e));
+	}
 	if (now.getHours() >= 6 && state.alerts !== today) {
 		state.alerts = today;
 		writeData('scheduler.json', state);

@@ -10,6 +10,8 @@ import { getAppMetrics, appTasks, type AppMetrics } from './app-analytics.ts';
 import { getDone, hasApp, hasWeb } from './store.ts';
 import { fixedIssues } from './fixes.ts';
 import { getLeads, leadsTasks, type LeadsReport } from './leads.ts';
+import { getStoreTracker, storeTasks } from './appstore.ts';
+import { errorTasks, getErrors, getPaywall, paywallTasks } from './app-events.ts';
 
 export type AreaKey = 'leads' | 'traffic' | 'search' | 'seo' | 'maps' | 'behaviour' | 'app';
 export type AreaTile = { key: AreaKey; label: string; href: string; level: Level; waiting?: boolean; value: string; sub: string; delta?: number; deltaInvert?: boolean; open: number };
@@ -44,15 +46,16 @@ export type ClientOverview = {
 
 export async function getClientOverview(client: Client, days = 28): Promise<ClientOverview> {
 	const web = hasWeb(client);
-	const [metrics, audit, app] = await Promise.all([
+	const [metrics, audit, app, store] = await Promise.all([
 		web ? getMetrics(client, days) : Promise.resolve(null),
 		web ? getSeoAudit(client).catch(() => null) : Promise.resolve(null),
-		hasApp(client) ? getAppMetrics(client, days) : Promise.resolve(null)
+		hasApp(client) ? getAppMetrics(client, days) : Promise.resolve(null),
+		hasApp(client) ? getStoreTracker(client).catch(() => null) : Promise.resolve(null)
 	]);
 	const heat = web ? getHeatmap(client, '/', 'mobile', days) : null;
 	const leads = web ? getLeads(client, days) : null;
 
-	const extra: Draft[] = [...(leads ? leadsTasks(leads) : []), ...(audit ? seoTasks(audit, fixedIssues(client.id)) : []), ...(heat ? behaviourTasks(heat) : []), ...(app ? appTasks(app) : [])];
+	const extra: Draft[] = [...(leads ? leadsTasks(leads) : []), ...(audit ? seoTasks(audit, fixedIssues(client.id)) : []), ...(heat ? behaviourTasks(heat) : []), ...(app ? appTasks(app) : []), ...(store ? storeTasks(store) : []), ...(hasApp(client) ? paywallTasks(getPaywall(client, days)) : []), ...errorTasks(getErrors(client, 14))];
 	const insights = metrics ? buildInsights(metrics, null, extra) : sortInsights(withIds(extra));
 	const done = getDone(client.id);
 	const tasks: Task[] = insights.map((i) => ({ ...i, done: Boolean(done[i.id]) }));

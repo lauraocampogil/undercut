@@ -34,6 +34,11 @@ q.push({t:'c',sid:S.id,p:path,d:dev,x:+(e.pageX/document.documentElement.scrollW
 if(q.length>20)send()},true);
 var maxD=0;setTimeout(function(){if(!maxD)maxD=Math.min(1,innerHeight/docH())},1000);addEventListener('scroll',function(){var d=(scrollY+innerHeight)/docH();if(d>maxD)maxD=Math.min(1,d)},{passive:true});
 function leave(){if(!maxD)maxD=Math.min(1,innerHeight/docH());send()}
+// JavaScript errors on the site → Errors page (max 10 distinct per page view, no personal data)
+var errN=0,errSeen={};function jsErr(m,st){m=String(m||'');if(!m||m==='Script error.'||errN>=10||errSeen[m])return;errSeen[m]=1;errN++;
+fetch(api+'/api/app',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({site:site,events:[{t:'error',pf:'web',u:S.id,msg:m.slice(0,400),stack:String(st||'').slice(0,3000),url:location.origin+path,name:path,os:dev}]})}).catch(function(){})}
+addEventListener('error',function(e){if(e.target&&e.target!==window)return;jsErr(e.message,(e.error&&e.error.stack)||(e.filename?'at '+e.filename+':'+e.lineno+':'+e.colno:''))});
+addEventListener('unhandledrejection',function(e){var r=e.reason;jsErr(r&&r.message||r,r&&r.stack)});
 addEventListener('pagehide',leave);setInterval(send,4000);setTimeout(send,1200);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')send()});
 fetch(api+'/api/fixes?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(f){
 if(f.gtm&&!window.google_tag_manager){window.dataLayer=window.dataLayer||[];window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});var gt=document.createElement('script');gt.async=true;gt.src='https://www.googletagmanager.com/gtm.js?id='+f.gtm;document.head.appendChild(gt)}

@@ -43,7 +43,8 @@
 					]
 				: []),
 			...(web ? [{ group: 'Communication', items: [{ href: `${b}/campaigns`, label: 'Campaigns', icon: 'megaphone' }] }] : []),
-		...(app ? [{ group: 'App', items: [{ href: `${b}/app`, label: 'App analytics', icon: 'phone' }, { href: `${b}/keywords?mode=app`, label: 'App Store keywords', icon: 'key' }] }] : []),
+		...(app ? [{ group: 'App', items: [{ href: `${b}/app`, label: 'App analytics', icon: 'phone' }, { href: `${b}/store`, label: 'App Store', icon: 'star' }, { href: `${b}/paywall`, label: 'Paywall', icon: 'lock' }, { href: `${b}/keywords?mode=app`, label: 'App Store keywords', icon: 'key' }] }] : []),
+		{ group: '', items: [{ href: `${b}/errors`, label: 'Errors', icon: 'bug' }] },
 			{ group: '', items: [{ href: `${b}/settings`, label: 'Setup & connections', icon: 'sliders' }] }
 		] as { group: string; items: Item[] }[];
 	});

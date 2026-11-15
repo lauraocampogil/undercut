@@ -1,0 +1,1451 @@
+From 66c971be38533f0b9c7d5ed7f1bf44b089a695ca Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 16:28:45 +0100
+Subject: [PATCH] Apps: App Store tracker (daily rank, rating, reviews,
+ updates, competitors), paywall tracker with A/B variants and revenue,
+ Sentry-like errors for apps (SDK for React Native, Swift, Kotlin, Flutter)
+ and websites (snippet)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Icon.svelte                |   3 +
+ src/lib/components/SdkSetup.svelte            |  43 +++
+ src/lib/sdk.ts                                | 186 +++++++++++
+ src/lib/server/app-events.ts                  | 293 ++++++++++++++++++
+ src/lib/server/appstore.ts                    | 201 ++++++++++++
+ src/lib/server/overview.ts                    |   9 +-
+ src/lib/server/scheduler.ts                   |   9 +-
+ src/routes/api/app/+server.ts                 |  30 ++
+ src/routes/app/+layout.svelte                 |   3 +-
+ src/routes/app/clients/[id]/+layout.svelte    |   2 +-
+ .../app/clients/[id]/errors/+page.server.ts   |  23 ++
+ .../app/clients/[id]/errors/+page.svelte      |  99 ++++++
+ .../app/clients/[id]/paywall/+page.server.ts  |  12 +
+ .../app/clients/[id]/paywall/+page.svelte     |  95 ++++++
+ .../app/clients/[id]/store/+page.server.ts    |  51 +++
+ .../app/clients/[id]/store/+page.svelte       | 191 ++++++++++++
+ src/routes/u.js/+server.ts                    |   5 +
+ 17 files changed, 1249 insertions(+), 6 deletions(-)
+ create mode 100644 src/lib/components/SdkSetup.svelte
+ create mode 100644 src/lib/sdk.ts
+ create mode 100644 src/lib/server/app-events.ts
+ create mode 100644 src/lib/server/appstore.ts
+ create mode 100644 src/routes/api/app/+server.ts
+ create mode 100644 src/routes/app/clients/[id]/errors/+page.server.ts
+ create mode 100644 src/routes/app/clients/[id]/errors/+page.svelte
+ create mode 100644 src/routes/app/clients/[id]/paywall/+page.server.ts
+ create mode 100644 src/routes/app/clients/[id]/paywall/+page.svelte
+ create mode 100644 src/routes/app/clients/[id]/store/+page.server.ts
+ create mode 100644 src/routes/app/clients/[id]/store/+page.svelte
+
+diff --git a/src/lib/components/Icon.svelte b/src/lib/components/Icon.svelte
+index 2f052b8..f111829 100644
+--- a/src/lib/components/Icon.svelte
++++ b/src/lib/components/Icon.svelte
+@@ -16,6 +16,9 @@
+ 		check: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4',
+ 		flame: 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3.3.3 1.3 1 2.5 2.5 2.8z',
+ 		megaphone: 'M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1zM15 8.5a4 4 0 0 1 0 7M18 6a8 8 0 0 1 0 12',
++		bug: 'M8 6a4 4 0 0 1 8 0M7 9h10v5a5 5 0 0 1-10 0zM12 9v10M3 13h4M17 13h4M4 7l3 2M20 7l-3 2M4 19l3-2M20 19l-3-2',
++		star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
++		lock: 'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4',
+ 		phone: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
+ 		sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
+ 		chevron: 'm6 9 6 6 6-6',
+diff --git a/src/lib/components/SdkSetup.svelte b/src/lib/components/SdkSetup.svelte
+new file mode 100644
+index 0000000..cb44eb2
+--- /dev/null
++++ b/src/lib/components/SdkSetup.svelte
+@@ -0,0 +1,43 @@
++<script lang="ts">
++	import { sdkCode, type SdkKey } from '#lib/sdk.ts';
++	let { api, site, focus = 'all' }: { api: string; site: string; focus?: 'paywall' | 'errors' | 'all' } = $props();
++	let kind = $state<SdkKey>('rn');
++	const tabs: [SdkKey, string][] = [
++		['rn', 'React Native / Expo'],
++		['swift', 'Swift (iOS)'],
++		['kotlin', 'Kotlin (Android)'],
++		['flutter', 'Flutter']
++	];
++	const c = $derived(sdkCode(kind, api, site));
++	let copied = $state('');
++	function copy(t: string, k: string) {
++		navigator.clipboard?.writeText(t);
++		copied = k;
++		setTimeout(() => (copied = ''), 1500);
++	}
++</script>
++
++<div class="card-dark p-6 sm:p-8">
++	<p class="text-sm text-accent">Connect the app · 5 minutes</p>
++	<h2 class="mt-1 text-2xl font-medium">Add one file to the app</h2>
++	<p class="mt-2 max-w-2xl text-sm text-white/60">
++		{#if focus === 'paywall'}Call <code class="text-accent">paywall()</code> when the paywall shows and <code class="text-accent">purchase()</code> after a successful payment (works with RevenueCat, StoreKit, Play Billing or Superwall).
++		{:else if focus === 'errors'}Crashes are caught automatically after <code class="text-accent">start()</code>. Send caught errors with <code class="text-accent">error(e)</code>.
++		{:else}One file, no package: sessions, paywall, purchases and crashes.{/if}
++		No personal data is sent — only an anonymous random ID.
++	</p>
++	<div class="mt-5 flex flex-wrap gap-1.5">
++		{#each tabs as [k, l] (k)}<button class="rounded-full px-3.5 py-1.5 text-sm {kind === k ? 'bg-accent text-accent-ink' : 'bg-white/10 text-white/80 hover:bg-white/15'}" onclick={() => (kind = k)}>{l}</button>{/each}
++	</div>
++	<div class="mt-4 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
++		<div class="min-w-0">
++			<div class="flex items-center justify-between text-xs text-white/50"><span>1 · Create <b class="text-white">{c.file}</b></span><button class="rounded-full bg-white/10 px-3 py-1 text-white hover:bg-white/20" onclick={() => copy(c.code, 'code')}>{copied === 'code' ? 'Copied ✓' : 'Copy'}</button></div>
++			<pre class="mt-2 max-h-[340px] overflow-auto rounded-[16px] bg-white/[.06] p-4 text-[12px] leading-relaxed text-white/85">{c.code}</pre>
++		</div>
++		<div class="min-w-0">
++			<div class="flex items-center justify-between text-xs text-white/50"><span>2 · Call it</span><button class="rounded-full bg-white/10 px-3 py-1 text-white hover:bg-white/20" onclick={() => copy(c.usage, 'use')}>{copied === 'use' ? 'Copied ✓' : 'Copy'}</button></div>
++			<pre class="mt-2 max-h-[340px] overflow-auto rounded-[16px] bg-accent/10 p-4 text-[12px] leading-relaxed text-accent">{c.usage}</pre>
++			<p class="mt-3 text-xs text-white/50">3 · Open the app once — data appears here within a minute.</p>
++		</div>
++	</div>
++</div>
+diff --git a/src/lib/sdk.ts b/src/lib/sdk.ts
+new file mode 100644
+index 0000000..40a9806
+--- /dev/null
++++ b/src/lib/sdk.ts
+@@ -0,0 +1,186 @@
++// Copy-paste SDKs for client apps. No package to install: one small file per platform.
++export type SdkKey = 'rn' | 'swift' | 'kotlin' | 'flutter';
++
++export function sdkCode(kind: SdkKey, api: string, site: string): { file: string; code: string; usage: string } {
++	const url = `${api}/api/app`;
++	if (kind === 'rn')
++		return {
++			file: 'undercut.ts',
++			code: `// undercut.ts — React Native / Expo. No dependency.
++import { Platform } from 'react-native';
++const API = '${url}';
++const SITE = '${site}';
++const VERSION = '1.0.0'; // your app version (or expo-application nativeApplicationVersion)
++const U = Math.random().toString(36).slice(2, 12); // anonymous id (persist it with AsyncStorage if you want)
++let q: Record<string, unknown>[] = [];
++let timer: ReturnType<typeof setTimeout> | undefined;
++
++function ev(t: string, data: Record<string, unknown> = {}) {
++  q.push({ t, u: U, pf: Platform.OS === 'ios' ? 'ios' : 'android', av: VERSION, os: String(Platform.Version), ...data });
++  clearTimeout(timer);
++  timer = setTimeout(flush, t === 'error' ? 0 : 3000);
++}
++export function flush() {
++  if (!q.length) return;
++  const events = q.splice(0);
++  fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ site: SITE, events }) }).catch(() => {});
++}
++
++export const undercut = {
++  start() {
++    ev('session');
++    const prev = (global as any).ErrorUtils?.getGlobalHandler?.();
++    (global as any).ErrorUtils?.setGlobalHandler?.((e: Error, fatal?: boolean) => {
++      undercut.error(e, fatal);
++      prev?.(e, fatal);
++    });
++  },
++  screen: (name: string) => ev('screen', { name }),
++  paywall: (paywall: string, variant?: string) => ev('paywall_view', { pw: paywall, vr: variant }),
++  paywallClosed: (paywall: string, variant?: string) => ev('paywall_close', { pw: paywall, vr: variant }),
++  trial: (product: string, paywall?: string, variant?: string) => ev('trial_start', { pr: product, pw: paywall, vr: variant }),
++  purchase: (product: string, price: number, currency = 'EUR', paywall?: string, variant?: string) => ev('purchase', { pr: product, price, cur: currency, pw: paywall, vr: variant }),
++  error: (e: unknown, fatal = false) => ev('error', { msg: e instanceof Error ? \`\${e.name}: \${e.message}\` : String(e), stack: e instanceof Error ? e.stack : undefined, fatal })
++};`,
++			usage: `// App.tsx
++import { undercut } from './undercut';
++undercut.start();
++
++// on your paywall screen
++undercut.paywall('onboarding', 'B · yearly first');
++// after a successful purchase (RevenueCat, StoreKit, Play Billing…)
++undercut.purchase('premium_yearly', 49.99, 'EUR', 'onboarding', 'B · yearly first');
++// trial started
++undercut.trial('premium_yearly', 'onboarding');
++// any caught error
++try { … } catch (e) { undercut.error(e); }`
++		};
++	if (kind === 'swift')
++		return {
++			file: 'Undercut.swift',
++			code: `// Undercut.swift — iOS (SwiftUI / UIKit). No dependency.
++import Foundation
++import UIKit
++
++enum Undercut {
++    static let api = URL(string: "${url}")!
++    static let site = "${site}"
++    static let user = UserDefaults.standard.string(forKey: "uc_id") ?? {
++        let id = UUID().uuidString.prefix(12).lowercased(); UserDefaults.standard.set(id, forKey: "uc_id"); return String(id)
++    }()
++    static let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
++
++    static func send(_ t: String, _ data: [String: Any] = [:]) {
++        var e: [String: Any] = ["t": t, "u": user, "pf": "ios", "av": version, "os": UIDevice.current.systemVersion]
++        data.forEach { e[$0.key] = $0.value }
++        var req = URLRequest(url: api); req.httpMethod = "POST"
++        req.setValue("application/json", forHTTPHeaderField: "content-type")
++        req.httpBody = try? JSONSerialization.data(withJSONObject: ["site": site, "events": [e]])
++        URLSession.shared.dataTask(with: req).resume()
++    }
++    static func start() {
++        send("session")
++        NSSetUncaughtExceptionHandler { ex in
++            Undercut.send("error", ["msg": "\\(ex.name.rawValue): \\(ex.reason ?? "")", "stack": ex.callStackSymbols.joined(separator: "\\n"), "fatal": true])
++            Thread.sleep(forTimeInterval: 1)
++        }
++    }
++    static func paywall(_ id: String, variant: String? = nil) { send("paywall_view", ["pw": id, "vr": variant ?? ""]) }
++    static func trial(_ product: String, paywall: String? = nil) { send("trial_start", ["pr": product, "pw": paywall ?? ""]) }
++    static func purchase(_ product: String, price: Double, currency: String = "EUR", paywall: String? = nil, variant: String? = nil) {
++        send("purchase", ["pr": product, "price": price, "cur": currency, "pw": paywall ?? "", "vr": variant ?? ""])
++    }
++    static func error(_ error: Error, fatal: Bool = false) { send("error", ["msg": String(describing: error), "fatal": fatal]) }
++}`,
++			usage: `// App start (App.init or AppDelegate)
++Undercut.start()
++
++// paywall shown / purchase done
++Undercut.paywall("onboarding", variant: "B")
++Undercut.purchase("premium_yearly", price: 49.99, paywall: "onboarding", variant: "B")`
++		};
++	if (kind === 'kotlin')
++		return {
++			file: 'Undercut.kt',
++			code: `// Undercut.kt — Android. No dependency.
++import android.os.Build
++import org.json.JSONArray
++import org.json.JSONObject
++import java.net.HttpURLConnection
++import java.net.URL
++import java.util.UUID
++import kotlin.concurrent.thread
++
++object Undercut {
++    private const val API = "${url}"
++    private const val SITE = "${site}"
++    private val user = UUID.randomUUID().toString().take(12)
++    var version = ""
++
++    fun send(t: String, data: Map<String, Any?> = emptyMap()) = thread {
++        val e = JSONObject(mapOf("t" to t, "u" to user, "pf" to "android", "av" to version, "os" to Build.VERSION.RELEASE) + data.filterValues { it != null })
++        runCatching {
++            (URL(API).openConnection() as HttpURLConnection).apply {
++                requestMethod = "POST"; doOutput = true; setRequestProperty("content-type", "application/json")
++                outputStream.write(JSONObject(mapOf("site" to SITE, "events" to JSONArray(listOf(e)))).toString().toByteArray())
++                responseCode; disconnect()
++            }
++        }
++    }
++    fun start(appVersion: String) {
++        version = appVersion; send("session")
++        val prev = Thread.getDefaultUncaughtExceptionHandler()
++        Thread.setDefaultUncaughtExceptionHandler { th, ex ->
++            send("error", mapOf("msg" to ex.toString(), "stack" to ex.stackTraceToString().take(3000), "fatal" to true)).join(1500)
++            prev?.uncaughtException(th, ex)
++        }
++    }
++    fun paywall(id: String, variant: String? = null) = send("paywall_view", mapOf("pw" to id, "vr" to variant))
++    fun trial(product: String, paywall: String? = null) = send("trial_start", mapOf("pr" to product, "pw" to paywall))
++    fun purchase(product: String, price: Double, currency: String = "EUR", paywall: String? = null, variant: String? = null) =
++        send("purchase", mapOf("pr" to product, "price" to price, "cur" to currency, "pw" to paywall, "vr" to variant))
++    fun error(e: Throwable, fatal: Boolean = false) = send("error", mapOf("msg" to e.toString(), "stack" to e.stackTraceToString().take(3000), "fatal" to fatal))
++}`,
++			usage: `// Application.onCreate
++Undercut.start(BuildConfig.VERSION_NAME)
++
++Undercut.paywall("onboarding", "B")
++Undercut.purchase("premium_yearly", 49.99, "EUR", "onboarding", "B")`
++		};
++	return {
++		file: 'undercut.dart',
++		code: `// undercut.dart — Flutter. Needs the "http" package.
++import 'dart:convert';
++import 'dart:io' show Platform;
++import 'dart:math';
++import 'dart:ui';
++import 'package:flutter/foundation.dart';
++import 'package:http/http.dart' as http;
++
++class Undercut {
++  static const api = '${url}';
++  static const site = '${site}';
++  static final user = Random().nextInt(1 << 32).toRadixString(36);
++  static String version = '';
++
++  static Future<void> send(String t, [Map<String, dynamic> data = const {}]) async {
++    final e = {'t': t, 'u': user, 'pf': Platform.isIOS ? 'ios' : 'android', 'av': version, ...data}..removeWhere((k, v) => v == null);
++    try { await http.post(Uri.parse(api), headers: {'content-type': 'application/json'}, body: jsonEncode({'site': site, 'events': [e]})); } catch (_) {}
++  }
++  static void start(String appVersion) {
++    version = appVersion; send('session');
++    FlutterError.onError = (d) { send('error', {'msg': d.exceptionAsString(), 'stack': d.stack.toString(), 'fatal': true}); FlutterError.presentError(d); };
++    PlatformDispatcher.instance.onError = (e, s) { send('error', {'msg': e.toString(), 'stack': s.toString(), 'fatal': true}); return false; };
++  }
++  static void paywall(String id, {String? variant}) => send('paywall_view', {'pw': id, 'vr': variant});
++  static void trial(String product, {String? paywall}) => send('trial_start', {'pr': product, 'pw': paywall});
++  static void purchase(String product, double price, {String currency = 'EUR', String? paywall, String? variant}) =>
++      send('purchase', {'pr': product, 'price': price, 'cur': currency, 'pw': paywall, 'vr': variant});
++}`,
++		usage: `// main()
++Undercut.start('1.0.0');
++
++Undercut.paywall('onboarding', variant: 'B');
++Undercut.purchase('premium_yearly', 49.99, paywall: 'onboarding', variant: 'B');`
++	};
++}
+diff --git a/src/lib/server/app-events.ts b/src/lib/server/app-events.ts
+new file mode 100644
+index 0000000..5c85489
+--- /dev/null
++++ b/src/lib/server/app-events.ts
+@@ -0,0 +1,293 @@
++// Events sent by the Undercut app SDK (React Native / Expo, Swift, Kotlin, Flutter) and by the web snippet's error catcher.
++// - Paywall tracker: paywall_view → trial_start / purchase (per paywall + variant = A/B test), revenue
++// - Errors (Sentry-like): every error grouped into issues by fingerprint, with users, versions and a stack sample
++// Stored as JSON lines per client per day on the data volume (like the web snippet events).
++import { mkdirSync, appendFileSync, readFileSync, existsSync } from 'node:fs';
++import { join } from 'node:path';
++import { createHash } from 'node:crypto';
++import type { Client } from '#lib/types.ts';
++import type { Draft } from './insights.ts';
++import { readData, writeData } from './store.ts';
++
++const DIR = join(process.cwd(), '.data', 'app-events');
++const safe = (s: string) => s.replace(/[^a-z0-9-]/gi, '').slice(0, 60);
++const day = (ts = Date.now()) => new Date(ts).toISOString().slice(0, 10);
++const str = (v: unknown, n = 120) => (typeof v === 'string' ? v.slice(0, n) : v == null ? undefined : String(v).slice(0, n));
++
++export type Platform = 'ios' | 'android' | 'web';
++export type AppEvent = {
++	t: 'session' | 'screen' | 'paywall_view' | 'paywall_close' | 'trial_start' | 'purchase' | 'error';
++	ts: number;
++	u?: string; // anonymous install / visitor id
++	pf?: Platform;
++	av?: string; // app version
++	os?: string;
++	// paywall
++	pw?: string; // paywall id ("onboarding", "settings")
++	vr?: string; // variant ("A", "yearly-first")
++	pr?: string; // product id
++	price?: number;
++	cur?: string;
++	// error
++	msg?: string;
++	stack?: string;
++	fatal?: boolean;
++	url?: string;
++	name?: string; // screen name
++};
++
++const TYPES = new Set(['session', 'screen', 'paywall_view', 'paywall_close', 'trial_start', 'purchase', 'error']);
++
++export function recordApp(site: string, raw: unknown[], platformHint?: Platform) {
++	const dir = join(DIR, safe(site));
++	mkdirSync(dir, { recursive: true });
++	const lines = raw
++		.filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === 'object' && TYPES.has(String((e as any).t)))
++		.slice(0, 100)
++		.map((e) => {
++			const pf = ['ios', 'android', 'web'].includes(String(e.pf)) ? (e.pf as Platform) : platformHint;
++			const ev: AppEvent = { t: e.t as AppEvent['t'], ts: Date.now(), u: str(e.u, 40), pf, av: str(e.av, 20), os: str(e.os, 20), pw: str(e.pw, 60), vr: str(e.vr, 40), pr: str(e.pr, 80), price: typeof e.price === 'number' && Number.isFinite(e.price) ? Math.max(0, Math.min(10000, e.price)) : undefined, cur: str(e.cur, 3)?.toUpperCase(), msg: str(e.msg, 400), stack: str(e.stack, 3000), fatal: e.fatal === true || undefined, url: str(e.url, 300), name: str(e.name, 80) };
++			return JSON.stringify(ev);
++		})
++		.join('\n');
++	if (lines) appendFileSync(join(dir, `${day()}.jsonl`), lines + '\n');
++	return lines ? lines.split('\n').length : 0;
++}
++
++export function readApp(site: string, days: number): AppEvent[] {
++	const dir = join(DIR, safe(site));
++	if (!existsSync(dir)) return [];
++	const out: AppEvent[] = [];
++	for (let i = 0; i < days; i++) {
++		const f = join(dir, `${day(Date.now() - i * 864e5)}.jsonl`);
++		if (!existsSync(f)) continue;
++		for (const l of readFileSync(f, 'utf8').split('\n')) {
++			if (!l) continue;
++			try {
++				out.push(JSON.parse(l));
++			} catch {
++				/* skip broken line */
++			}
++		}
++	}
++	return out.sort((a, b) => a.ts - b.ts);
++}
++
++const series = (events: AppEvent[], days: number, pick: (e: AppEvent) => number) => {
++	const m = new Map<string, number>();
++	for (let i = days - 1; i >= 0; i--) m.set(day(Date.now() - i * 864e5), 0);
++	for (const e of events) {
++		const k = day(e.ts);
++		if (m.has(k)) m.set(k, m.get(k)! + pick(e));
++	}
++	return [...m].map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }));
++};
++const uniq = (l: (string | undefined)[]) => new Set(l.filter(Boolean)).size;
++
++// ---------- Paywall ----------
++export type PaywallRow = { paywall: string; variant: string; views: number; viewers: number; trials: number; purchases: number; conv: number; revenue: number; closes: number };
++export type PaywallReport = {
++	source: 'live' | 'demo' | 'waiting';
++	days: number;
++	currency: string;
++	totals: { views: number; viewers: number; trials: number; purchases: number; conv: number; revenue: number };
++	rows: PaywallRow[];
++	products: { product: string; purchases: number; revenue: number }[];
++	daily: { date: string; value: number }[]; // revenue
++	dailyConv: { date: string; value: number }[];
++	winner: { paywall: string; best: string; worst: string; lift: number; enough: boolean } | null;
++};
++
++export function getPaywall(client: Client, days = 28): PaywallReport {
++	const events = client.demo ? demoEvents(client, days) : readApp(client.id, days);
++	const pw = events.filter((e) => ['paywall_view', 'paywall_close', 'trial_start', 'purchase'].includes(e.t));
++	const currency = pw.find((e) => e.cur)?.cur ?? 'EUR';
++	const key = (e: AppEvent) => `${e.pw || 'paywall'}|${e.vr || 'default'}`;
++	const map = new Map<string, AppEvent[]>();
++	for (const e of pw) map.set(key(e), [...(map.get(key(e)) ?? []), e]);
++	const rows: PaywallRow[] = [...map].map(([k, l]) => {
++		const [paywall, variant] = k.split('|');
++		const views = l.filter((e) => e.t === 'paywall_view').length;
++		const viewers = uniq(l.filter((e) => e.t === 'paywall_view').map((e) => e.u));
++		const trials = l.filter((e) => e.t === 'trial_start').length;
++		const purchases = l.filter((e) => e.t === 'purchase').length;
++		return { paywall, variant, views, viewers, trials, purchases, closes: l.filter((e) => e.t === 'paywall_close').length, revenue: Math.round(l.filter((e) => e.t === 'purchase').reduce((s, e) => s + (e.price ?? 0), 0) * 100) / 100, conv: viewers ? Math.round(((trials + purchases) / viewers) * 1000) / 10 : 0 };
++	});
++	rows.sort((a, b) => b.views - a.views);
++	const prodMap = new Map<string, { purchases: number; revenue: number }>();
++	for (const e of pw.filter((e) => e.t === 'purchase')) {
++		const p = prodMap.get(e.pr || 'unknown') ?? { purchases: 0, revenue: 0 };
++		p.purchases++;
++		p.revenue = Math.round((p.revenue + (e.price ?? 0)) * 100) / 100;
++		prodMap.set(e.pr || 'unknown', p);
++	}
++	const viewers = uniq(pw.filter((e) => e.t === 'paywall_view').map((e) => e.u));
++	const trials = pw.filter((e) => e.t === 'trial_start').length;
++	const purchases = pw.filter((e) => e.t === 'purchase').length;
++	// A/B: per paywall with ≥2 variants
++	let winner: PaywallReport['winner'] = null;
++	const byPw = new Map<string, PaywallRow[]>();
++	for (const r of rows) byPw.set(r.paywall, [...(byPw.get(r.paywall) ?? []), r]);
++	for (const [paywall, vs] of byPw) {
++		if (vs.length < 2) continue;
++		const s = [...vs].sort((a, b) => b.conv - a.conv);
++		winner = { paywall, best: s[0].variant, worst: s.at(-1)!.variant, lift: s.at(-1)!.conv ? Math.round(((s[0].conv - s.at(-1)!.conv) / s.at(-1)!.conv) * 100) : 0, enough: s.every((v) => v.viewers >= 100) };
++		break;
++	}
++	const viewsByDay = series(pw.filter((e) => e.t === 'paywall_view'), days, () => 1);
++	const convByDay = series(pw.filter((e) => e.t === 'trial_start' || e.t === 'purchase'), days, () => 1);
++	return {
++		source: client.demo ? 'demo' : pw.length ? 'live' : 'waiting',
++		days,
++		currency,
++		totals: { views: pw.filter((e) => e.t === 'paywall_view').length, viewers, trials, purchases, conv: viewers ? Math.round(((trials + purchases) / viewers) * 1000) / 10 : 0, revenue: Math.round(pw.filter((e) => e.t === 'purchase').reduce((s, e) => s + (e.price ?? 0), 0) * 100) / 100 },
++		rows,
++		products: [...prodMap].map(([product, v]) => ({ product, ...v })).sort((a, b) => b.revenue - a.revenue),
++		daily: series(pw.filter((e) => e.t === 'purchase'), days, (e) => e.price ?? 0),
++		dailyConv: viewsByDay.map((v, i) => ({ date: v.date, value: v.value ? Math.round((convByDay[i].value / v.value) * 1000) / 10 : 0 })),
++		winner
++	};
++}
++
++export function paywallTasks(r: PaywallReport): Draft[] {
++	const out: Draft[] = [];
++	if (r.source === 'waiting') return out;
++	if (r.winner && r.winner.enough && r.winner.lift >= 15) out.push({ level: 'good', area: 'App', title: `Paywall “${r.winner.paywall}”: variant ${r.winner.best} converts ${r.winner.lift}% better`, meaning: `Compared to variant ${r.winner.worst}, with 100+ people on each side.`, action: `Show variant ${r.winner.best} to everyone and test a new challenger.` });
++	const weak = r.rows.find((x) => x.viewers >= 200 && x.conv < 2);
++	if (weak) out.push({ level: 'warn', area: 'App', title: `Paywall “${weak.paywall}” converts only ${weak.conv}%`, meaning: `${weak.viewers} people saw it, ${weak.trials + weak.purchases} started a trial or paid.`, action: 'Test a free trial, a yearly plan shown first, or showing it later (after the first success in the app).' });
++	return out;
++}
++
++// ---------- Errors ----------
++export type Issue = {
++	id: string;
++	title: string;
++	culprit: string;
++	platform: Platform | 'mixed';
++	fatal: boolean;
++	count: number;
++	users: number;
++	firstSeen: number;
++	lastSeen: number;
++	versions: string[];
++	stack: string;
++	url?: string;
++	daily: { date: string; value: number }[];
++	status: 'open' | 'resolved' | 'ignored' | 'regressed';
++};
++export type ErrorsReport = { source: 'live' | 'demo' | 'waiting'; days: number; issues: Issue[]; total: number; users: number; crashFree: number | null; sessions: number; platforms: Platform[] };
++
++type Status = Record<string, { s: 'resolved' | 'ignored'; at: number }>;
++const statusFile = (id: string) => `errors-status-${id}.json`;
++export function setIssueStatus(client: Client, issue: string, s: 'resolved' | 'ignored' | 'open') {
++	const st = readData<Status>(statusFile(client.id), {});
++	if (s === 'open') delete st[issue];
++	else st[issue] = { s, at: Date.now() };
++	writeData(statusFile(client.id), st);
++}
++
++const norm = (m: string) =>
++	m
++		.replace(/https?:\/\/\S+/g, '<url>')
++		.replace(/\b[0-9a-f]{8,}\b/gi, '<id>')
++		.replace(/\d+/g, 'N')
++		.trim();
++const firstFrame = (stack = '') =>
++	stack
++		.split('\n')
++		.map((l) => l.trim())
++		.find((l) => /^at |@|\.(js|ts|tsx|swift|kt|dart|java)/.test(l) && !/node_modules|undercut/i.test(l))
++		?.replace(/:\d+:\d+\)?$/, '')
++		.replace(/^at /, '')
++		.slice(0, 140) ?? '';
++
++export function getErrors(client: Client, days = 14): ErrorsReport {
++	const events = client.demo ? demoEvents(client, days) : readApp(client.id, days);
++	const errs = events.filter((e) => e.t === 'error' && e.msg);
++	const st = readData<Status>(statusFile(client.id), {});
++	const groups = new Map<string, AppEvent[]>();
++	for (const e of errs) {
++		const fp = createHash('sha1').update(norm(e.msg!) + '|' + firstFrame(e.stack)).digest('hex').slice(0, 12);
++		groups.set(fp, [...(groups.get(fp) ?? []), e]);
++	}
++	const issues: Issue[] = [...groups].map(([id, l]) => {
++		const last = l.at(-1)!;
++		const pfs = new Set(l.map((e) => e.pf ?? 'web'));
++		const s = st[id];
++		const status: Issue['status'] = !s ? 'open' : s.s === 'ignored' ? 'ignored' : last.ts > s.at ? 'regressed' : 'resolved';
++		return {
++			id,
++			title: last.msg!.split('\n')[0].slice(0, 160),
++			culprit: firstFrame(last.stack) || last.url || last.name || '',
++			platform: pfs.size > 1 ? 'mixed' : ([...pfs][0] as Platform),
++			fatal: l.some((e) => e.fatal),
++			count: l.length,
++			users: uniq(l.map((e) => e.u)) || 1,
++			firstSeen: l[0].ts,
++			lastSeen: last.ts,
++			versions: [...new Set(l.map((e) => e.av).filter(Boolean) as string[])].slice(0, 5),
++			stack: last.stack ?? '',
++			url: last.url,
++			daily: series(l, days, () => 1),
++			status
++		};
++	});
++	const order = { regressed: 0, open: 1, resolved: 2, ignored: 3 };
++	issues.sort((a, b) => order[a.status] - order[b.status] || Number(b.fatal) - Number(a.fatal) || b.users - a.users || b.count - a.count);
++	const sessions = events.filter((e) => e.t === 'session');
++	const crashed = uniq(errs.filter((e) => e.fatal).map((e) => `${e.u}|${day(e.ts)}`));
++	return {
++		source: client.demo ? 'demo' : events.length ? 'live' : 'waiting',
++		days,
++		issues,
++		total: errs.length,
++		users: uniq(errs.map((e) => e.u)),
++		sessions: sessions.length,
++		crashFree: sessions.length ? Math.max(0, Math.round((1 - crashed / sessions.length) * 1000) / 10) : null,
++		platforms: [...new Set(events.map((e) => e.pf).filter(Boolean) as Platform[])]
++	};
++}
++
++export function errorTasks(r: ErrorsReport): Draft[] {
++	const out: Draft[] = [];
++	const hot = r.issues.filter((i) => (i.status === 'open' || i.status === 'regressed') && Date.now() - i.lastSeen < 2 * 864e5);
++	const crash = hot.find((i) => i.fatal);
++	if (crash) out.push({ level: 'bad', area: 'App', title: `Crash: ${crash.title.slice(0, 70)}`, meaning: `${crash.users} user${crash.users > 1 ? 's' : ''} hit it ${crash.count}× (${crash.platform}${crash.versions[0] ? `, v${crash.versions[0]}` : ''}).`, action: 'Open Errors to see the stack trace, send it to the developer, mark it resolved once the fix is out.' });
++	const reg = hot.find((i) => i.status === 'regressed' && i !== crash);
++	if (reg) out.push({ level: 'warn', area: 'App', title: `Error came back: ${reg.title.slice(0, 70)}`, meaning: 'It was marked resolved but happened again.', action: 'Check the last release — the fix may not be in it.' });
++	const fresh = hot.filter((i) => Date.now() - i.firstSeen < 864e5 && i !== crash && i !== reg);
++	if (fresh.length) out.push({ level: 'warn', area: 'App', title: `${fresh.length} new error${fresh.length > 1 ? 's' : ''} since yesterday`, meaning: fresh.map((i) => i.title.slice(0, 60)).join(' · '), action: 'Look at them in Errors; most come from the latest release.' });
++	return out;
++}
++
++// ---------- demo ----------
++function demoEvents(client: Client, days: number): AppEvent[] {
++	let h = 2166136261;
++	for (const ch of client.id) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
++	const r = () => ((h = Math.imul(h ^ (h >>> 15), 2246822519) ^ Math.imul(h ^ (h >>> 13), 3266489917)) >>> 0) / 4294967296;
++	const out: AppEvent[] = [];
++	for (let d = days - 1; d >= 0; d--) {
++		const t0 = Date.now() - d * 864e5;
++		const n = 40 + Math.floor(r() * 30);
++		for (let i = 0; i < n; i++) {
++			const u = `u${Math.floor(r() * 4000)}`;
++			const pf: Platform = r() < 0.55 ? 'ios' : 'android';
++			const av = d > 9 ? '3.4.0' : '3.5.0';
++			out.push({ t: 'session', ts: t0 - i * 6e4, u, pf, av });
++			if (r() < 0.45) {
++				const vr = r() < 0.5 ? 'A · monthly first' : 'B · yearly first';
++				const pw = r() < 0.7 ? 'onboarding' : 'settings';
++				out.push({ t: 'paywall_view', ts: t0 - i * 6e4 + 1000, u, pf, av, pw, vr });
++				const p = (vr.startsWith('B') ? 0.09 : 0.055) * (pw === 'settings' ? 0.5 : 1);
++				const x = r();
++				if (x < p * 0.6) out.push({ t: 'trial_start', ts: t0 - i * 6e4 + 2000, u, pf, av, pw, vr, pr: 'premium_yearly' });
++				else if (x < p) out.push({ t: 'purchase', ts: t0 - i * 6e4 + 2000, u, pf, av, pw, vr, pr: vr.startsWith('B') ? 'premium_yearly' : 'premium_monthly', price: vr.startsWith('B') ? 49.99 : 7.99, cur: 'EUR' });
++				else out.push({ t: 'paywall_close', ts: t0 - i * 6e4 + 3000, u, pf, av, pw, vr });
++			}
++			if (r() < 0.02 && av === '3.5.0') out.push({ t: 'error', ts: t0 - i * 6e4 + 4000, u, pf: 'android', av, fatal: true, msg: "TypeError: Cannot read property 'avatarUrl' of undefined", stack: "TypeError: Cannot read property 'avatarUrl' of undefined\n    at ProfileHeader (src/screens/Profile.tsx:42:18)\n    at renderWithHooks (node_modules/react/cjs/react.js:1)", name: 'Profile' });
++			if (r() < 0.012) out.push({ t: 'error', ts: t0 - i * 6e4 + 5000, u, pf, av, msg: 'Network request failed', stack: 'Error: Network request failed\n    at syncWorkouts (src/lib/sync.ts:88:11)', name: 'Home' });
++			if (r() < 0.004) out.push({ t: 'error', ts: t0 - i * 6e4 + 6000, u, pf: 'ios', av, msg: 'StoreKit: purchase cancelled by system (code 2)', stack: 'SKErrorDomain 2\n    at PaywallView.purchase (Paywall.swift:120)', name: 'Paywall' });
++		}
++	}
++	return out;
++}
+diff --git a/src/lib/server/appstore.ts b/src/lib/server/appstore.ts
+new file mode 100644
+index 0000000..a7d5840
+--- /dev/null
++++ b/src/lib/server/appstore.ts
+@@ -0,0 +1,201 @@
++// App Store tracker per client app (iOS) — public Apple data, no key needed:
++// - lookup: rating, rating count, version, release notes, genre
++// - top charts (free / paid / grossing, overall + the app's category) → daily rank
++// - customer reviews RSS (most recent 100)
++// - competitors: same data for up to 5 other apps
++// One snapshot per day is stored, so rank / rating history builds up over time.
++import type { Client } from '#lib/types.ts';
++import type { Draft } from './insights.ts';
++import { readData, writeData, listClients, hasApp } from './store.ts';
++
++export type StoreApp = { id: string; name: string; icon: string; seller: string; genre: string; genreId: string; rating: number; count: number; version: string; updated: string; notes: string; price: string; url: string };
++export type Review = { id: string; stars: number; title: string; text: string; author: string; version: string; date: string };
++export type Snap = { date: string; rating: number; count: number; version: string; rankAll: number | null; rankCat: number | null; chart: 'free' | 'paid' };
++export type StoreState = { cc: string; competitors: string[]; history: Snap[]; versions: { version: string; date: string; notes: string }[]; comp: Record<string, Snap[]>; seenReviews?: string[] };
++
++const file = (id: string) => `appstore-${id}.json`;
++const today = () => new Date().toISOString().slice(0, 10);
++const cache = new Map<string, { at: number; v: unknown }>();
++async function cached<T>(key: string, ms: number, fn: () => Promise<T>): Promise<T> {
++	const hit = cache.get(key);
++	if (hit && Date.now() - hit.at < ms) return hit.v as T;
++	const v = await fn();
++	cache.set(key, { at: Date.now(), v });
++	return v;
++}
++const get = (url: string) => fetch(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0 (Undercut app tracker)' } }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Apple answered ${r.status}`))));
++
++export function storeState(client: Client): StoreState {
++	return readData<StoreState>(file(client.id), { cc: 'be', competitors: [], history: [], versions: [], comp: {} });
++}
++export function saveStoreState(client: Client, s: StoreState) {
++	writeData(file(client.id), s);
++}
++
++export async function lookup(id: string, cc: string): Promise<StoreApp | null> {
++	return cached(`lk|${id}|${cc}`, 3600_000, async () => {
++		const j = await get(`https://itunes.apple.com/lookup?id=${encodeURIComponent(id)}&country=${cc}`);
++		const a = j.results?.[0];
++		if (!a) return null;
++		return {
++			id: String(a.trackId),
++			name: a.trackName,
++			icon: a.artworkUrl100 ?? a.artworkUrl60 ?? '',
++			seller: a.sellerName ?? a.artistName ?? '',
++			genre: a.primaryGenreName ?? '',
++			genreId: String(a.primaryGenreId ?? ''),
++			rating: +(a.averageUserRating ?? 0).toFixed(2),
++			count: a.userRatingCount ?? 0,
++			version: a.version ?? '',
++			updated: String(a.currentVersionReleaseDate ?? '').slice(0, 10),
++			notes: String(a.releaseNotes ?? '').slice(0, 600),
++			price: a.formattedPrice ?? 'Free',
++			url: a.trackViewUrl ?? ''
++		};
++	});
++}
++
++/** Search apps by name (to add competitors). */
++export async function searchApps(term: string, cc: string) {
++	return cached(`s|${term}|${cc}`, 3600_000, async () => {
++		const j = await get(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=software&country=${cc}&limit=8`);
++		return (j.results ?? []).map((a: any) => ({ id: String(a.trackId), name: a.trackName as string, icon: (a.artworkUrl60 ?? '') as string, seller: (a.sellerName ?? '') as string }));
++	});
++}
++
++type ChartKind = 'topfreeapplications' | 'toppaidapplications' | 'topgrossingapplications';
++async function chart(cc: string, kind: ChartKind, genreId?: string): Promise<string[]> {
++	return cached(`ch|${cc}|${kind}|${genreId ?? ''}`, 3 * 3600_000, async () => {
++		const j = await get(`https://itunes.apple.com/${cc}/rss/${kind}/limit=200${genreId ? `/genre=${genreId}` : ''}/json`);
++		return (j.feed?.entry ?? []).map((e: any) => String(e.id?.attributes?.['im:id'] ?? ''));
++	});
++}
++
++export async function reviews(id: string, cc: string): Promise<Review[]> {
++	return cached(`rv|${id}|${cc}`, 3600_000, async () => {
++		const pages = await Promise.all([1, 2].map((p) => get(`https://itunes.apple.com/${cc}/rss/customerreviews/page=${p}/id=${id}/sortby=mostrecent/json`).catch(() => null)));
++		const out: Review[] = [];
++		for (const j of pages) {
++			const entries = j?.feed?.entry;
++			for (const e of Array.isArray(entries) ? entries : entries ? [entries] : []) {
++				if (!e['im:rating']) continue; // first entry of old feeds is the app itself
++				out.push({ id: String(e.id?.label ?? ''), stars: Number(e['im:rating']?.label ?? 0), title: e.title?.label ?? '', text: String(e.content?.label ?? '').slice(0, 800), author: e.author?.name?.label ?? '', version: e['im:version']?.label ?? '', date: String(e.updated?.label ?? '').slice(0, 10) });
++			}
++		}
++		return out;
++	});
++}
++
++async function rankOf(id: string, cc: string, paid: boolean, genreId: string) {
++	const kind: ChartKind = paid ? 'toppaidapplications' : 'topfreeapplications';
++	const [all, cat] = await Promise.all([chart(cc, kind).catch(() => [] as string[]), genreId ? chart(cc, kind, genreId).catch(() => [] as string[]) : Promise.resolve([] as string[])]);
++	const pos = (l: string[]) => (l.indexOf(id) >= 0 ? l.indexOf(id) + 1 : null);
++	return { rankAll: pos(all), rankCat: pos(cat) };
++}
++
++async function snapFor(id: string, cc: string): Promise<{ app: StoreApp; snap: Snap } | null> {
++	const app = await lookup(id, cc);
++	if (!app) return null;
++	const paid = app.price !== 'Free' && !/^0/.test(app.price) && app.price !== 'Gratuit';
++	const r = await rankOf(id, cc, paid, app.genreId);
++	return { app, snap: { date: today(), rating: app.rating, count: app.count, version: app.version, chart: paid ? 'paid' : 'free', ...r } };
++}
++
++const upsert = (list: Snap[], s: Snap) => [...list.filter((x) => x.date !== s.date), s].sort((a, b) => a.date.localeCompare(b.date)).slice(-400);
++
++/** Take today's snapshot (app + competitors). Cheap to call: Apple data is cached. */
++export async function snapshotStore(client: Client, force = false) {
++	const iosId = client.app?.iosId;
++	if (!iosId || client.demo) return;
++	const s = storeState(client);
++	if (!force && s.history.at(-1)?.date === today() && s.competitors.every((c) => s.comp[c]?.at(-1)?.date === today())) return;
++	const main = await snapFor(iosId, s.cc).catch(() => null);
++	if (main) {
++		s.history = upsert(s.history, main.snap);
++		if (main.app.version && !s.versions.some((v) => v.version === main.app.version)) s.versions = [{ version: main.app.version, date: main.app.updated, notes: main.app.notes }, ...s.versions].slice(0, 30);
++	}
++	for (const c of s.competitors) {
++		const r = await snapFor(c, s.cc).catch(() => null);
++		if (r) s.comp[c] = upsert(s.comp[c] ?? [], r.snap);
++	}
++	saveStoreState(client, s);
++}
++
++/** Daily job: every app client of the workspace. */
++export async function snapshotAllApps() {
++	for (const c of listClients()) if (hasApp(c) && c.app?.iosId) await snapshotStore(c).catch(() => null);
++}
++
++export type StoreTracker = {
++	source: 'live' | 'demo' | 'off' | 'error';
++	error?: string;
++	cc: string;
++	app: StoreApp | null;
++	today: Snap | null;
++	prev: Snap | null;
++	history: Snap[];
++	versions: StoreState['versions'];
++	reviews: Review[];
++	stars: number[]; // count of 1..5 stars in recent reviews
++	competitors: { app: StoreApp; snap: Snap | null; prev: Snap | null }[];
++};
++
++export async function getStoreTracker(client: Client): Promise<StoreTracker> {
++	if (client.demo) return demoStore(client);
++	const s = storeState(client);
++	const empty = { cc: s.cc, app: null, today: null, prev: null, history: [], versions: [], reviews: [], stars: [0, 0, 0, 0, 0], competitors: [] };
++	if (!client.app?.iosId) return { source: 'off', ...empty };
++	try {
++		await snapshotStore(client);
++		const fresh = storeState(client);
++		const [app, rv] = await Promise.all([lookup(client.app.iosId, fresh.cc), reviews(client.app.iosId, fresh.cc).catch(() => [])]);
++		if (!app) return { source: 'error', error: `No app with ID ${client.app.iosId} in the ${fresh.cc.toUpperCase()} App Store. Check the ID in Setup, or switch country.`, ...empty };
++		const stars = [1, 2, 3, 4, 5].map((n) => rv.filter((r) => r.stars === n).length);
++		const competitors = (
++			await Promise.all(
++				fresh.competitors.map(async (id) => {
++					const a = await lookup(id, fresh.cc).catch(() => null);
++					const h = fresh.comp[id] ?? [];
++					return a ? { app: a, snap: h.at(-1) ?? null, prev: h.at(-2) ?? null } : null;
++				})
++			)
++		).filter((x): x is NonNullable<typeof x> => Boolean(x));
++		return { source: 'live', cc: fresh.cc, app, today: fresh.history.at(-1) ?? null, prev: fresh.history.at(-2) ?? null, history: fresh.history, versions: fresh.versions, reviews: rv, stars, competitors };
++	} catch (e) {
++		return { source: 'error', error: `Apple could not be reached (${(e as Error).message}). Try again in a minute.`, ...empty };
++	}
++}
++
++export function storeTasks(t: StoreTracker): Draft[] {
++	const out: Draft[] = [];
++	if (!t.app) return out;
++	const bad = t.reviews.filter((r) => r.stars <= 2 && Date.now() - Date.parse(r.date) < 7 * 864e5);
++	if (bad.length) out.push({ level: bad.length >= 3 ? 'bad' : 'warn', area: 'App', title: `${bad.length} bad review${bad.length > 1 ? 's' : ''} this week (1–2★)`, meaning: `Latest: “${bad[0].title}” — ${bad[0].text.slice(0, 120)}`, action: 'Answer them in App Store Connect within 48 h, and fix what comes back twice.' });
++	if (t.today?.rankCat && t.prev?.rankCat && t.today.rankCat - t.prev.rankCat >= 10) out.push({ level: 'warn', area: 'App', title: `Dropped ${t.today.rankCat - t.prev.rankCat} places in ${t.app.genre}`, meaning: `Now #${t.today.rankCat} (was #${t.prev.rankCat}) in the ${t.cc.toUpperCase()} top ${t.today.chart} chart.`, action: 'Check recent reviews and the last update; a fresh screenshot or a small update often helps.' });
++	if (t.today?.rankCat && t.prev?.rankCat && t.prev.rankCat - t.today.rankCat >= 10) out.push({ level: 'good', area: 'App', title: `Up ${t.prev.rankCat - t.today.rankCat} places in ${t.app.genre}`, meaning: `Now #${t.today.rankCat} in the ${t.cc.toUpperCase()} chart.`, action: 'Tell the client — and look at what changed (campaign, update, feature).' });
++	const old = t.history.find((h) => Date.now() - Date.parse(h.date) >= 28 * 864e5);
++	if (old && t.app.rating && old.rating - t.app.rating >= 0.1) out.push({ level: 'warn', area: 'App', title: `Rating down to ${t.app.rating.toFixed(1)}★`, meaning: `It was ${old.rating.toFixed(1)}★ a month ago.`, action: 'Read the 1–2★ reviews: usually one bug or one annoying screen explains it.' });
++	return out;
++}
++
++// ---------- demo ----------
++function demoStore(client: Client): StoreTracker {
++	const days = 60;
++	const history: Snap[] = [];
++	let rank = 48;
++	for (let i = days; i >= 0; i--) {
++		const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
++		rank = Math.max(3, Math.min(120, rank + Math.round(Math.sin(i / 4) * 3 + (i < 12 ? -2 : 0.6))));
++		history.push({ date: d, rating: +(4.4 + Math.sin(i / 10) * 0.08).toFixed(2), count: 3400 + (days - i) * 11, version: i > 20 ? '3.4.0' : '3.5.0', rankAll: rank > 60 ? null : rank * 3 + 40, rankCat: rank, chart: 'free' });
++	}
++	const app: StoreApp = { id: client.app?.iosId ?? '0', name: client.app?.name ?? client.name, icon: '', seller: client.name, genre: 'Health & Fitness', genreId: '6013', rating: 4.5, count: history.at(-1)!.count, version: '3.5.0', updated: history.at(-20)!.date, notes: 'New: dark mode, Apple Watch workouts, faster sync.', price: 'Free', url: '#' };
++	const reviews: Review[] = [
++		{ id: '1', stars: 5, title: 'Super app', text: 'Simple et efficace, je l’utilise tous les jours.', author: 'Sophie', version: '3.5.0', date: history.at(-1)!.date },
++		{ id: '2', stars: 2, title: 'Crash au démarrage', text: 'Depuis la dernière mise à jour l’app se ferme quand j’ouvre mon profil.', author: 'Tom', version: '3.5.0', date: history.at(-2)!.date },
++		{ id: '3', stars: 4, title: 'Très bien', text: 'Il manque juste un widget.', author: 'Lien', version: '3.5.0', date: history.at(-4)!.date },
++		{ id: '4', stars: 1, title: 'Abonnement trop cher', text: 'L’écran premium revient à chaque séance.', author: 'Karim', version: '3.4.0', date: history.at(-6)!.date },
++		{ id: '5', stars: 5, title: 'Top', text: 'Les programmes sont géniaux.', author: 'Marie', version: '3.4.0', date: history.at(-9)!.date }
++	];
++	const comp = (name: string, r: number, c: number, k: number): StoreTracker['competitors'][number] => ({ app: { ...app, id: name, name, rating: r, count: c, version: '2.1', seller: name }, snap: { ...history.at(-1)!, rating: r, count: c, rankCat: k }, prev: { ...history.at(-2)!, rating: r, count: c, rankCat: k + 2 } });
++	return { source: 'demo', cc: 'be', app, today: history.at(-1)!, prev: history.at(-2)!, history, versions: [{ version: '3.5.0', date: app.updated, notes: app.notes }, { version: '3.4.0', date: history[10].date, notes: 'Bug fixes.' }], reviews, stars: [1, 1, 0, 1, 2], competitors: [comp('FitPlan', 4.7, 18200, 9), comp('Gymly', 4.3, 2100, 27)] };
++}
+diff --git a/src/lib/server/overview.ts b/src/lib/server/overview.ts
+index fb17664..5c5fa9f 100644
+--- a/src/lib/server/overview.ts
++++ b/src/lib/server/overview.ts
+@@ -10,6 +10,8 @@ import { getAppMetrics, appTasks, type AppMetrics } from './app-analytics.ts';
+ import { getDone, hasApp, hasWeb } from './store.ts';
+ import { fixedIssues } from './fixes.ts';
+ import { getLeads, leadsTasks, type LeadsReport } from './leads.ts';
++import { getStoreTracker, storeTasks } from './appstore.ts';
++import { errorTasks, getErrors, getPaywall, paywallTasks } from './app-events.ts';
+ 
+ export type AreaKey = 'leads' | 'traffic' | 'search' | 'seo' | 'maps' | 'behaviour' | 'app';
+ export type AreaTile = { key: AreaKey; label: string; href: string; level: Level; waiting?: boolean; value: string; sub: string; delta?: number; deltaInvert?: boolean; open: number };
+@@ -44,15 +46,16 @@ export type ClientOverview = {
+ 
+ export async function getClientOverview(client: Client, days = 28): Promise<ClientOverview> {
+ 	const web = hasWeb(client);
+-	const [metrics, audit, app] = await Promise.all([
++	const [metrics, audit, app, store] = await Promise.all([
+ 		web ? getMetrics(client, days) : Promise.resolve(null),
+ 		web ? getSeoAudit(client).catch(() => null) : Promise.resolve(null),
+-		hasApp(client) ? getAppMetrics(client, days) : Promise.resolve(null)
++		hasApp(client) ? getAppMetrics(client, days) : Promise.resolve(null),
++		hasApp(client) ? getStoreTracker(client).catch(() => null) : Promise.resolve(null)
+ 	]);
+ 	const heat = web ? getHeatmap(client, '/', 'mobile', days) : null;
+ 	const leads = web ? getLeads(client, days) : null;
+ 
+-	const extra: Draft[] = [...(leads ? leadsTasks(leads) : []), ...(audit ? seoTasks(audit, fixedIssues(client.id)) : []), ...(heat ? behaviourTasks(heat) : []), ...(app ? appTasks(app) : [])];
++	const extra: Draft[] = [...(leads ? leadsTasks(leads) : []), ...(audit ? seoTasks(audit, fixedIssues(client.id)) : []), ...(heat ? behaviourTasks(heat) : []), ...(app ? appTasks(app) : []), ...(store ? storeTasks(store) : []), ...(hasApp(client) ? paywallTasks(getPaywall(client, days)) : []), ...errorTasks(getErrors(client, 14))];
+ 	const insights = metrics ? buildInsights(metrics, null, extra) : sortInsights(withIds(extra));
+ 	const done = getDone(client.id);
+ 	const tasks: Task[] = insights.map((i) => ({ ...i, done: Boolean(done[i.id]) }));
+diff --git a/src/lib/server/scheduler.ts b/src/lib/server/scheduler.ts
+index 5d56f6b..b5f4620 100644
+--- a/src/lib/server/scheduler.ts
++++ b/src/lib/server/scheduler.ts
+@@ -4,6 +4,7 @@
+ import * as env from '$app/env/private';
+ import { allWorkspaces, loadWorkspace, readData, writeData } from './store.ts';
+ import { runAlerts, weeklyDigest } from './alerts.ts';
++import { snapshotAllApps } from './appstore.ts';
+ import { inWorkspace } from './context.ts';
+ import { dbOn } from './db.ts';
+ 
+@@ -12,7 +13,13 @@ let started = false;
+ async function runFor(base: string) {
+ 	const now = new Date();
+ 	const today = now.toLocaleDateString('sv-SE'); // YYYY-MM-DD in server time zone
+-	const state = readData<{ alerts?: string; digest?: string }>('scheduler.json', {});
++	const state = readData<{ alerts?: string; digest?: string; store?: string }>('scheduler.json', {});
++	if (state.store !== today) {
++		// App Store positions, ratings and competitors: one snapshot per day
++		state.store = today;
++		writeData('scheduler.json', state);
++		await snapshotAllApps().catch((e) => console.error('[scheduler] store', e));
++	}
+ 	if (now.getHours() >= 6 && state.alerts !== today) {
+ 		state.alerts = today;
+ 		writeData('scheduler.json', state);
+diff --git a/src/routes/api/app/+server.ts b/src/routes/api/app/+server.ts
+new file mode 100644
+index 0000000..e19d516
+--- /dev/null
++++ b/src/routes/api/app/+server.ts
+@@ -0,0 +1,30 @@
++import { getClient, withSite } from '#lib/server/store.ts';
++import { recordApp } from '#lib/server/app-events.ts';
++import { fromClientSite } from '#lib/server/tracking.ts';
++
++// Receives events from the Undercut app SDK (paywall, purchases, errors, sessions)
++// and JS errors caught by the web snippet. Body: { site, events: [...] }
++const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
++
++export const OPTIONS = () => new Response(null, { headers: CORS });
++
++export const POST = async ({ request }) => {
++	try {
++		const text = await request.text();
++		if (text.length > 300_000) return new Response('too large', { status: 413, headers: CORS });
++		const body = JSON.parse(text) as { site?: string; events?: unknown[] };
++		if (!body?.site || !Array.isArray(body.events)) return new Response('bad request', { status: 400, headers: CORS });
++		const fromBrowser = Boolean(request.headers.get('origin'));
++		const ok = await withSite(body.site, () => {
++			const client = getClient(body.site!);
++			if (!client) return false;
++			// native apps send no Origin header; browsers must come from the client's own site
++			if (fromBrowser && !fromClientSite(client, request)) return true;
++			recordApp(body.site!, body.events!, fromBrowser ? 'web' : undefined);
++			return true;
++		});
++		return ok ? new Response(null, { status: 204, headers: CORS }) : new Response('unknown site', { status: 404, headers: CORS });
++	} catch {
++		return new Response('bad request', { status: 400, headers: CORS });
++	}
++};
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 0a4cee4..6df5913 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -43,7 +43,8 @@
+ 					]
+ 				: []),
+ 			...(web ? [{ group: 'Communication', items: [{ href: `${b}/campaigns`, label: 'Campaigns', icon: 'megaphone' }] }] : []),
+-		...(app ? [{ group: 'App', items: [{ href: `${b}/app`, label: 'App analytics', icon: 'phone' }, { href: `${b}/keywords?mode=app`, label: 'App Store keywords', icon: 'key' }] }] : []),
++		...(app ? [{ group: 'App', items: [{ href: `${b}/app`, label: 'App analytics', icon: 'phone' }, { href: `${b}/store`, label: 'App Store', icon: 'star' }, { href: `${b}/paywall`, label: 'Paywall', icon: 'lock' }, { href: `${b}/keywords?mode=app`, label: 'App Store keywords', icon: 'key' }] }] : []),
++		{ group: '', items: [{ href: `${b}/errors`, label: 'Errors', icon: 'bug' }] },
+ 			{ group: '', items: [{ href: `${b}/settings`, label: 'Setup & connections', icon: 'sliders' }] }
+ 		] as { group: string; items: Item[] }[];
+ 	});
+diff --git a/src/routes/app/clients/[id]/+layout.svelte b/src/routes/app/clients/[id]/+layout.svelte
+index f82309e..4199030 100644
+--- a/src/routes/app/clients/[id]/+layout.svelte
++++ b/src/routes/app/clients/[id]/+layout.svelte
+@@ -5,7 +5,7 @@
+ 	const days = $derived(Number(page.url.searchParams.get('days')) || 28);
+ 	const showDays = $derived(!/\/(settings|seo|heatmaps)$/.test(page.url.pathname));
+ 	const section = $derived(
+-		({ leads: 'Leads', traffic: 'Traffic', search: 'Search & Maps', seo: 'SEO & fixes', keywords: 'Keywords', campaigns: 'Campaigns', heatmaps: 'Heatmaps', app: 'App analytics', settings: 'Setup & connections' } as Record<string, string>)[page.url.pathname.split('/')[4] ?? ''] ?? 'Summary'
++		({ leads: 'Leads', traffic: 'Traffic', search: 'Search & Maps', seo: 'SEO & fixes', keywords: 'Keywords', campaigns: 'Campaigns', heatmaps: 'Heatmaps', app: 'App analytics', store: 'App Store', paywall: 'Paywall', errors: 'Errors', settings: 'Setup & connections' } as Record<string, string>)[page.url.pathname.split('/')[4] ?? ''] ?? 'Summary'
+ 	);
+ 	const kind = $derived(data.web && data.app ? 'Website + app' : data.app ? 'App' : 'Website');
+ </script>
+diff --git a/src/routes/app/clients/[id]/errors/+page.server.ts b/src/routes/app/clients/[id]/errors/+page.server.ts
+new file mode 100644
+index 0000000..5da6f95
+--- /dev/null
++++ b/src/routes/app/clients/[id]/errors/+page.server.ts
+@@ -0,0 +1,23 @@
++import { fail } from '@sveltejs/kit';
++import * as env from '$app/env/private';
++import { getClient, hasApp, hasWeb } from '#lib/server/store.ts';
++import { getErrors, setIssueStatus } from '#lib/server/app-events.ts';
++
++export const load = async ({ parent, url }) => {
++	const { client } = await parent();
++	const days = [7, 28, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 28;
++	const base = env.PUBLIC_BASE_URL || url.origin;
++	return { r: getErrors(client, days), days, api: base, isApp: hasApp(client), isWeb: hasWeb(client), snippet: `<script defer src="${base}/u.js" data-site="${client.id}"></script>` };
++};
++
++export const actions = {
++	status: async ({ params, request }) => {
++		const client = getClient(params.id);
++		if (!client) return fail(404);
++		const f = await request.formData();
++		const s = String(f.get('status'));
++		if (!['resolved', 'ignored', 'open'].includes(s)) return fail(400);
++		setIssueStatus(client, String(f.get('id')), s as 'resolved' | 'ignored' | 'open');
++		return { ok: true };
++	}
++};
+diff --git a/src/routes/app/clients/[id]/errors/+page.svelte b/src/routes/app/clients/[id]/errors/+page.svelte
+new file mode 100644
+index 0000000..9c1e8a9
+--- /dev/null
++++ b/src/routes/app/clients/[id]/errors/+page.svelte
+@@ -0,0 +1,99 @@
++<script lang="ts">
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	import Sparkline from '#lib/components/Sparkline.svelte';
++	import SdkSetup from '#lib/components/SdkSetup.svelte';
++	let { data } = $props();
++	const r = $derived(data.r);
++	let tab = $state<'open' | 'resolved' | 'ignored'>('open');
++	let openId = $state<string | null>(null);
++	let pf = $state<'all' | 'ios' | 'android' | 'web'>('all');
++	const list = $derived(
++		r.issues.filter((i) => (tab === 'open' ? i.status === 'open' || i.status === 'regressed' : i.status === tab)).filter((i) => pf === 'all' || i.platform === pf || i.platform === 'mixed')
++	);
++	const count = (s: string) => r.issues.filter((i) => (s === 'open' ? i.status === 'open' || i.status === 'regressed' : i.status === s)).length;
++	const ago = (ts: number) => {
++		const m = Math.round((Date.now() - ts) / 6e4);
++		return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
++	};
++	const pfLabel = { ios: 'iOS', android: 'Android', web: 'Website', mixed: 'Several' } as const;
++	let copied = $state(false);
++</script>
++
++<svelte:head><title>Errors · {data.client.name}</title></svelte:head>
++
++{#if r.source === 'waiting'}
++	<section class="grid gap-4 {data.isApp && data.isWeb ? 'lg:grid-cols-2' : ''}">
++		{#if data.isWeb}
++			<div class="card p-6 sm:p-8">
++				<p class="text-sm text-muted">Website</p>
++				<h2 class="mt-1 text-2xl font-medium">Already included in the snippet</h2>
++				<p class="mt-2 text-sm text-ink-2">The Undercut snippet catches JavaScript errors on {data.client.domain.replace(/^https?:\/\//, '')} automatically (broken menus, forms that don’t send…). Nothing to add — they show here as soon as a visitor hits one.</p>
++				<pre class="mt-4 overflow-x-auto rounded-[16px] bg-tile p-3 text-xs">{data.snippet}</pre>
++				<button class="pill mt-3" onclick={() => { navigator.clipboard?.writeText(data.snippet); copied = true; setTimeout(() => (copied = false), 1500); }}>{copied ? 'Copied ✓' : 'Copy snippet'}</button>
++			</div>
++		{/if}
++		{#if data.isApp}<SdkSetup api={data.api} site={data.client.id} focus="errors" />{/if}
++	</section>
++	<p class="mt-4 text-center text-sm text-muted">No error received yet{data.isWeb ? ' — good news, or the snippet isn’t live yet' : ''}.</p>
++{:else}
++	<section class="grid grid-cols-2 gap-3 lg:grid-cols-4">
++		<div class="card-dark p-5"><p class="text-sm text-white/60">Open issues</p><p class="big mt-3 text-[48px] {count('open') ? 'text-accent' : ''}">{count('open')}</p><p class="text-xs text-white/50">grouped errors to look at</p></div>
++		<div class="card p-5"><p class="text-sm text-muted">Errors</p><p class="big mt-3 text-[48px]">{r.total.toLocaleString('en-US')}</p><p class="text-xs text-muted">last {r.days} days</p></div>
++		<div class="card p-5"><p class="text-sm text-muted">People affected</p><p class="big mt-3 text-[48px]">{r.users.toLocaleString('en-US')}</p><p class="text-xs text-muted">anonymous users</p></div>
++		{#if !data.isApp}
++			<div class="card p-5"><p class="text-sm text-muted">Pages affected</p><p class="big mt-3 text-[48px]">{new Set(r.issues.map((i) => i.url).filter(Boolean)).size}</p><p class="text-xs text-muted">pages where visitors hit an error</p></div>
++		{:else}
++		<div class="card p-5"><p class="text-sm text-muted">Crash-free sessions</p><p class="big mt-3 text-[48px] {r.crashFree != null && r.crashFree < 99 ? 'text-bad' : ''}">{r.crashFree != null ? `${r.crashFree}%` : '—'}</p><p class="text-xs text-muted">{r.crashFree != null ? '99.5%+ is healthy' : 'after the first app sessions'}</p></div>
++		{/if}
++	</section>
++
++	<section class="card mt-4 p-3 sm:p-5">
++		<div class="flex flex-wrap items-center gap-2 px-2">
++			{#each [['open', 'To fix'], ['resolved', 'Resolved'], ['ignored', 'Ignored']] as [k, l] (k)}<button class="pill {tab === k ? 'pill-active' : ''}" onclick={() => (tab = k as typeof tab)}>{l} ({count(k)})</button>{/each}
++			{#if r.platforms.length > 1}
++				<select class="input ml-auto w-auto py-1.5 text-sm" bind:value={pf} aria-label="Platform"><option value="all">All platforms</option>{#each r.platforms as p (p)}<option value={p}>{pfLabel[p]}</option>{/each}</select>
++			{/if}
++		</div>
++		<ul class="mt-3 divide-y divide-line">
++			{#each list as i (i.id)}
++				<li class="py-1">
++					<div class="flex items-center gap-3 rounded-[16px] px-2 py-2.5 sm:gap-4">
++						<span class="size-2.5 shrink-0 rounded-full {i.fatal ? 'bg-bad' : 'bg-[#E3A21A]'}" title={i.fatal ? 'Crash' : 'Error'}></span>
++						<button class="min-w-0 flex-1 text-left" onclick={() => (openId = openId === i.id ? null : i.id)} aria-expanded={openId === i.id}>
++							<p class="flex items-center gap-2"><span class="truncate font-medium">{i.title}</span>{#if i.status === 'regressed'}<span class="shrink-0 rounded-full bg-bad-bg px-2 text-[10px] text-bad">came back</span>{/if}{#if i.fatal}<span class="shrink-0 rounded-full bg-ink px-2 text-[10px] text-white">crash</span>{/if}</p>
++							<p class="truncate text-xs text-muted">{pfLabel[i.platform]}{i.versions.length ? ` · v${i.versions.join(', v')}` : ''} · {i.culprit || 'no stack'} · last {ago(i.lastSeen)}</p>
++						</button>
++						<span class="hidden sm:block"><Sparkline data={i.daily} width={90} height={28} color={i.fatal ? '#D6453D' : '#111214'} /></span>
++						<span class="w-16 shrink-0 text-right text-sm"><b>{i.count}</b><span class="block text-[11px] text-muted">{i.users} user{i.users > 1 ? 's' : ''}</span></span>
++					</div>
++					{#if openId === i.id}
++						<div class="mx-2 mb-3 rounded-[18px] bg-tile p-4 text-sm">
++							<p class="text-xs text-muted">First seen {ago(i.firstSeen)} · {i.count} times · {i.users} people{i.url ? ` · ${i.url}` : ''}</p>
++							{#if i.stack}<pre class="mt-3 max-h-64 overflow-auto rounded-[12px] bg-ink p-3 text-[12px] leading-relaxed text-white/85">{i.stack}</pre>{/if}
++							<div class="mt-3 flex flex-wrap gap-2">
++								{#each i.status === 'open' || i.status === 'regressed' ? [['resolved', '✓ Mark resolved'], ['ignored', 'Ignore']] : [['open', 'Reopen']] as [s, l] (s)}
++									<form method="POST" action={act('status')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
++										<input type="hidden" name="id" value={i.id} /><input type="hidden" name="status" value={s} />
++										<button class="btn {s === 'resolved' ? 'btn-primary' : 'btn-ghost'} py-1.5 text-sm">{l}</button>
++									</form>
++								{/each}
++								<button class="pill" onclick={() => navigator.clipboard?.writeText(`${i.title}\n${i.culprit}\nVersions: ${i.versions.join(', ')}\n${i.count}× · ${i.users} users\n\n${i.stack}`)}>Copy for the developer</button>
++							</div>
++							<p class="mt-2 text-xs text-muted">Resolved issues reopen automatically (“came back”) if the error happens again.</p>
++						</div>
++					{/if}
++				</li>
++			{:else}
++				<li class="px-2 py-8 text-center"><p class="text-2xl">✓</p><p class="mt-1 text-sm text-muted">{tab === 'open' ? 'Nothing to fix.' : 'Nothing here.'}</p></li>
++			{/each}
++		</ul>
++	</section>
++
++	{#if data.isApp}
++		<details class="mt-4">
++			<summary class="cursor-pointer text-sm text-muted">App SDK code</summary>
++			<div class="mt-3"><SdkSetup api={data.api} site={data.client.id} focus="errors" /></div>
++		</details>
++	{/if}
++{/if}
+diff --git a/src/routes/app/clients/[id]/paywall/+page.server.ts b/src/routes/app/clients/[id]/paywall/+page.server.ts
+new file mode 100644
+index 0000000..466f544
+--- /dev/null
++++ b/src/routes/app/clients/[id]/paywall/+page.server.ts
+@@ -0,0 +1,12 @@
++import { redirect } from '@sveltejs/kit';
++import * as env from '$app/env/private';
++import { hasApp } from '#lib/server/store.ts';
++import { getPaywall, paywallTasks } from '#lib/server/app-events.ts';
++
++export const load = async ({ parent, url }) => {
++	const { client } = await parent();
++	if (!hasApp(client)) redirect(307, `/app/clients/${client.id}`);
++	const days = [7, 28, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 28;
++	const r = getPaywall(client, days);
++	return { r, tasks: paywallTasks(r), api: env.PUBLIC_BASE_URL || url.origin };
++};
+diff --git a/src/routes/app/clients/[id]/paywall/+page.svelte b/src/routes/app/clients/[id]/paywall/+page.svelte
+new file mode 100644
+index 0000000..2e09a2c
+--- /dev/null
++++ b/src/routes/app/clients/[id]/paywall/+page.svelte
+@@ -0,0 +1,95 @@
++<script lang="ts">
++	import BarChart from '#lib/components/BarChart.svelte';
++	import SdkSetup from '#lib/components/SdkSetup.svelte';
++	let { data } = $props();
++	const r = $derived(data.r);
++	const money = (v: number) => new Intl.NumberFormat('en-GB', { style: 'currency', currency: r.currency, maximumFractionDigits: v >= 1000 ? 0 : 2 }).format(v);
++	const maxConv = $derived(Math.max(1, ...r.rows.map((x) => x.conv)));
++	const dot = { good: 'bg-good', warn: 'bg-[#E3A21A]', bad: 'bg-bad' };
++</script>
++
++<svelte:head><title>Paywall · {data.client.name}</title></svelte:head>
++
++{#if r.source === 'waiting'}
++	<SdkSetup api={data.api} site={data.client.id} focus="paywall" />
++	<p class="mt-4 text-center text-sm text-muted">Once the app sends its first paywall view, you’ll see here: how many people see each paywall, how many start a trial or pay, revenue, and which variant wins.</p>
++{:else}
++	<!-- funnel -->
++	<section class="grid gap-3 lg:grid-cols-4">
++		{#each [['Saw the paywall', r.totals.viewers, 'people'], ['Started a trial', r.totals.trials, 'trials'], ['Paid', r.totals.purchases, 'purchases']] as [l, v, u], i (l)}
++			<div class="card p-5">
++				<p class="text-sm text-muted">{i + 1} · {l}</p>
++				<p class="big mt-3 text-[48px]">{(v as number).toLocaleString('en-US')}</p>
++				<p class="text-xs text-muted">{u}{i > 0 && r.totals.viewers ? ` · ${(((v as number) / r.totals.viewers) * 100).toFixed(1)}% of viewers` : ` · ${r.totals.views.toLocaleString('en-US')} views`}</p>
++			</div>
++		{/each}
++		<div class="card-dark p-5">
++			<p class="text-sm text-white/60">Revenue · {r.days} days</p>
++			<p class="big mt-3 text-[48px] text-accent">{money(r.totals.revenue)}</p>
++			<p class="text-xs text-white/50">{r.totals.conv}% of viewers convert{r.source === 'demo' ? ' · example data' : ''}</p>
++		</div>
++	</section>
++
++	{#if data.tasks.length}
++		<ul class="card mt-4 divide-y divide-line">
++			{#each data.tasks as k (k.title)}
++				<li class="flex items-start gap-3 px-5 py-4"><span class="mt-1.5 size-2.5 shrink-0 rounded-full {dot[k.level]}"></span><div><p class="font-medium">{k.title}</p><p class="text-sm text-ink-2">{k.meaning}</p><p class="mt-1 text-sm"><b>What to do:</b> {k.action}</p></div></li>
++			{/each}
++		</ul>
++	{/if}
++
++	<!-- A/B -->
++	<section class="card mt-4 p-4 sm:p-6">
++		<div class="px-2">
++			<h2 class="text-lg font-medium">Paywalls & variants</h2>
++			<p class="text-sm text-muted">Each line is one paywall (where it shows) and one variant (A/B test). Conversion = trials + purchases ÷ people who saw it.</p>
++		</div>
++		{#if r.winner}
++			<p class="mx-2 mt-4 rounded-[16px] p-3 text-sm {r.winner.enough ? 'bg-[#E4F5B8]' : 'bg-tile'}">
++				{#if r.winner.enough}🏆 On “{r.winner.paywall}”, <b>{r.winner.best}</b> converts <b>{r.winner.lift}%</b> better than {r.winner.worst}.
++				{:else}On “{r.winner.paywall}”, <b>{r.winner.best}</b> is ahead (+{r.winner.lift}%) — wait for 100 viewers per variant before deciding.{/if}
++			</p>
++		{/if}
++		<div class="mt-4 overflow-x-auto">
++			<table class="w-full min-w-[640px] text-sm">
++				<thead><tr class="text-left text-xs text-muted"><th class="px-3 pb-2 font-medium">Paywall</th><th class="px-3 pb-2 font-medium">Variant</th><th class="px-3 pb-2 font-medium">Viewers</th><th class="px-3 pb-2 font-medium">Trials</th><th class="px-3 pb-2 font-medium">Paid</th><th class="px-3 pb-2 font-medium">Conversion</th><th class="px-3 pb-2 text-right font-medium">Revenue</th></tr></thead>
++				<tbody>
++					{#each r.rows as x (x.paywall + x.variant)}
++						<tr class="border-t border-line">
++							<td class="px-3 py-2.5 font-medium">{x.paywall}</td>
++							<td class="px-3 py-2.5">{x.variant}</td>
++							<td class="px-3 py-2.5">{x.viewers.toLocaleString('en-US')}</td>
++							<td class="px-3 py-2.5">{x.trials}</td>
++							<td class="px-3 py-2.5">{x.purchases}</td>
++							<td class="px-3 py-2.5"><span class="flex items-center gap-2"><span class="w-12 text-right">{x.conv}%</span><span class="h-2 rounded-full {r.winner?.best === x.variant && r.winner.paywall === x.paywall ? 'bg-accent' : 'bg-ink'}" style="width:{Math.max(4, (x.conv / maxConv) * 100)}px"></span></span></td>
++							<td class="px-3 py-2.5 text-right">{money(x.revenue)}</td>
++						</tr>
++					{/each}
++				</tbody>
++			</table>
++		</div>
++	</section>
++
++	<section class="mt-4 grid gap-4 lg:grid-cols-[2fr_1fr]">
++		<div class="card p-6">
++			<h2 class="text-lg font-medium">Revenue per day</h2>
++			<p class="text-sm text-muted">Purchases sent by the app ({r.currency}).</p>
++			<div class="mt-6"><BarChart data={r.daily} unit={r.currency} /></div>
++		</div>
++		<div class="card p-6">
++			<h2 class="text-lg font-medium">Products</h2>
++			<ul class="mt-4 space-y-2">
++				{#each r.products as p (p.product)}
++					<li class="flex items-center justify-between gap-3 rounded-[16px] bg-tile px-4 py-3 text-sm"><span class="truncate">{p.product}</span><span class="shrink-0 text-muted">{p.purchases}× · <b class="text-ink">{money(p.revenue)}</b></span></li>
++				{:else}
++					<li class="text-sm text-muted">No purchase yet.</li>
++				{/each}
++			</ul>
++		</div>
++	</section>
++
++	<details class="mt-4">
++		<summary class="cursor-pointer text-sm text-muted">App SDK code</summary>
++		<div class="mt-3"><SdkSetup api={data.api} site={data.client.id} focus="paywall" /></div>
++	</details>
++{/if}
+diff --git a/src/routes/app/clients/[id]/store/+page.server.ts b/src/routes/app/clients/[id]/store/+page.server.ts
+new file mode 100644
+index 0000000..593204c
+--- /dev/null
++++ b/src/routes/app/clients/[id]/store/+page.server.ts
+@@ -0,0 +1,51 @@
++import { fail, redirect } from '@sveltejs/kit';
++import { getClient, hasApp } from '#lib/server/store.ts';
++import { getStoreTracker, saveStoreState, searchApps, snapshotStore, storeState, storeTasks } from '#lib/server/appstore.ts';
++
++const COUNTRIES = ['be', 'fr', 'nl', 'lu', 'de', 'es', 'gb', 'us', 'ca', 'ch'];
++
++export const load = async ({ parent, url }) => {
++	const { client } = await parent();
++	if (!hasApp(client)) redirect(307, `/app/clients/${client.id}`);
++	const q = (url.searchParams.get('q') ?? '').trim();
++	const t = await getStoreTracker(client);
++	const results = q && !client.demo ? await searchApps(q, t.cc).catch(() => []) : [];
++	return { t, tasks: storeTasks(t), q, results, countries: COUNTRIES };
++};
++
++export const actions = {
++	country: async ({ params, request }) => {
++		const client = getClient(params.id);
++		if (!client) return fail(404);
++		const cc = String((await request.formData()).get('cc'));
++		if (!COUNTRIES.includes(cc)) return fail(400);
++		const s = storeState(client);
++		if (s.cc !== cc) {
++			// rankings differ per country: start a new history
++			saveStoreState(client, { ...s, cc, history: [], comp: {} });
++			await snapshotStore(client, true).catch(() => null);
++		}
++		return { ok: true };
++	},
++	add: async ({ params, request }) => {
++		const client = getClient(params.id);
++		if (!client) return fail(404);
++		const id = String((await request.formData()).get('id')).replace(/\D/g, '');
++		const s = storeState(client);
++		if (!id || id === client.app?.iosId) return fail(400);
++		if (!s.competitors.includes(id)) s.competitors = [...s.competitors, id].slice(0, 5);
++		saveStoreState(client, s);
++		await snapshotStore(client, true).catch(() => null);
++		return { ok: true };
++	},
++	remove: async ({ params, request }) => {
++		const client = getClient(params.id);
++		if (!client) return fail(404);
++		const id = String((await request.formData()).get('id'));
++		const s = storeState(client);
++		s.competitors = s.competitors.filter((c) => c !== id);
++		delete s.comp[id];
++		saveStoreState(client, s);
++		return { ok: true };
++	}
++};
+diff --git a/src/routes/app/clients/[id]/store/+page.svelte b/src/routes/app/clients/[id]/store/+page.svelte
+new file mode 100644
+index 0000000..ff887a6
+--- /dev/null
++++ b/src/routes/app/clients/[id]/store/+page.svelte
+@@ -0,0 +1,191 @@
++<script lang="ts">
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	import Delta from '#lib/components/Delta.svelte';
++	let { data } = $props();
++	const t = $derived(data.t);
++	const a = $derived(t.app);
++	let filter = $state<'all' | 'bad' | 'good'>('all');
++	const shown = $derived(t.reviews.filter((r) => (filter === 'bad' ? r.stars <= 2 : filter === 'good' ? r.stars >= 4 : true)).slice(0, 30));
++	const daysAgo = (d: string) => Math.max(0, Math.round((Date.now() - Date.parse(d)) / 864e5));
++	const weekAgo = $derived(t.history.find((h) => daysAgo(h.date) <= 7) ?? null);
++	const newRatings = $derived(a && weekAgo ? a.count - weekAgo.count : 0);
++	const maxStars = $derived(Math.max(1, ...t.stars));
++
++	// rank chart (lower = better → inverted)
++	const W = 720;
++	const H = 200;
++	const pts = $derived(t.history.filter((h) => h.rankCat != null).slice(-60));
++	const worst = $derived(Math.max(10, ...pts.map((p) => p.rankCat!)));
++	const path = $derived(pts.map((p, i) => `${i ? 'L' : 'M'}${((i / Math.max(1, pts.length - 1)) * W).toFixed(1)} ${(((p.rankCat! - 1) / (worst - 1 || 1)) * (H - 20) + 10).toFixed(1)}`).join(' '));
++	const stars = (n: number) => '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
++	const dot = { good: 'bg-good', warn: 'bg-[#E3A21A]', bad: 'bg-bad' };
++</script>
++
++<svelte:head><title>App Store · {data.client.name}</title></svelte:head>
++
++{#if t.source === 'off'}
++	<a href="/app/clients/{data.client.id}/settings" class="card-dark flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:p-8">
++		<span class="grid size-14 shrink-0 place-items-center rounded-2xl bg-accent text-2xl text-accent-ink">★</span>
++		<span class="flex-1"><b class="block text-xl font-medium">Add the App Store ID to start tracking</b><span class="text-sm text-white/60">Chart position, rating, reviews, updates and competitors — every day, no login needed. The ID is the number in the App Store link (…/id<b class="text-white">1459969523</b>).</span></span>
++		<span class="btn btn-accent shrink-0">Add it in Setup →</span>
++	</a>
++{:else if t.source === 'error'}
++	<p class="rounded-[20px] bg-bad-bg p-4 text-sm text-bad">{t.error}</p>
++{/if}
++
++{#if a}
++	<!-- header -->
++	<section class="card flex flex-wrap items-center gap-4 p-5 sm:p-6">
++		{#if a.icon}<img src={a.icon} alt="" class="size-16 rounded-[18px] border border-line" />{:else}<span class="grid size-16 place-items-center rounded-[18px] bg-tile text-2xl">📱</span>{/if}
++		<div class="min-w-0 flex-1">
++			<p class="truncate text-lg font-medium">{a.name}</p>
++			<p class="truncate text-sm text-muted">{a.seller} · {a.genre} · v{a.version} · {a.price}</p>
++		</div>
++		<form method="POST" action={act('country')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })} class="flex items-center gap-2 text-sm">
++			<span class="text-muted">Store</span>
++			<select name="cc" class="input w-auto py-1.5" onchange={(e) => e.currentTarget.form?.requestSubmit()}>{#each data.countries as c (c)}<option value={c} selected={t.cc === c}>{c.toUpperCase()}</option>{/each}</select>
++		</form>
++		{#if a.url && a.url !== '#'}<a href={a.url} target="_blank" rel="noreferrer" class="pill">Open in App Store ↗</a>{/if}
++		{#if t.source === 'demo'}<span class="rounded-full bg-[#E4F5B8] px-2.5 py-1 text-[11px]">Example data</span>{/if}
++	</section>
++
++	<!-- numbers -->
++	<section class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
++		<div class="card-dark p-5">
++			<p class="text-sm text-white/60">Rank in {a.genre}</p>
++			<p class="mt-3 flex items-start gap-2"><span class="big text-[48px] text-accent">{t.today?.rankCat ? `#${t.today.rankCat}` : '—'}</span>{#if t.today?.rankCat && t.prev?.rankCat}<Delta value={t.prev.rankCat - t.today.rankCat} suffix="" dark />{/if}</p>
++			<p class="mt-1 text-xs text-white/50">{t.today?.rankCat ? `Top ${t.today.chart} · ${t.cc.toUpperCase()} · vs yesterday` : `Not in the top 200 ${t.today?.chart ?? 'free'} of ${t.cc.toUpperCase()} today`}</p>
++		</div>
++		<div class="card p-5">
++			<p class="text-sm text-muted">Overall rank</p>
++			<p class="mt-3 flex items-start gap-2"><span class="big text-[48px]">{t.today?.rankAll ? `#${t.today.rankAll}` : '—'}</span>{#if t.today?.rankAll && t.prev?.rankAll}<Delta value={t.prev.rankAll - t.today.rankAll} suffix="" />{/if}</p>
++			<p class="mt-1 text-xs text-muted">All apps · top 200</p>
++		</div>
++		<div class="card p-5">
++			<p class="text-sm text-muted">Rating</p>
++			<p class="mt-3 big text-[48px]">{a.rating ? a.rating.toFixed(1) : '—'}<span class="text-[24px] text-[#E3A21A]">★</span></p>
++			<p class="mt-1 text-xs text-muted">{a.count.toLocaleString('en-US')} ratings{newRatings > 0 ? ` · +${newRatings} this week` : ''}</p>
++		</div>
++		<div class="card p-5">
++			<p class="text-sm text-muted">Last update</p>
++			<p class="mt-3 big text-[48px]">{a.updated ? `${daysAgo(a.updated)}d` : '—'}</p>
++			<p class="mt-1 text-xs text-muted">v{a.version}{a.updated ? ` · ${a.updated}` : ''}{a.updated && daysAgo(a.updated) > 90 ? ' · time for an update' : ''}</p>
++		</div>
++	</section>
++
++	{#if data.tasks.length}
++		<ul class="card mt-4 divide-y divide-line">
++			{#each data.tasks as k (k.title)}
++				<li class="flex items-start gap-3 px-5 py-4"><span class="mt-1.5 size-2.5 shrink-0 rounded-full {dot[k.level]}"></span><div class="min-w-0"><p class="font-medium">{k.title}</p><p class="text-sm text-ink-2">{k.meaning}</p><p class="mt-1 text-sm"><b>What to do:</b> {k.action}</p></div></li>
++			{/each}
++		</ul>
++	{/if}
++
++	<!-- history + versions -->
++	<section class="mt-4 grid gap-4 lg:grid-cols-[2fr_1fr]">
++		<div class="card p-6">
++			<h2 class="text-lg font-medium">Rank in {a.genre}, day by day</h2>
++			<p class="text-sm text-muted">Higher on the chart = better. One point per day.</p>
++			{#if pts.length >= 2}
++				<svg viewBox="0 0 {W} {H}" class="mt-5 h-52 w-full" preserveAspectRatio="none">
++					{#each [0.25, 0.5, 0.75] as g (g)}<line x1="0" x2={W} y1={g * H} y2={g * H} stroke="#E3E3DE" stroke-dasharray="3 4" />{/each}
++					<path d={path} fill="none" stroke="#0D0D0D" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
++				</svg>
++				<div class="mt-1 flex justify-between text-[11px] text-muted"><span>{pts[0].date}</span><span>best #{Math.min(...pts.map((p) => p.rankCat!))} · today #{pts.at(-1)!.rankCat}</span><span>{pts.at(-1)!.date}</span></div>
++			{:else}
++				<p class="mt-5 rounded-[18px] bg-tile p-5 text-sm text-ink-2">Undercut saves the position once a day. The curve appears from tomorrow{t.today?.rankCat ? '' : ' — as soon as the app enters the top 200 of its category'}.</p>
++			{/if}
++		</div>
++		<div class="card p-6">
++			<h2 class="text-lg font-medium">Updates</h2>
++			<ol class="mt-4 space-y-3">
++				{#each t.versions as v (v.version)}
++					<li class="border-l-2 border-ink pl-3"><p class="text-sm font-medium">v{v.version} <span class="font-normal text-muted">· {v.date}</span></p>{#if v.notes}<p class="mt-0.5 line-clamp-3 text-xs text-ink-2">{v.notes}</p>{/if}</li>
++				{:else}
++					<li class="text-sm text-muted">Each new version is saved here with its release notes.</li>
++				{/each}
++			</ol>
++		</div>
++	</section>
++
++	<!-- reviews -->
++	<section class="mt-4 grid gap-4 lg:grid-cols-[1fr_2fr]">
++		<div class="card p-6">
++			<h2 class="text-lg font-medium">Recent reviews</h2>
++			<p class="text-sm text-muted">Last {t.reviews.length} in the {t.cc.toUpperCase()} store.</p>
++			<ul class="mt-5 space-y-2">
++				{#each [5, 4, 3, 2, 1] as s (s)}
++					<li class="flex items-center gap-3 text-sm"><span class="w-6 text-muted">{s}★</span><span class="h-2.5 flex-1 overflow-hidden rounded-full bg-tile"><span class="block h-full rounded-full {s >= 4 ? 'bg-good' : s === 3 ? 'bg-[#E3A21A]' : 'bg-bad'}" style="width:{(t.stars[s - 1] / maxStars) * 100}%"></span></span><span class="w-6 text-right num">{t.stars[s - 1]}</span></li>
++				{/each}
++			</ul>
++		</div>
++		<div class="card p-4 sm:p-6">
++			<div class="flex flex-wrap items-center gap-2 px-2">
++				{#each [['all', 'All'], ['bad', '1–2★ to answer'], ['good', '4–5★']] as [k, l] (k)}<button class="pill {filter === k ? 'pill-active' : ''}" onclick={() => (filter = k as typeof filter)}>{l}</button>{/each}
++			</div>
++			<ul class="mt-3 max-h-[480px] divide-y divide-line overflow-y-auto">
++				{#each shown as r (r.id)}
++					<li class="px-2 py-3">
++						<p class="flex flex-wrap items-center gap-x-3 text-sm"><span class="{r.stars <= 2 ? 'text-bad' : 'text-[#E3A21A]'}">{stars(r.stars)}</span><b class="font-medium">{r.title}</b><span class="text-xs text-muted">{r.author} · v{r.version} · {r.date}</span></p>
++						<p class="mt-1 text-sm text-ink-2">{r.text}</p>
++					</li>
++				{:else}
++					<li class="px-2 py-6 text-center text-sm text-muted">No reviews here.</li>
++				{/each}
++			</ul>
++		</div>
++	</section>
++
++	<!-- competitors -->
++	<section class="card mt-4 p-4 sm:p-6">
++		<div class="flex flex-wrap items-end justify-between gap-3 px-2">
++			<div><h2 class="text-lg font-medium">Competitors</h2><p class="text-sm text-muted">Up to 5 apps, followed every day next to {a.name}.</p></div>
++			<form method="GET" class="flex gap-2">
++				<input name="q" value={data.q} class="input py-2 text-sm" placeholder="Search an app by name" aria-label="Search competitor" />
++				<button class="btn btn-primary py-2 text-sm">Search</button>
++			</form>
++		</div>
++		{#if data.results.length}
++			<ul class="mt-3 flex flex-wrap gap-2 px-2">
++				{#each data.results as r (r.id)}
++					<li>
++						<form method="POST" action={act('add')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
++							<input type="hidden" name="id" value={r.id} />
++							<button class="flex items-center gap-2 rounded-full bg-tile py-1 pr-3 pl-1 text-sm hover:bg-[#E4F5B8]">{#if r.icon}<img src={r.icon} alt="" class="size-6 rounded-md" />{/if}{r.name} <span class="text-muted">+ Track</span></button>
++						</form>
++					</li>
++				{/each}
++			</ul>
++		{/if}
++		<div class="mt-4 overflow-x-auto">
++			<table class="w-full min-w-[620px] text-sm">
++				<thead><tr class="text-left text-xs text-muted"><th class="px-3 pb-2 font-medium">App</th><th class="px-3 pb-2 font-medium">Rank in category</th><th class="px-3 pb-2 font-medium">Rating</th><th class="px-3 pb-2 font-medium">Ratings</th><th class="px-3 pb-2 font-medium">Last update</th><th></th></tr></thead>
++				<tbody>
++					<tr class="border-t border-line bg-[#E4F5B8]/50">
++						<td class="px-3 py-2.5 font-medium">{a.name} <span class="text-xs text-muted">(you)</span></td>
++						<td class="px-3 py-2.5">{t.today?.rankCat ? `#${t.today.rankCat}` : '—'}</td>
++						<td class="px-3 py-2.5">{a.rating.toFixed(1)}★</td>
++						<td class="px-3 py-2.5">{a.count.toLocaleString('en-US')}</td>
++						<td class="px-3 py-2.5">{a.updated ? `${daysAgo(a.updated)} days ago` : '—'}</td>
++						<td></td>
++					</tr>
++					{#each t.competitors as c (c.app.id)}
++						<tr class="border-t border-line">
++							<td class="px-3 py-2.5"><span class="flex items-center gap-2">{#if c.app.icon}<img src={c.app.icon} alt="" class="size-7 rounded-lg" />{/if}<span class="truncate">{c.app.name}</span></span></td>
++							<td class="px-3 py-2.5">{c.snap?.rankCat ? `#${c.snap.rankCat}` : '—'}{#if c.snap?.rankCat && c.prev?.rankCat}<span class="ml-1.5"><Delta value={c.prev.rankCat - c.snap.rankCat} suffix="" /></span>{/if}</td>
++							<td class="px-3 py-2.5 {c.app.rating > a.rating ? 'text-bad' : ''}">{c.app.rating.toFixed(1)}★</td>
++							<td class="px-3 py-2.5">{c.app.count.toLocaleString('en-US')}</td>
++							<td class="px-3 py-2.5">{c.app.updated ? `${daysAgo(c.app.updated)} days ago` : '—'}</td>
++							<td class="px-3 py-2.5 text-right">
++								<form method="POST" action={act('remove')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}><input type="hidden" name="id" value={c.app.id} /><button class="icon-btn size-7 text-xs" aria-label="Stop tracking {c.app.name}">✕</button></form>
++							</td>
++						</tr>
++					{:else}
++						<tr><td colspan="6" class="px-3 py-5 text-center text-muted">Search an app above to compare.</td></tr>
++					{/each}
++				</tbody>
++			</table>
++		</div>
++	</section>
++{/if}
+diff --git a/src/routes/u.js/+server.ts b/src/routes/u.js/+server.ts
+index c064621..4cc8c85 100644
+--- a/src/routes/u.js/+server.ts
++++ b/src/routes/u.js/+server.ts
+@@ -34,6 +34,11 @@ q.push({t:'c',sid:S.id,p:path,d:dev,x:+(e.pageX/document.documentElement.scrollW
+ if(q.length>20)send()},true);
+ var maxD=0;setTimeout(function(){if(!maxD)maxD=Math.min(1,innerHeight/docH())},1000);addEventListener('scroll',function(){var d=(scrollY+innerHeight)/docH();if(d>maxD)maxD=Math.min(1,d)},{passive:true});
+ function leave(){if(!maxD)maxD=Math.min(1,innerHeight/docH());send()}
++// JavaScript errors on the site → Errors page (max 10 distinct per page view, no personal data)
++var errN=0,errSeen={};function jsErr(m,st){m=String(m||'');if(!m||m==='Script error.'||errN>=10||errSeen[m])return;errSeen[m]=1;errN++;
++fetch(api+'/api/app',{method:'POST',keepalive:true,headers:{'content-type':'application/json'},body:JSON.stringify({site:site,events:[{t:'error',pf:'web',u:S.id,msg:m.slice(0,400),stack:String(st||'').slice(0,3000),url:location.origin+path,name:path,os:dev}]})}).catch(function(){})}
++addEventListener('error',function(e){if(e.target&&e.target!==window)return;jsErr(e.message,(e.error&&e.error.stack)||(e.filename?'at '+e.filename+':'+e.lineno+':'+e.colno:''))});
++addEventListener('unhandledrejection',function(e){var r=e.reason;jsErr(r&&r.message||r,r&&r.stack)});
+ addEventListener('pagehide',leave);setInterval(send,4000);setTimeout(send,1200);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')send()});
+ fetch(api+'/api/fixes?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(f){
+ if(f.gtm&&!window.google_tag_manager){window.dataLayer=window.dataLayer||[];window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});var gt=document.createElement('script');gt.async=true;gt.src='https://www.googletagmanager.com/gtm.js?id='+f.gtm;document.head.appendChild(gt)}
+-- 
+2.43.0
+
