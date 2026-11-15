@@ -6,6 +6,10 @@ import { livePayload } from '#lib/server/fixes.ts';
 export const GET = ({ url }) => {
 	const site = url.searchParams.get('site') ?? '';
 	const headers = { 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=120' };
-	if (!getClient(site)) return json({}, { headers });
-	return json(livePayload(site, url.searchParams.get('path') ?? '/'), { headers });
+	const client = getClient(site);
+	if (!client) return json({}, { headers });
+	const g = client.google;
+	// optional: the snippet also loads the client's Tag Manager container (GA4 without touching the site)
+	const gtm = g.loadGtm && g.gtmPublicId && /^GTM-[A-Z0-9]+$/.test(g.gtmPublicId) ? g.gtmPublicId : undefined;
+	return json({ ...livePayload(site, url.searchParams.get('path') ?? '/'), gtm }, { headers });
 };

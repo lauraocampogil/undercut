@@ -27,6 +27,8 @@
 		['Google Analytics Admin API', 'analyticsadmin.googleapis.com'],
 		['Google Search Console API', 'searchconsole.googleapis.com'],
 		['Tag Manager API', 'tagmanager.googleapis.com'],
+		['PageSpeed Insights API (Lighthouse)', 'pagespeedonline.googleapis.com'],
+		['Site Verification API (add sites to Search Console)', 'siteverification.googleapis.com'],
 		['Business Profile Performance API *', 'businessprofileperformance.googleapis.com'],
 		['My Business Account Management API *', 'mybusinessaccountmanagement.googleapis.com'],
 		['My Business Business Information API *', 'mybusinessbusinessinformation.googleapis.com']

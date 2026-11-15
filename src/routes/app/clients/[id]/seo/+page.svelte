@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Linkify from '#lib/components/Linkify.svelte';
 	import { enhance } from '$app/forms';
 	import HealthRing from '#lib/components/HealthRing.svelte';
 	import Gauge from '#lib/components/Gauge.svelte';
@@ -72,7 +73,7 @@
 				<Gauge score={lh.scores.seo} label="SEO" />
 			</div>
 		{:else}
-			<p class="my-auto text-sm text-muted">Lighthouse could not run this time — try “Check again”.</p>
+			<p class="my-auto text-sm text-muted"><Linkify text={a.errors?.lighthouse ?? 'Lighthouse could not run this time — try “Check again”.'} /></p>
 		{/if}
 	</div>
 
@@ -87,7 +88,7 @@
 				<div class="tile p-3"><p class="big text-[40px]">{w.warnings}</p><p class="text-xs text-muted">warnings</p></div>
 			</div>
 		{:else}
-			<p class="my-auto text-sm text-muted">Validator not reachable this time.</p>
+			<p class="my-auto text-sm text-muted">{a.errors?.w3c ?? 'Validator not reachable this time.'}</p>
 		{/if}
 	</div>
 </section>

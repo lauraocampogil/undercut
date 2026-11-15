@@ -36,6 +36,7 @@ var maxD=0;setTimeout(function(){if(!maxD)maxD=Math.min(1,innerHeight/docH())},1
 function leave(){if(!maxD)maxD=Math.min(1,innerHeight/docH());send()}
 addEventListener('pagehide',leave);setInterval(send,4000);setTimeout(send,1200);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')send()});
 fetch(api+'/api/fixes?site='+encodeURIComponent(site)+'&path='+encodeURIComponent(path)).then(function(r){return r.json()}).then(function(f){
+if(f.gtm&&!window.google_tag_manager){window.dataLayer=window.dataLayer||[];window.dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});var gt=document.createElement('script');gt.async=true;gt.src='https://www.googletagmanager.com/gtm.js?id='+f.gtm;document.head.appendChild(gt)}
 function meta(n,v){var m=document.querySelector('meta[name="'+n+'"]');if(!m){m=document.createElement('meta');m.setAttribute('name',n);document.head.appendChild(m)}m.setAttribute('content',v)}
 function run(){if(f.title)document.title=f.title;if(f.description)meta('description',f.description);
 if(f.canonical){var c=document.querySelector('link[rel=canonical]');if(!c){c=document.createElement('link');c.rel='canonical';document.head.appendChild(c)}c.href=f.canonical}

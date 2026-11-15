@@ -4,6 +4,7 @@
 import { parse } from 'node-html-parser';
 import * as env from '$app/env/private';
 import type { Client, Level } from '#lib/types.ts';
+import { projectAccessToken } from './google.ts';
 import { normaliseSite, sitemapFor } from './sitemap.ts';
 import type { Draft } from './insights.ts';
 import { track } from './usage.ts';
@@ -60,6 +61,7 @@ export type SeoAudit = {
 	lighthouseDesktop: Lighthouse | null;
 	console: { source: 'psi' | 'demo'; items: { message: string; source?: string }[] } | null;
 	w3c: W3C | null;
+	errors?: { lighthouse?: string; w3c?: string };
 	pages: PageAudit[];
 	issues: SeoIssue[];
 	passed: string[];
@@ -117,13 +119,31 @@ const CAT: Record<string, Lighthouse['audits'][number]['category']> = {
 };
 
 // Google Lighthouse through the PageSpeed Insights API: the same 4 scores as Chrome DevTools.
-async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<{ speed: SeoAudit['speed']; lighthouse: Lighthouse | null; console: SeoAudit['console'] }> {
+async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<{ speed: SeoAudit['speed']; lighthouse: Lighthouse | null; console: SeoAudit['console']; error?: string }> {
 	const p = new URLSearchParams({ url, strategy });
 	for (const c of ['PERFORMANCE', 'ACCESSIBILITY', 'BEST_PRACTICES', 'SEO']) p.append('category', c);
+	const headers: Record<string, string> = {};
 	if (env.PAGESPEED_API_KEY) p.set('key', env.PAGESPEED_API_KEY);
+	else {
+		// No key: use the connected Google account (quota of your own Google Cloud project instead of the tiny shared one)
+		const token = await projectAccessToken();
+		if (token) headers.authorization = `Bearer ${token}`;
+	}
 	try {
-		const r = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { signal: AbortSignal.timeout(45_000) });
-		if (!r.ok) return { speed: null, lighthouse: null, console: null };
+		const call = (h: Record<string, string>) => fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${p}`, { headers: h, signal: AbortSignal.timeout(60_000) });
+		let r = await call(headers);
+		// the account token may not be accepted (scope / API off) → fall back to the anonymous quota
+		if (headers.authorization && (r.status === 401 || r.status === 403)) r = await call({});
+		if (!r.ok) {
+			const t = await r.text();
+			const link = t.match(/https:\/\/console\.developers\.google\.com\/apis\/api\/[^\s"\\]+/)?.[0];
+			const error =
+				r.status === 429 ? 'Google’s free PageSpeed quota is used up for now. Add a PAGESPEED_API_KEY (free) or enable the PageSpeed Insights API in your Google Cloud project: https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com'
+				: r.status === 403 ? `The PageSpeed Insights API is not enabled in your Google Cloud project — enable it, then “Check again”: ${link ?? 'https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com'}`
+				: r.status === 400 || r.status === 500 ? `Lighthouse could not load the page (${String(t.match(/"message":\s*"([^"]+)/)?.[1] ?? r.status).slice(0, 160)}).`
+				: `PageSpeed answered ${r.status}.`;
+			return { speed: null, lighthouse: null, console: null, error };
+		}
 		const j = await r.json();
 		const lr = j.lighthouseResult ?? {};
 		const a = lr.audits ?? {};
@@ -157,14 +177,19 @@ async function lighthouse(url: string, strategy: 'mobile' | 'desktop' = 'mobile'
 				items: (a['errors-in-console']?.details?.items ?? []).slice(0, 10).map((it: any) => ({ message: String(it.description ?? '').slice(0, 300), source: it.sourceLocation?.url ?? it.source }))
 			}
 		};
-	} catch {
-		return { speed: null, lighthouse: null, console: null };
+	} catch (e) {
+		return { speed: null, lighthouse: null, console: null, error: (e as Error).name === 'TimeoutError' ? 'Lighthouse took more than 60 s — the page is very slow or blocked the test. Try “Check again”.' : 'Lighthouse could not reach Google PageSpeed.' };
 	}
 }
 
 // W3C Nu HTML Checker — the official validator, on the homepage HTML.
+let w3cError = '';
 async function w3c(html: string): Promise<W3C | null> {
-	if (!html) return null;
+	w3cError = '';
+	if (!html) {
+		w3cError = 'The homepage HTML could not be downloaded.';
+		return null;
+	}
 	try {
 		const r = await fetch('https://validator.w3.org/nu/?out=json', {
 			method: 'POST',
@@ -172,7 +197,10 @@ async function w3c(html: string): Promise<W3C | null> {
 			body: html,
 			signal: AbortSignal.timeout(20_000)
 		});
-		if (!r.ok) return null;
+		if (!r.ok) {
+			w3cError = r.status === 429 || r.status === 503 ? 'The W3C validator is busy (too many checks). Try again in a minute.' : `The W3C validator answered ${r.status}.`;
+			return null;
+		}
 		const j = await r.json();
 		const groups = new Map<string, W3C['messages'][number]>();
 		let errors = 0,
@@ -187,7 +215,8 @@ async function w3c(html: string): Promise<W3C | null> {
 			else groups.set(key, { type, message: m.message, line: m.lastLine, extract: m.extract?.slice(0, 120), count: 1 });
 		}
 		return { source: 'live', errors, warnings, messages: [...groups.values()].sort((a, b) => (a.type === b.type ? b.count - a.count : a.type === 'error' ? -1 : 1)).slice(0, 15) };
-	} catch {
+	} catch (e) {
+		w3cError = (e as Error).name === 'TimeoutError' ? 'The W3C validator did not answer in time. Try again.' : 'The W3C validator could not be reached.';
 		return null;
 	}
 }
@@ -326,7 +355,9 @@ const cache = new Map<string, SeoAudit>();
 export async function getSeoAudit(client: Client, force = false): Promise<SeoAudit> {
 	if (client.demo) return demoAudit(client);
 	const hit = cache.get(client.id);
-	if (!force && hit && Date.now() - Date.parse(hit.checkedAt) < 24 * 3600_000) return hit;
+	// a complete audit is kept 24 h; one where Lighthouse or W3C failed only 10 min, so it retries soon
+	const ttl = hit && (hit.errors?.lighthouse || hit.errors?.w3c) ? 10 * 60_000 : 24 * 3600_000;
+	if (!force && hit && Date.now() - Date.parse(hit.checkedAt) < ttl) return hit;
 
 	const origin = normaliseSite(client.domain);
 	const [sm, robots, lhRes, lhDesk, home] = await Promise.all([
@@ -357,7 +388,8 @@ export async function getSeoAudit(client: Client, force = false): Promise<SeoAud
 		sitemap: Boolean(sm?.found),
 		sitemapUrls: sm?.urlCount ?? 0
 	};
-	const audit: SeoAudit = { source: 'live', checkedAt: new Date().toISOString(), site, speed, lighthouse: lhRes.lighthouse, lighthouseDesktop: lhDesk.lighthouse, console: lhRes.console, w3c: v, pages, ...buildIssues(pages, site, speed, lhRes.lighthouse, v, lhRes.console) };
+	const errors = { lighthouse: lhRes.error ?? lhDesk.error, w3c: v ? undefined : w3cError || undefined };
+	const audit: SeoAudit = { source: 'live', checkedAt: new Date().toISOString(), site, speed, lighthouse: lhRes.lighthouse, lighthouseDesktop: lhDesk.lighthouse, console: lhRes.console, w3c: v, errors, pages, ...buildIssues(pages, site, speed, lhRes.lighthouse, v, lhRes.console) };
 	cache.set(client.id, audit);
 	track('audits');
 	return audit;

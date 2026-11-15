@@ -2,17 +2,10 @@ import { fail, redirect } from '@sveltejs/kit';
 import * as env from '$app/env/private';
 import { getAccount, getAgency, getClient, saveClient, slugify } from '#lib/server/store.ts';
 import { normaliseSite } from '#lib/server/sitemap.ts';
-import { googleConfigured, isConnected, listAccounts, type Option } from '#lib/server/google.ts';
+import { googleConfigured, isConnected, listAccounts, matchProperties, type Option } from '#lib/server/google.ts';
 import { getHeatmap } from '#lib/server/tracking.ts';
 
 const COLORS = ['#E0A458', '#3E8E63', '#4C7DD9', '#D9534C', '#8B5CF6', '#0EA5A4', '#F97316'];
-
-function guessFor(client: { domain: string; name: string }) {
-	const host = client.domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '').toLowerCase();
-	const words = client.name.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
-	return (list: Option[] = []) =>
-		list.find((o) => host && (o.value + o.label).toLowerCase().includes(host)) ?? list.find((o) => words.some((w) => o.label.toLowerCase().includes(w)));
-}
 
 export const load = async ({ url }) => {
 	const step = Math.min(4, Math.max(1, Number(url.searchParams.get('step') ?? 1) || 1));
@@ -26,12 +19,12 @@ export const load = async ({ url }) => {
 		try {
 			const o = await listAccounts();
 			googleErrors = o.errors;
-			const g = guessFor(client);
+			const mm = matchProperties(client, o);
 			matches = [
-				{ key: 'ga4', label: 'Google Analytics', option: g(o.ga4) },
-				{ key: 'gsc', label: 'Search Console', option: g(o.gsc) },
-				{ key: 'gbp', label: 'Business Profile', option: g(o.gbp) },
-				{ key: 'gtm', label: 'Tag Manager', option: g(o.gtm) }
+				{ key: 'ga4', label: 'Google Analytics', option: mm.ga4 },
+				{ key: 'gsc', label: 'Search Console', option: mm.gsc },
+				{ key: 'gbp', label: 'Business Profile', option: mm.gbp },
+				{ key: 'gtm', label: 'Tag Manager', option: mm.gtm }
 			];
 		} catch {
 			/* show the connect button again */
@@ -78,7 +71,7 @@ export const actions = {
 		const client = getClient(String(f.get('client')));
 		if (!client) return fail(404);
 		const v = (k: string) => String(f.get(k) ?? '').trim() || undefined;
-		client.google = { ...client.google, ga4PropertyId: v('ga4'), gscSiteUrl: v('gsc'), gbpLocation: v('gbp'), gtmContainer: v('gtm') };
+		client.google = { ...client.google, ga4PropertyId: v('ga4'), gscSiteUrl: v('gsc'), gbpLocation: v('gbp'), gtmContainer: v('gtm'), autoLinkedAt: new Date().toISOString() };
 		saveClient(client);
 		redirect(303, `/onboarding?step=${client.type === 'app' ? 4 : 3}&client=${client.id}`);
 	},

@@ -2,7 +2,7 @@
 	import Linkify from '#lib/components/Linkify.svelte';
 	import { untrack } from 'svelte';
 	import { page } from '$app/state';
-	let { data } = $props();
+	let { data, form } = $props();
 	const c = $derived(data.client);
 	let type = $state(untrack(() => data.client.type) ?? 'web');
 	let copied = $state(false);
@@ -22,7 +22,7 @@
 <svelte:head><title>Setup · {c.name}</title></svelte:head>
 
 {#if page.url.searchParams.get('new')}
-	<p class="mb-4 rounded-[20px] bg-accent p-4 text-sm text-accent-ink">Client added. The SEO audit already runs on its website. Connect the data below — or skip, the dashboard shows example numbers until then.</p>
+	<p class="mb-4 rounded-[20px] bg-accent p-4 text-sm text-accent-ink">Client added. The SEO audit already runs on its website. Connect the data below — missing something? Create it here in one click.</p>
 {/if}
 
 <form method="POST" action="?/save" class="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
@@ -75,23 +75,70 @@
 				<h2 class="display text-[32px] leading-none">2 · Google data</h2>
 				{#if !data.connected}<a href="/app/settings#connections" class="btn btn-primary">Connect Google</a>{:else}<span class="rounded-full bg-good-bg px-3 py-1 text-xs text-good">Google connected</span>{/if}
 			</div>
+			{#if form?.createError}
+				<div class="bg-bad-bg p-4 text-sm text-bad"><Linkify text={form.createError} /></div>
+			{/if}
+			{#if form?.created}
+				<div class="bg-good-bg p-4 text-sm text-good">
+					{#if form.created === 'ga4'}GA4 property created ✓ · Measurement ID <b>{form.measurementId}</b>. Next: create the Tag Manager container — it gets the GA4 tag automatically.
+					{:else if form.created === 'gtm'}Tag Manager container <b>{form.publicId}</b> created{form.published ? ' with the GA4 tag, and published' : ''} ✓ — the Undercut snippet now loads it on the site.
+					{:else}Search Console verified and added ✓ ({form.gscId}). Google needs 2–3 days before the first numbers appear.{/if}
+				</div>
+			{/if}
+			{#if form?.gsc?.token}
+				<div class="space-y-3 bg-tile p-6 text-sm">
+					{#if form.gsc.method === 'META'}
+						<p class="font-medium">1. Paste this line in the &lt;head&gt; of {form.gsc.host} (next to the Undercut snippet) and publish the site:</p>
+						<pre class="overflow-x-auto rounded-[14px] bg-ink p-3 text-xs text-accent">&lt;meta name="google-site-verification" content="{form.gsc.token}" /&gt;</pre>
+					{:else}
+						<p class="font-medium">1. Add this TXT record to the DNS of {form.gsc.host} (at the domain registrar):</p>
+						<pre class="overflow-x-auto rounded-[14px] bg-ink p-3 text-xs text-accent">Type: TXT   Name: @   Value: {form.gsc.token}</pre>
+					{/if}
+					<input type="hidden" name="token" value={form.gsc.token} /><input type="hidden" name="host" value={form.gsc.host} />
+					<p class="font-medium">2. Then:</p>
+					<button formaction="?/gscVerify" name="method" value={form.gsc.method} class="btn btn-primary py-2 text-sm">Verify & add to Search Console</button>
+				</div>
+			{/if}
+			{#if !data.canManage && data.connected}
+				<p class="bg-tile px-6 py-3 text-xs text-muted">The first “Create” asks Google for permission to create properties for you (one time).</p>
+			{/if}
 			{#if data.options?.errors.length}
 				<div class="space-y-1 bg-warn-bg p-4 text-sm text-warn">{#each data.options.errors as e, i (i)}<p><Linkify text={e} /></p>{/each}</div>
 			{/if}
 			{#each fields as f (f.key)}
 				{#if f.show()}
 					{@const opts = data.options?.[f.key] ?? []}
-					<label class="grid items-center gap-3 p-6 sm:grid-cols-[1fr_1.2fr]">
+					{@const linked = f.current() ?? data.suggested[f.key]}
+					<div class="grid items-center gap-3 p-6 sm:grid-cols-[1fr_1.2fr]">
 						<span><span class="block font-medium">{f.label}</span><span class="block text-sm text-muted">{f.help}</span></span>
-						{#if opts.length}
-							<select class="input" name={f.key}>
-								<option value="">Not used</option>
-								{#each opts as o (o.value)}<option value={o.value} selected={o.value === (f.current() ?? data.suggested[f.key])}>{o.label}{!f.current() && o.value === data.suggested[f.key] ? ' (suggested)' : ''}</option>{/each}
-							</select>
-						{:else}
-							<input class="input text-sm" name={f.key} value={f.current() ?? ''} placeholder={f.placeholder} />
-						{/if}
-					</label>
+						<div class="flex flex-col gap-2">
+							{#if opts.length}
+								<select class="input" name={f.key} aria-label={f.label}>
+									<option value="">Not used</option>
+									{#each opts as o (o.value)}<option value={o.value} selected={o.value === linked}>{o.label}{!f.current() && o.value === data.suggested[f.key] ? ' (suggested)' : ''}</option>{/each}
+								</select>
+							{:else}
+								<input class="input text-sm" name={f.key} value={f.current() ?? ''} placeholder={f.placeholder} aria-label={f.label} />
+							{/if}
+							{#if data.connected && !linked && c.domain}
+								{#if f.key === 'ga4'}
+									<button formaction="?/createGa4" class="btn btn-accent self-start py-2 text-sm">＋ Create a GA4 property for {c.name}</button>
+								{:else if f.key === 'gtm'}
+									<button formaction="?/createGtm" class="btn btn-accent self-start py-2 text-sm">＋ Create a Tag Manager container{c.google.measurementId ? ' (with GA4 inside)' : ''}</button>
+								{:else if f.key === 'gsc'}
+									<div class="flex flex-wrap gap-2">
+										<button formaction="?/gscToken" name="method" value="META" class="btn btn-accent py-2 text-sm">＋ Add to Search Console</button>
+										<button formaction="?/gscToken" name="method" value="DNS_TXT" class="pill py-2 text-sm">Use DNS instead</button>
+									</div>
+								{:else if f.key === 'gbp'}
+									<a href="https://business.google.com/create" target="_blank" rel="noreferrer" class="pill self-start py-2 text-sm">Create a Business Profile ↗</a>
+								{/if}
+							{/if}
+							{#if f.key === 'gtm' && c.google.gtmPublicId}
+								<label class="flex items-start gap-2 text-xs text-ink-2"><input type="checkbox" name="loadGtm" checked={c.google.loadGtm} class="mt-0.5 accent-[#0D0D0D]" /><span>Load {c.google.gtmPublicId} through the Undercut snippet — GA4 works without touching the site. GA4 uses cookies: the site's cookie banner must allow it.</span></label>
+							{/if}
+						</div>
+					</div>
 				{:else}
 					<input type="hidden" name={f.key} value={f.current() ?? ''} />
 				{/if}

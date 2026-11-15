@@ -23,16 +23,30 @@ function redirectUri(origin: string) {
 	return env.GOOGLE_REDIRECT_URI || `${origin}/auth/google/callback`;
 }
 
+/** Extra permissions, asked only when the agency clicks "Create" (GA4 property, Tag Manager container, Search Console site). */
+export const MANAGE_SCOPES = [
+	'https://www.googleapis.com/auth/analytics.edit',
+	'https://www.googleapis.com/auth/webmasters',
+	'https://www.googleapis.com/auth/siteverification',
+	'https://www.googleapis.com/auth/tagmanager.edit.containers',
+	'https://www.googleapis.com/auth/tagmanager.edit.containerversions',
+	'https://www.googleapis.com/auth/tagmanager.publish'
+];
+export const canManage = () => {
+	const sc = getTokens()?.scope ?? '';
+	return MANAGE_SCOPES.every((x) => sc.includes(x));
+};
+
 /** mode "data": connect Analytics, Search Console, Maps, Tag Manager. mode "login": only sign in (name + email). */
-export function authUrl(origin: string, state: string, mode: 'data' | 'login' = 'data') {
+export function authUrl(origin: string, state: string, mode: 'data' | 'login' | 'manage' = 'data') {
 	const p = new URLSearchParams({
 		client_id: env.GOOGLE_CLIENT_ID ?? '',
 		redirect_uri: redirectUri(origin),
 		response_type: 'code',
-		scope: mode === 'login' ? 'openid email profile' : SCOPES.join(' '),
+		scope: mode === 'login' ? 'openid email profile' : mode === 'manage' ? [...SCOPES, ...MANAGE_SCOPES].join(' ') : SCOPES.join(' '),
 		state
 	});
-	if (mode === 'data') {
+	if (mode !== 'login') {
 		p.set('access_type', 'offline');
 		p.set('prompt', 'consent');
 		p.set('include_granted_scopes', 'true');
@@ -249,17 +263,28 @@ export function isConnected() {
 
 // ---------- Pickers: what can this Google account see? ----------
 
-export type Option = { value: string; label: string };
+export type Option = { value: string; label: string; domains?: string[] };
 
 export async function listAccounts() {
 	const out: Record<'ga4' | 'gsc' | 'gbp' | 'gtm', Option[]> = { ga4: [], gsc: [], gbp: [], gtm: [] };
 	const errors: string[] = [];
 	await Promise.all([
 		g('https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200')
-			.then((j) => {
+			.then(async (j) => {
 				for (const a of j.accountSummaries ?? [])
 					for (const p of a.propertySummaries ?? [])
 						out.ga4.push({ value: p.property, label: `${p.displayName} (${a.displayName})` });
+				// the website address of each property (web data streams) — used to match clients reliably
+				await Promise.all(
+					out.ga4.slice(0, 60).map(async (o) => {
+						try {
+							const ds = await g(`https://analyticsadmin.googleapis.com/v1beta/${o.value}/dataStreams?pageSize=20`);
+							o.domains = (ds.dataStreams ?? []).map((d: any) => d.webStreamData?.defaultUri).filter(Boolean);
+						} catch {
+							/* stream list is a bonus */
+						}
+					})
+				);
 			})
 			.catch((e) => errors.push(`GA4: ${e.message}`)),
 		g('https://www.googleapis.com/webmasters/v3/sites')
@@ -282,7 +307,7 @@ export async function listAccounts() {
 				for (const a of j.account ?? []) {
 					const c = await g(`https://tagmanager.googleapis.com/tagmanager/v2/${a.path}/containers`);
 					for (const ct of c.container ?? [])
-						out.gtm.push({ value: ct.path, label: `${ct.name} · ${ct.publicId}` });
+						out.gtm.push({ value: ct.path, label: `${ct.name} · ${ct.publicId}`, domains: ct.domainName ?? [] });
 				}
 			})
 			.catch((e) => errors.push(`Tag Manager: ${e.message}`))
@@ -623,4 +648,104 @@ export async function gscQuery(client: Client, query: string, days = 28): Promis
 	});
 	const r = j.rows?.[0];
 	return r ? { key: query, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: +r.position.toFixed(1) } : null;
+}
+
+// ---------- Matching: which Google properties belong to this client? ----------
+const hostOf = (u: string) => u.replace(/^sc-domain:/, '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/:].*$/, '').toLowerCase();
+
+export function matchProperties(client: Client, o: Record<'ga4' | 'gsc' | 'gbp' | 'gtm', Option[]>) {
+	const host = client.domain ? hostOf(client.domain) : '';
+	const words = client.name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+	const pick = (list: Option[] = []) =>
+		(host && list.find((x) => (x.domains ?? []).some((d) => hostOf(d) === host))) ||
+		(host && list.find((x) => hostOf(x.value) === host)) ||
+		(host && list.find((x) => (x.value + ' ' + x.label).toLowerCase().includes(host))) ||
+		(host && list.find((x) => x.label.toLowerCase().includes(host.split('.')[0]))) ||
+		list.find((x) => words.some((w) => x.label.toLowerCase().includes(w))) ||
+		undefined;
+	// Search Console: prefer the domain property, then the https URL property
+	const gscDomain = o.gsc.find((x) => x.value === `sc-domain:${host}`);
+	return { ga4: pick(o.ga4), gsc: gscDomain ?? pick(o.gsc), gbp: pick(o.gbp), gtm: pick(o.gtm) };
+}
+
+// ---------- Create things for a client (needs MANAGE_SCOPES) ----------
+const post = (url: string, body: object, method = 'POST') => g(url, { method, body: JSON.stringify(body) }, { cache: false });
+
+/** New GA4 property + web data stream. Returns the property and its Measurement ID (G-…). */
+export async function createGa4(client: Client) {
+	const acc = await g('https://analyticsadmin.googleapis.com/v1beta/accountSummaries?pageSize=200', {}, { cache: false });
+	const account = acc.accountSummaries?.[0]?.account;
+	if (!account) throw new Error('NO_GA_ACCOUNT');
+	const prop = await post('https://analyticsadmin.googleapis.com/v1beta/properties', {
+		parent: account,
+		displayName: client.name,
+		timeZone: 'Europe/Brussels',
+		currencyCode: 'EUR'
+	});
+	const stream = await post(`https://analyticsadmin.googleapis.com/v1beta/${prop.name}/dataStreams`, {
+		type: 'WEB_DATA_STREAM',
+		displayName: client.domain.replace(/^https?:\/\//, ''),
+		webStreamData: { defaultUri: client.domain }
+	});
+	clearGoogleCache();
+	return { property: prop.name as string, measurementId: stream.webStreamData?.measurementId as string };
+}
+
+/** New Tag Manager container (with the GA4 Google tag inside and published, when a Measurement ID is known). */
+export async function createGtm(client: Client, measurementId?: string) {
+	const accs = await g('https://tagmanager.googleapis.com/tagmanager/v2/accounts', {}, { cache: false });
+	const account = accs.account?.[0]?.path;
+	if (!account) throw new Error('NO_GTM_ACCOUNT');
+	const ct = await post(`https://tagmanager.googleapis.com/tagmanager/v2/${account}/containers`, {
+		name: client.name,
+		usageContext: ['web'],
+		domainName: client.domain ? [hostOf(client.domain)] : []
+	});
+	let published = false;
+	if (measurementId) {
+		const ws = (await g(`https://tagmanager.googleapis.com/tagmanager/v2/${ct.path}/workspaces`, {}, { cache: false })).workspace?.[0];
+		if (ws) {
+			await post(`https://tagmanager.googleapis.com/tagmanager/v2/${ws.path}/tags`, {
+				name: 'Google tag (GA4) · Undercut',
+				type: 'googtag',
+				parameter: [{ type: 'template', key: 'tagId', value: measurementId }],
+				firingTriggerId: ['2147479553'] // built-in "All Pages"
+			});
+			const v = await post(`https://tagmanager.googleapis.com/tagmanager/v2/${ws.path}:create_version`, { name: 'Undercut setup', notes: 'GA4 Google tag added by Undercut' });
+			if (v.containerVersion?.path) {
+				await post(`https://tagmanager.googleapis.com/tagmanager/v2/${v.containerVersion.path}:publish`, {});
+				published = true;
+			}
+		}
+	}
+	clearGoogleCache();
+	return { container: ct.path as string, publicId: ct.publicId as string, published };
+}
+
+/** Search Console: the verification token (meta tag or DNS TXT record) for a site. */
+export async function gscVerificationToken(client: Client, method: 'META' | 'DNS_TXT' | 'TAG_MANAGER' | 'ANALYTICS') {
+	const domain = method === 'DNS_TXT';
+	const site = domain ? { type: 'INET_DOMAIN', identifier: hostOf(client.domain) } : { type: 'SITE', identifier: client.domain.replace(/\/?$/, '/') };
+	if (method === 'TAG_MANAGER' || method === 'ANALYTICS') return { site, token: '' };
+	const j = await post('https://www.googleapis.com/siteVerification/v1/token', { site, verificationMethod: method });
+	return { site, token: j.token as string };
+}
+
+/** Verify ownership, then add the site to Search Console. Returns the Search Console property id. */
+export async function gscVerifyAndAdd(client: Client, method: 'META' | 'DNS_TXT' | 'TAG_MANAGER' | 'ANALYTICS') {
+	const { site } = await gscVerificationToken(client, method);
+	await post(`https://www.googleapis.com/siteVerification/v1/webResource?verificationMethod=${method}`, { site });
+	const gscId = site.type === 'INET_DOMAIN' ? `sc-domain:${site.identifier}` : site.identifier;
+	await g(`https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(gscId)}`, { method: 'PUT' }, { cache: false }).catch(() => null);
+	clearGoogleCache();
+	return gscId;
+}
+
+/** Access token for Google APIs that only need the project (PageSpeed Insights). */
+export async function projectAccessToken() {
+	try {
+		return googleConfigured() && isConnected() ? await refreshToken(false) : null;
+	} catch {
+		return null;
+	}
 }

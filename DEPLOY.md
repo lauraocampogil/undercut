@@ -15,6 +15,8 @@ Tres pasos: **1) Google** (10 min), **2) probar en local**, **3) publicar en tu 
    - <https://console.cloud.google.com/apis/library/analyticsadmin.googleapis.com>
    - <https://console.cloud.google.com/apis/library/searchconsole.googleapis.com>
    - <https://console.cloud.google.com/apis/library/tagmanager.googleapis.com>
+   - <https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com> (Lighthouse)
+   - <https://console.cloud.google.com/apis/library/siteverification.googleapis.com> (créer/vérifier un site dans Search Console depuis Undercut)
    - Google Maps / Business Profile (opcional, Google tiene que aprobar el acceso: <https://developers.google.com/my-business/content/prereqs>):
      `businessprofileperformance`, `mybusinessaccountmanagement`, `mybusinessbusinessinformation`
 3. **OAuth consent screen** → <https://console.cloud.google.com/auth/branding>

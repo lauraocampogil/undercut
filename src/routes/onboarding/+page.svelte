@@ -100,7 +100,7 @@
 							</li>
 						{/each}
 					</ul>
-					<p class="mt-3 text-xs text-muted">Wrong match? Change it later in Setup & connections.</p>
+					<p class="mt-3 text-xs text-muted">{data.matches.some((m) => !m.option) ? "Missing one? After this step, create it from Setup & connections in one click (Analytics, Tag Manager, Search Console)." : "Wrong match? Change it later in Setup & connections."}</p>
 					<button class="btn btn-primary mt-5 w-full py-3 text-base">Looks good →</button>
 				</form>
 			{:else}
