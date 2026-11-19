@@ -1,6 +1,7 @@
 import { getClientOverview } from '#lib/server/overview.ts';
 import { aiSummary } from '#lib/server/insights.ts';
 import { getClient, toggleDone } from '#lib/server/store.ts';
+import { goalFile, goalProgress } from '#lib/server/goals.ts';
 
 export const load = async ({ parent, url }) => {
 	const { client } = await parent();
@@ -15,7 +16,8 @@ export const load = async ({ parent, url }) => {
 			ai: false
 		};
 	else summary = { text: 'No data yet.', ai: false };
-	return { days, areas: o.areas, tasks: o.tasks, health: o.health, summary };
+	const goals = await Promise.all(goalFile(client).goals.slice(0, 2).map((g) => goalProgress(client, g).catch(() => null)));
+	return { days, areas: o.areas, tasks: o.tasks, health: o.health, summary, goals: goals.filter((g) => g !== null) };
 };
 
 export const actions = {

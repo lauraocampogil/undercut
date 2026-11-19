@@ -93,7 +93,7 @@
 					{/if}
 					<ul class="mt-4 grid gap-2 sm:grid-cols-2">
 						{#each data.matches as m (m.key)}
-							<li class="rounded-[18px] p-4 {m.option ? 'bg-[#E4F5B8]' : 'bg-tile'}">
+							<li class="rounded-[18px] p-4 {m.option ? 'bg-accent-soft' : 'bg-tile'}">
 								<p class="text-xs text-muted">{m.label}</p>
 								<p class="mt-1 truncate font-medium">{m.option?.label ?? 'Not found'}</p>
 								{#if m.option}<input type="hidden" name={m.key} value={m.option.value} />{/if}
@@ -146,7 +146,7 @@
 			<form method="POST" action="?step=3&client={data.client.id}&/check" class="mt-4" use:enhance={() => { checking = true; return async ({ update }) => { await update({ reset: false }); checking = false; }; }}>
 				<input type="hidden" name="client" value={data.client.id} />
 				{#if form?.check === 'ok' || data.installed}
-					<div class="card flex items-center gap-4 bg-[#E4F5B8] p-5 sm:p-6">
+					<div class="card flex items-center gap-4 bg-accent-soft p-5 sm:p-6">
 						<span class="grid size-10 place-items-center rounded-full bg-ink text-accent">✓</span>
 						<p class="flex-1 font-medium">Snippet found on {data.client.domain.replace(/^https?:\/\//, '')}</p>
 						<a href="/onboarding?step=4&client={data.client.id}" class="btn btn-primary">Next →</a>

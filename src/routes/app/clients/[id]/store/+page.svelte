@@ -47,7 +47,7 @@
 			<select name="cc" class="input w-auto py-1.5" onchange={(e) => e.currentTarget.form?.requestSubmit()}>{#each data.countries as c (c)}<option value={c} selected={t.cc === c}>{c.toUpperCase()}</option>{/each}</select>
 		</form>
 		{#if a.url && a.url !== '#'}<a href={a.url} target="_blank" rel="noreferrer" class="pill">Open in App Store ↗</a>{/if}
-		{#if t.source === 'demo'}<span class="rounded-full bg-[#E4F5B8] px-2.5 py-1 text-[11px]">Example data</span>{/if}
+		{#if t.source === 'demo'}<span class="rounded-full bg-accent-soft px-2.5 py-1 text-[11px]">Example data</span>{/if}
 	</section>
 
 	<!-- numbers -->
@@ -152,7 +152,7 @@
 					<li>
 						<form method="POST" action={act('add')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
 							<input type="hidden" name="id" value={r.id} />
-							<button class="flex items-center gap-2 rounded-full bg-tile py-1 pr-3 pl-1 text-sm hover:bg-[#E4F5B8]">{#if r.icon}<img src={r.icon} alt="" class="size-6 rounded-md" />{/if}{r.name} <span class="text-muted">+ Track</span></button>
+							<button class="flex items-center gap-2 rounded-full bg-tile py-1 pr-3 pl-1 text-sm hover:bg-accent-soft">{#if r.icon}<img src={r.icon} alt="" class="size-6 rounded-md" />{/if}{r.name} <span class="text-muted">+ Track</span></button>
 						</form>
 					</li>
 				{/each}
@@ -162,7 +162,7 @@
 			<table class="w-full min-w-[620px] text-sm">
 				<thead><tr class="text-left text-xs text-muted"><th class="px-3 pb-2 font-medium">App</th><th class="px-3 pb-2 font-medium">Rank in category</th><th class="px-3 pb-2 font-medium">Rating</th><th class="px-3 pb-2 font-medium">Ratings</th><th class="px-3 pb-2 font-medium">Last update</th><th></th></tr></thead>
 				<tbody>
-					<tr class="border-t border-line bg-[#E4F5B8]/50">
+					<tr class="border-t border-line bg-accent-soft/50">
 						<td class="px-3 py-2.5 font-medium">{a.name} <span class="text-xs text-muted">(you)</span></td>
 						<td class="px-3 py-2.5">{t.today?.rankCat ? `#${t.today.rankCat}` : '—'}</td>
 						<td class="px-3 py-2.5">{a.rating.toFixed(1)}★</td>

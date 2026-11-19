@@ -107,3 +107,72 @@ export function inview(node: HTMLElement, opts: { delay?: number } = {}) {
 	const off = observe(node, () => node.classList.add('in'));
 	return { destroy: off };
 }
+
+/** Cursor-following light on a glass card: writes --sx / --sy in px (see .spot in layout.css). */
+export function spotlight(node: HTMLElement) {
+	if (reduced() || matchMedia('(hover: none)').matches) return;
+	node.classList.add('spot');
+	const move = (e: PointerEvent) => {
+		const r = node.getBoundingClientRect();
+		node.style.setProperty('--sx', `${e.clientX - r.left}px`);
+		node.style.setProperty('--sy', `${e.clientY - r.top}px`);
+	};
+	node.addEventListener('pointermove', move);
+	return { destroy: () => node.removeEventListener('pointermove', move) };
+}
+
+/** Buttons that lean towards the pointer. */
+export function magnetic(node: HTMLElement, strength = 0.25) {
+	if (reduced() || matchMedia('(hover: none)').matches) return;
+	node.style.transition = 'transform .35s cubic-bezier(.2,.75,.15,1)';
+	const move = (e: PointerEvent) => {
+		const r = node.getBoundingClientRect();
+		node.style.transform = `translate(${(e.clientX - r.left - r.width / 2) * strength}px, ${(e.clientY - r.top - r.height / 2) * strength}px)`;
+	};
+	const leave = () => (node.style.transform = '');
+	node.addEventListener('pointermove', move);
+	node.addEventListener('pointerleave', leave);
+	return { destroy: () => (node.removeEventListener('pointermove', move), node.removeEventListener('pointerleave', leave)) };
+}
+
+/** Text decodes through random glyphs on hover (links, labels). */
+export function hoverScramble(node: HTMLElement) {
+	if (reduced()) return;
+	const glyphs = '▚▞░▒#*+=/<>01';
+	let raf = 0;
+	const run = () => {
+		const target = node.dataset.text ?? (node.dataset.text = node.textContent ?? '');
+		const t0 = performance.now();
+		cancelAnimationFrame(raf);
+		const step = (t: number) => {
+			const p = Math.min(1, (t - t0) / 420);
+			node.textContent = [...target].map((ch, i) => (ch === ' ' || i / target.length < p ? ch : glyphs[(Math.random() * glyphs.length) | 0])).join('');
+			if (p < 1) raf = requestAnimationFrame(step);
+		};
+		raf = requestAnimationFrame(step);
+	};
+	node.addEventListener('pointerenter', run);
+	return { destroy: () => (node.removeEventListener('pointerenter', run), cancelAnimationFrame(raf)) };
+}
+
+/** While this section fills the middle of the screen, the whole page turns black (html.night). */
+export function nightZone(node: HTMLElement) {
+	let raf = 0;
+	const update = () => {
+		raf = 0;
+		const r = node.getBoundingClientRect();
+		const on = r.top < innerHeight * 0.5 && r.bottom > innerHeight * 0.5;
+		document.documentElement.classList.toggle('night', on);
+	};
+	const onScroll = () => (raf ||= requestAnimationFrame(update));
+	update();
+	addEventListener('scroll', onScroll, { passive: true });
+	addEventListener('resize', onScroll);
+	return {
+		destroy() {
+			removeEventListener('scroll', onScroll);
+			removeEventListener('resize', onScroll);
+			document.documentElement.classList.remove('night');
+		}
+	};
+}

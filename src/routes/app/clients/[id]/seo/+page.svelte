@@ -163,7 +163,7 @@
 	<div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
 		{#each groups as g (g.kind)}
 			{@const done = g.live === g.all.length}
-			<button onclick={() => (group = g.kind)} class="flex flex-col gap-3 rounded-[24px] p-4 text-left transition-transform hover:-translate-y-0.5 {activeKind === g.kind ? 'bg-ink text-white' : done ? 'bg-[#E4F5B8]' : 'bg-white'}">
+			<button onclick={() => (group = g.kind)} class="flex flex-col gap-3 rounded-[24px] p-4 text-left transition-transform hover:-translate-y-0.5 {activeKind === g.kind ? 'bg-ink text-white' : done ? 'bg-accent-soft' : 'bg-white'}">
 				<span class="flex items-center justify-between text-xs {activeKind === g.kind ? 'text-white/60' : 'text-muted'}">{kindHelp[g.kind]}{#if done}<span class="font-semibold text-good">✓</span>{/if}</span>
 				<span class="big text-[40px]">{g.all.length}</span>
 				<span class="text-sm font-medium">{kindLabel[g.kind]}{g.all.length > 1 && g.kind !== 'schema' ? 's' : ''}</span>
@@ -176,7 +176,7 @@
 	<ul class="mt-4 grid gap-3 {activeKind === 'alt' ? 'lg:grid-cols-2' : ''}">
 		{#each shown as f (f.id)}
 			{@const val = draft[f.id] ?? f.value}
-			<li class="flex flex-col gap-4 p-5 sm:p-6 {f.status === 'live' ? 'rounded-[28px] bg-[#E4F5B8]' : 'card'}">
+			<li class="flex flex-col gap-4 p-5 sm:p-6 {f.status === 'live' ? 'rounded-[28px] bg-accent-soft' : 'card'}">
 				<div class="flex items-center justify-between gap-2">
 					<p class="text-sm"><span class="text-muted">Page</span> <a href="{data.client.domain.replace(/\/$/, '')}{f.path}" target="_blank" rel="noreferrer" class="font-medium underline-offset-4 hover:underline">{f.path} ↗</a></p>
 					{#if f.status === 'live'}
@@ -262,7 +262,7 @@
 	<div class="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
 		{#each a.issues as i (i.id)}
 			{@const done = fixedSet.has(i.id)}
-			<div class="flex flex-col gap-3 rounded-[22px] p-4 {done ? 'bg-[#E4F5B8]' : 'bg-white'}">
+			<div class="flex flex-col gap-3 rounded-[22px] p-4 {done ? 'bg-accent-soft' : 'bg-white'}">
 				<p class="flex items-start gap-2 font-medium leading-snug"><span class="mt-1.5 size-2 shrink-0 rounded-full {done ? 'bg-good' : dot[i.level]}"></span>{i.title}</p>
 				<div class="mt-auto flex items-center justify-between gap-2">
 					<p class="truncate text-xs text-muted">{done ? 'Live on the site' : i.pages.slice(0, 2).join(', ')}</p>

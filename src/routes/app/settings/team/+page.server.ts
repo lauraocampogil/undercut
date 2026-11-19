@@ -30,7 +30,7 @@ export const actions = {
 		const sent = await sendEmail(
 			email,
 			`${agency} invited you to Undercut`,
-			`<div style="font-family:system-ui,sans-serif;font-size:15px"><p><b>${esc(agency)}</b> invited you to ${client ? `see the dashboard of <b>${esc(client)}</b>` : 'their Undercut workspace'}.</p><p><a href="${link}" style="display:inline-block;background:#C6F432;color:#172000;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Accept the invitation</a></p><p style="color:#85878d;font-size:13px">Or open: ${link}</p></div>`
+			`<div style="font-family:system-ui,sans-serif;font-size:15px"><p><b>${esc(agency)}</b> invited you to ${client ? `see the dashboard of <b>${esc(client)}</b>` : 'their Undercut workspace'}.</p><p><a href="${link}" style="display:inline-block;background:#0D0D0D;color:#ffffff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Accept the invitation</a></p><p style="color:#85878d;font-size:13px">Or open: ${link}</p></div>`
 		);
 		return { invited: email, link, sent };
 	},

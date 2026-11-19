@@ -30,6 +30,22 @@
 
 <svelte:head><title>{c.name} · Undercut</title></svelte:head>
 
+<!-- 0. The goal -->
+{#if data.goals.length}
+	<section class="mb-4 grid gap-3 {data.goals.length > 1 ? 'lg:grid-cols-2' : ''}">
+		{#each data.goals as g (g.goal.id)}
+			<a href="/app/clients/{c.id}/goals" class="group card flex flex-col gap-3 p-5 transition-transform hover:-translate-y-0.5">
+				<div class="flex items-center justify-between gap-2 text-sm"><span class="text-muted">🎯 Goal · {g.label} by {g.goal.deadline}</span><span class="rounded-full px-2.5 py-0.5 text-[11px] font-medium {g.status === 'behind' ? 'bg-bad-bg text-bad' : g.status === 'no_data' ? 'bg-tile text-muted' : 'bg-good-bg text-good'}">{g.status === 'reached' ? 'Reached' : g.status === 'on_track' ? 'On track' : g.status === 'behind' ? 'Behind' : 'Not measured'}</span></div>
+				<p class="flex items-baseline gap-2"><span class="big text-[36px]">{g.current == null ? '—' : g.money ? `€${Math.round(g.current).toLocaleString('en-US')}` : g.current}</span><span class="text-muted">/ {g.money ? `€${g.goal.target.toLocaleString('en-US')}` : g.goal.target}</span></p>
+				<div class="h-2 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full bg-accent" style="width:{Math.max(2, g.pct)}%"></div></div>
+				{#if g.actions[0]}<p class="text-sm text-ink-2"><b class="text-ink">Next:</b> {g.actions[0].title} <span class="text-muted transition-transform group-hover:translate-x-0.5">→</span></p>{/if}
+			</a>
+		{/each}
+	</section>
+{:else}
+	<a href="/app/clients/{c.id}/goals" class="mb-4 flex items-center gap-3 rounded-[22px] border-2 border-dashed border-line px-5 py-3.5 text-sm text-ink-2 hover:border-ink"><span class="text-lg">🎯</span><span class="flex-1">Set a goal for {c.name} — e.g. 100 visits a day or €10k MRR — and Undercut helps you get there.</span><span class="font-medium text-ink">Set a goal →</span></a>
+{/if}
+
 <!-- 1. Where do we stand? -->
 <section class="grid gap-4 lg:grid-cols-[1fr_2fr]">
 	<div class="card-dark flex flex-col justify-between gap-6 p-6 sm:p-7">

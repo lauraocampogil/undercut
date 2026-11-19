@@ -1,0 +1,205 @@
+From 770de2fdacea93ed9f963af2ab9519ee36fc0d6a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 22:59:00 +0100
+Subject: [PATCH] Landing: richer dashboard preview and calmer two-column FAQ
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/routes/+page.svelte | 147 ++++++++++++++++++++++++++++------------
+ 1 file changed, 105 insertions(+), 42 deletions(-)
+
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index f93c506..45a0bba 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -85,9 +85,9 @@
+ 		{ n: 'Harper Law', w: 'last update 2019', s: 55, x: '50%', y: '72%', d: -4 }
+ 	];
+ 	const notes = [
+-		{ t: 'Prospects found for you', x: '-2%', y: '30%', side: 'left' },
+-		{ t: 'Pipeline · who signed', x: '102%', y: '22%', side: 'right' },
+-		{ t: 'Your clients’ health', x: '102%', y: '78%', side: 'right' }
++		{ t: 'Businesses that need you, found every week', x: '22%', y: '-2%' },
++		{ t: 'Who you contacted, who signed', x: '74%', y: '56%' },
++		{ t: 'Every client’s site and app, at a glance', x: '58%', y: '97%' }
+ 	];
+ </script>
+ 
+@@ -123,45 +123,96 @@
+ 
+ <!-- A small, live dashboard: neutral, or in the agency's colour -->
+ {#snippet mock(accent: string | null, name: string)}
+-	<div class="overflow-hidden rounded-[22px] bg-paper text-left text-ink transition-colors duration-700" style={themeStyle(accent)}>
+-		<div class="grid md:grid-cols-[170px_1fr]">
+-			<aside class="hidden flex-col gap-1 border-r border-line p-3 text-[12px] md:flex">
+-				<div class="flex items-center gap-2 px-2 pb-3"><span class="grid size-6 place-items-center rounded-md bg-accent text-[10px] font-semibold text-accent-ink transition-colors duration-700">{name.slice(0, 1)}</span><b class="truncate font-medium">{name}</b></div>
+-				{#each [['Dashboard', true], ['Prospects', false], ['Alerts', false]] as [l, a] (l)}<span class="rounded-lg px-3 py-1.5 transition-colors duration-700 {a ? 'bg-accent text-accent-ink' : 'text-ink-2'}">{l}</span>{/each}
+-				<p class="mt-3 px-3 text-[10px] text-muted uppercase">Clients</p>
+-				{#each ['Motion Physio', 'Lou Studio', 'Moove app'] as c (c)}<span class="px-3 py-1 text-ink-2">{c}</span>{/each}
++	{@const weeks = [4, 6, 5, 8, 7, 10, 9, 13, 12, 16, 15, 19]}
++	<div class="overflow-hidden rounded-[22px] bg-[#f4f4f2] text-left text-ink" style={themeStyle(accent)}>
++		<div class="grid md:grid-cols-[200px_1fr]">
++			<!-- sidebar -->
++			<aside class="hidden flex-col gap-0.5 border-r border-black/[.06] bg-white/50 p-3 text-[12px] md:flex">
++				<div class="mb-3 flex items-center gap-2 rounded-xl bg-white p-2 shadow-[0_0_0_1px_rgba(0,0,0,.05)]"><span class="grid size-7 place-items-center rounded-lg bg-ink text-[11px] font-semibold text-white">{name.slice(0, 1)}</span><span class="min-w-0"><b class="block truncate text-[12px] font-semibold">{name}</b><span class="block text-[10px] text-muted">Pro plan</span></span></div>
++				{#each [['Dashboard', 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z', true], ['Prospects', 'M12 2a10 10 0 100 20 10 10 0 000-20zm0 6a4 4 0 110 8 4 4 0 010-8z', false], ['Pipeline', 'M4 6h16M4 12h10M4 18h6', false], ['Agenda', 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4', false], ['Alerts', 'M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20h4', false]] as [l, d, a] (l)}
++					<span class="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 {a ? 'bg-ink text-white' : 'text-ink-2'}"><svg viewBox="0 0 24 24" class="size-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d={d as string} /></svg>{l}{#if l === 'Alerts'}<span class="ml-auto rounded-full bg-black/[.07] px-1.5 text-[9px]">2</span>{/if}</span>
++				{/each}
++				<p class="mt-4 mb-1 px-2.5 text-[9px] font-semibold tracking-[0.14em] text-muted uppercase">Clients</p>
++				{#each [['Motion Physio', '#3E8E63'], ['Lou Studio', '#E0A458'], ['Northline', '#4C7DD9'], ['Moove app', '#8B5CF6']] as [c, col] (c)}<span class="flex items-center gap-2.5 px-2.5 py-1.5 text-ink-2"><span class="size-2 rounded-full" style="background:{col}"></span>{c}</span>{/each}
++				<div class="mt-auto rounded-xl bg-white p-2.5 text-[10px] text-muted shadow-[0_0_0_1px_rgba(0,0,0,.05)]">✦ Ask Undercut…</div>
+ 			</aside>
+-			<div class="p-4 sm:p-5">
+-				<div class="flex flex-wrap items-end justify-between gap-3">
+-					<div><p class="text-[11px] text-muted">Good morning</p><p class="display text-[30px] leading-none sm:text-[36px]">Your week</p></div>
+-					<div class="flex gap-5 text-right">{#each [['7', 'to contact'], ['3', 'talking'], ['1/2', 'won']] as [v, l] (l)}<div><p class="big text-[24px] leading-none">{v}</p><p class="text-[10px] text-muted">{l}</p></div>{/each}</div>
++
++			<div class="min-w-0 p-4 sm:p-6">
++				<!-- top bar -->
++				<div class="flex flex-wrap items-end justify-between gap-4">
++					<div><p class="text-[11px] text-muted">Monday, good morning</p><p class="mt-1 text-[28px] leading-none font-medium tracking-[-0.04em] sm:text-[34px]">Your week</p></div>
++					<div class="flex items-center gap-2">
++						<span class="hidden rounded-full bg-white px-3 py-1.5 text-[11px] text-muted shadow-[0_0_0_1px_rgba(0,0,0,.05)] sm:block">⌕ Search clients, prospects…</span>
++						<span class="rounded-full bg-ink px-3 py-1.5 text-[11px] font-medium text-white">+ Find 5</span>
++					</div>
++				</div>
++
++				<!-- KPI row -->
++				<div class="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
++					{#each [['New prospects', '12', '+5 this week'], ['In conversation', '4', '2 replied today'], ['Won this month', '2 / 3', '€1,400 / month'], ['Client leads', '186', '↑ 18% vs last month']] as [l, v, sub], i (l)}
++						<div class="rounded-[16px] p-3.5 {i === 0 ? 'bg-ink text-white' : 'bg-white shadow-[0_0_0_1px_rgba(0,0,0,.04)]'}">
++							<p class="text-[10px] {i === 0 ? 'text-white/60' : 'text-muted'}">{l}</p>
++							<p class="mt-1.5 text-[24px] leading-none font-medium tracking-[-0.04em]">{v}</p>
++							<p class="mt-1.5 text-[10px] {i === 0 ? 'text-white/60' : 'text-muted'}">{sub}</p>
++						</div>
++					{/each}
+ 				</div>
+-				<div class="mt-3 grid gap-2 lg:grid-cols-[1.5fr_1fr]">
+-					<div class="card-dark p-4">
+-						<p class="flex justify-between text-[11px]"><span class="text-accent transition-colors duration-700">New prospects · near you</span><span class="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-ink transition-colors duration-700">+ Find 5</span></p>
+-						<ul class="mt-3 space-y-1.5">
+-							{#each [[90, 'Lumen Hair Studio', 'not mobile · no https'], [70, 'Corner Bakery', 'no website'], [55, 'Harper Law', 'not updated since 2019']] as [sc, nm, why] (nm)}
+-								<li class="flex items-center gap-2.5 rounded-xl bg-white/[.07] px-2.5 py-2"><span class="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[10px] font-semibold text-accent-ink transition-colors duration-700">{sc}</span><span class="min-w-0"><b class="block truncate text-[12px] font-medium">{nm}</b><span class="block truncate text-[10px] text-white/50">{why}</span></span></li>
++
++				<div class="mt-2 grid gap-2 lg:grid-cols-[1.35fr_1fr]">
++					<!-- prospects -->
++					<div class="rounded-[16px] bg-white p-4 shadow-[0_0_0_1px_rgba(0,0,0,.04)]">
++						<div class="flex items-center justify-between"><p class="text-[12px] font-semibold">New prospects</p><p class="text-[10px] text-muted">near you · sorted by need</p></div>
++						<ul class="mt-3 divide-y divide-black/[.05]">
++							{#each [[92, 'Lumen Hair Studio', 'Hair salon', ['not mobile', 'no https'], 'Write'], [78, 'Corner Bakery', 'Bakery', ['no website'], 'Write'], [64, 'Harper Law', 'Law firm', ['slow · 4.8 s', '2019'], 'Sent'], [51, 'Olive Kitchen', 'Restaurant', ['no instagram'], 'Write']] as [sc, nm, cat, tags, st] (nm)}
++								<li class="flex items-center gap-3 py-2.5">
++									<span class="relative grid size-8 shrink-0 place-items-center"><svg viewBox="0 0 36 36" class="absolute inset-0 -rotate-90"><circle cx="18" cy="18" r="15" fill="none" stroke="rgba(0,0,0,.07)" stroke-width="3" /><circle cx="18" cy="18" r="15" fill="none" stroke="#0d0d0d" stroke-width="3" pathLength="100" stroke-dasharray="{sc} 100" stroke-linecap="round" /></svg><span class="text-[9px] font-semibold">{sc}</span></span>
++									<span class="min-w-0 flex-1"><b class="block truncate text-[12px] font-medium">{nm}</b><span class="block truncate text-[10px] text-muted">{cat}</span></span>
++									<span class="hidden gap-1 sm:flex">{#each tags as string[] as t (t)}<span class="rounded-full bg-black/[.04] px-2 py-0.5 text-[9px] text-ink-2">{t}</span>{/each}</span>
++									<span class="rounded-full px-2.5 py-1 text-[10px] font-medium {st === 'Sent' ? 'bg-black/[.04] text-muted' : 'bg-ink text-white'}">{st}</span>
++								</li>
+ 							{/each}
+ 						</ul>
+ 					</div>
++
+ 					<div class="grid gap-2">
+-						<div class="card p-4">
+-							<p class="text-[11px] text-muted">Pipeline</p>
+-							{#each [['Contacted', 70], ['Talking', 40], ['Won', 20]] as [l, w] (l)}<p class="mt-2 grid grid-cols-[64px_1fr] items-center gap-2 text-[11px]"><span class="text-muted">{l}</span><span class="h-2 rounded-full bg-tile"><span class="block h-full rounded-full transition-colors duration-700 {l === 'Won' ? 'bg-accent' : 'bg-ink/80'}" style="width:{w}%"></span></span></p>{/each}
++						<!-- chart -->
++						<div class="rounded-[16px] bg-white p-4 shadow-[0_0_0_1px_rgba(0,0,0,.04)]">
++							<div class="flex items-center justify-between"><p class="text-[12px] font-semibold">Leads for your clients</p><p class="text-[10px] text-muted">12 weeks</p></div>
++							<div class="mt-3 flex h-20 items-end gap-1.5">
++								{#each weeks as w, i (i)}<span class="flex-1 rounded-t-[4px] {i === weeks.length - 1 ? 'bg-ink' : 'bg-black/[.1]'}" style="height:{(w / 19) * 100}%"></span>{/each}
++							</div>
+ 						</div>
+-						<div class="card p-4">
+-							<p class="text-[11px] text-muted">This week</p>
+-							<ul class="mt-2 space-y-1.5">
+-								{#each ['Follow up · Brut Studio', 'Lou Studio: 3 pages without description'] as t, i (t)}<li class="flex items-center gap-2 rounded-xl bg-tile px-3 py-1.5 text-[11px]"><span class="size-1.5 shrink-0 rounded-full {i ? 'bg-[#E3A21A]' : 'bg-bad'}"></span><span class="truncate">{t}</span></li>{/each}
+-							</ul>
++						<!-- pipeline -->
++						<div class="rounded-[16px] bg-white p-4 shadow-[0_0_0_1px_rgba(0,0,0,.04)]">
++							<p class="text-[12px] font-semibold">Pipeline</p>
++							<div class="mt-3 grid grid-cols-4 gap-1.5 text-center">
++								{#each [['To contact', 12], ['Contacted', 7], ['Talking', 4], ['Won', 2]] as [l, n], i (l)}
++									<div class="rounded-[10px] py-2 {i === 3 ? 'bg-ink text-white' : 'bg-black/[.035]'}"><p class="text-[16px] leading-none font-medium">{n}</p><p class="mt-1 text-[9px] {i === 3 ? 'text-white/60' : 'text-muted'}">{l}</p></div>
++								{/each}
++							</div>
+ 						</div>
+ 					</div>
+ 				</div>
+-				<div class="mt-2 grid grid-cols-3 gap-2">
+-					{#each [['Motion Physio', '46 leads', 72], ['Lou Studio', '3,501 visits', 58], ['Moove app', '1,204 users', 91]] as [c, m, h] (c)}
+-						<div class="card p-3"><p class="truncate text-[11px] text-muted">{c}</p><p class="mt-1 flex items-center justify-between gap-1"><span class="truncate text-[13px] font-medium">{m}</span><span class="grid size-7 shrink-0 place-items-center rounded-full border-[3px] text-[9px] font-semibold transition-colors duration-700 {Number(h) > 80 ? 'border-accent' : 'border-line'}">{h}</span></p></div>
+-					{/each}
++
++				<!-- clients + this week -->
++				<div class="mt-2 grid gap-2 lg:grid-cols-[1.35fr_1fr]">
++					<div class="rounded-[16px] bg-white p-4 shadow-[0_0_0_1px_rgba(0,0,0,.04)]">
++						<div class="flex items-center justify-between"><p class="text-[12px] font-semibold">Clients</p><p class="text-[10px] text-muted">health · 28 days</p></div>
++						<div class="mt-2 grid grid-cols-[1fr_auto_auto] items-center gap-x-4 gap-y-2 text-[11px]">
++							{#each [['Motion Physio', '46 leads', 82], ['Lou Studio', '3,501 visits', 58], ['Moove app', '1,204 users', 91]] as [c, m, h] (c)}
++								<span class="truncate">{c}</span><span class="text-muted">{m}</span>
++								<span class="flex items-center gap-2"><span class="h-1.5 w-16 overflow-hidden rounded-full bg-black/[.06]"><span class="block h-full rounded-full {Number(h) < 70 ? 'bg-[#E3A21A]' : 'bg-ink'}" style="width:{h}%"></span></span><span class="w-5 text-right font-medium">{h}</span></span>
++							{/each}
++						</div>
++					</div>
++					<div class="rounded-[16px] bg-white p-4 shadow-[0_0_0_1px_rgba(0,0,0,.04)]">
++						<p class="text-[12px] font-semibold">This week</p>
++						<ul class="mt-2 space-y-1.5 text-[11px]">
++							{#each [['Follow up with Harper Law', 'Today', true], ['Lou Studio: 3 pages without description', 'Fix in 1 click', false], ['Call with Corner Bakery', 'Thu 10:00', false]] as [t, w, u] (t)}
++								<li class="flex items-center gap-2"><span class="grid size-3.5 shrink-0 place-items-center rounded-full border {u ? 'border-ink' : 'border-black/20'}">{#if u}<span class="size-1.5 rounded-full bg-ink"></span>{/if}</span><span class="min-w-0 flex-1 truncate">{t}</span><span class="shrink-0 text-[10px] text-muted">{w}</span></li>
++							{/each}
++						</ul>
++					</div>
+ 				</div>
+ 			</div>
+ 		</div>
+@@ -296,8 +347,8 @@
+ 					{@render mock(null, 'Your agency')}
+ 				</div>
+ 				{#each notes as n, i (n.t)}
+-					<div class="pointer-events-none absolute hidden items-center gap-3 xl:flex {n.side === 'left' ? '-translate-x-full flex-row-reverse' : ''}" style="left:{n.x};top:{n.y};opacity:clamp(0, calc(var(--p,0) * 3 - {1 + i * 0.4}), 1)">
+-						<span class="h-px w-12 bg-ink/30"></span><span class="tag whitespace-nowrap text-ink!">0{i + 1} · {n.t}</span>
++					<div class="pointer-events-none absolute hidden lg:block" style="left:{n.x};top:{n.y};opacity:clamp(0, calc(var(--p,0) * 3 - {1.2 + i * 0.35}), 1);transform:translateY(calc((1 - clamp(0, var(--p,0) * 3 - {1.2 + i * 0.35}, 1)) * 12px))">
++						<span class="glass-btn flex items-center gap-2 rounded-full py-2 pr-4 pl-2 text-[13px] font-medium"><span class="grid size-6 place-items-center rounded-full bg-ink text-[10px] text-white">{i + 1}</span>{n.t}</span>
+ 					</div>
+ 				{/each}
+ 			</div>
+@@ -424,16 +475,28 @@
+ 	</section>
+ 
+ 	<!-- ================= FAQ ================= -->
+-	<section id="faq" class="relative mx-auto max-w-3xl scroll-mt-24 px-4 py-24 sm:px-6 sm:py-40">
+-		<p class="tag text-center" use:reveal>FAQ</p>
+-		<SplitText text="Straight *answers.*" class="mt-6 text-center text-[clamp(30px,4vw,52px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+-		<ul class="mt-16 space-y-2" use:reveal>
++	<section id="faq" class="relative mx-auto grid max-w-[1280px] scroll-mt-24 gap-14 px-5 py-24 sm:px-10 sm:py-40 lg:grid-cols-[1fr_1.5fr] lg:gap-24">
++		<div class="lg:sticky lg:top-32 lg:self-start">
++			<p class="tag" use:reveal>FAQ</p>
++			<SplitText text={'Questions,\n*answered.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
++			<p class="mt-8 max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 150 }}>Everything agencies ask us before they start. Something missing?</p>
++			<a href="mailto:hello@getundercut.app" class="group mt-8 inline-flex items-center gap-3 rounded-full py-1.5 pr-5 pl-1.5 text-sm font-medium glass-btn" use:reveal={{ delay: 250 }}>
++				<span class="grid size-9 place-items-center rounded-full bg-ink text-white transition-transform duration-300 group-hover:rotate-[-45deg]">→</span>Ask the studio
++			</a>
++		</div>
++		<ul class="border-t border-black/[.08]" use:reveal>
+ 			{#each faqs as f, i (f.q)}
+-				<li class="card overflow-hidden" data-stagger>
+-					<button class="flex w-full items-center justify-between gap-4 p-6 text-left font-medium" onclick={() => (open = open === i ? null : i)} aria-expanded={open === i}>
+-						<span class="flex items-baseline gap-4"><span class="text-xs text-muted">0{i + 1}</span>{f.q}</span><span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-ink text-white' : 'bg-black/5'}">+</span>
++				<li class="border-b border-black/[.08]" data-stagger>
++					<button class="group flex w-full items-start gap-6 py-7 text-left" onclick={() => (open = open === i ? null : i)} aria-expanded={open === i}>
++						<span class="mt-1.5 w-6 shrink-0 text-xs text-muted tabular-nums">0{i + 1}</span>
++						<span class="flex-1 text-[clamp(18px,1.6vw,22px)] leading-snug font-medium tracking-[-0.02em] transition-colors {open === i ? 'text-ink' : 'text-ink/80 group-hover:text-ink'}">{f.q}</span>
++						<span class="relative mt-1 grid size-8 shrink-0 place-items-center rounded-full transition-colors duration-300 {open === i ? 'bg-ink text-white' : 'bg-black/[.05] group-hover:bg-black/10'}" aria-hidden="true">
++							<span class="absolute h-px w-3 bg-current"></span><span class="absolute h-3 w-px bg-current transition-transform duration-300 {open === i ? 'scale-y-0' : ''}"></span>
++						</span>
+ 					</button>
+-					{#if open === i}<p class="px-6 pb-6 pl-14 text-sm leading-[1.75] text-ink-2" transition:slide={{ duration: 260 }}>{f.a}</p>{/if}
++					{#if open === i}
++						<div transition:slide={{ duration: 320 }}><p class="max-w-xl pb-8 pl-12 text-[16px] leading-[1.75] text-ink-2">{f.a}</p></div>
++					{/if}
+ 				</li>
+ 			{/each}
+ 		</ul>
+-- 
+2.43.0
+

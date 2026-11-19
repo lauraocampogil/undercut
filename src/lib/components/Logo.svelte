@@ -11,10 +11,10 @@
 			<clipPath id="t{uid}"><path d="M0 0H32V9L0 19Z" /></clipPath>
 			<clipPath id="b{uid}"><path d="M0 20.8L32 10.8V32H0Z" /></clipPath>
 		</defs>
-		<rect width="32" height="32" rx="9" fill={light ? '#C6F432' : '#0D0D0D'} />
-		<path d={U} fill={light ? '#0D0D0D' : '#C6F432'} clip-path="url(#t{uid})" />
+		<rect width="32" height="32" rx="9" fill={light ? '#FFFFFF' : '#0D0D0D'} />
+		<path d={U} fill={light ? '#0D0D0D' : '#FFFFFF'} clip-path="url(#t{uid})" />
 		<g class="transition-transform duration-300 group-hover/logo:translate-x-[1px]" transform="translate(1.6 0)">
-			<path d={U} fill={light ? '#0D0D0D' : '#C6F432'} clip-path="url(#b{uid})" />
+			<path d={U} fill={light ? '#0D0D0D' : '#FFFFFF'} clip-path="url(#b{uid})" />
 		</g>
 	</svg>
 	{#if wordmark}<span class="text-[22px] leading-none font-semibold tracking-[-0.05em] {light ? 'text-white' : ''}">undercut</span>{/if}

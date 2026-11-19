@@ -20,7 +20,7 @@
 		<p class="mt-2 text-sm text-muted">People of your agency — and clients who get read-only access to their own dashboard.</p>
 		<ul class="mt-5 divide-y divide-line">
 			<li class="flex items-center gap-3 py-3">
-				<span class="grid size-9 place-items-center rounded-full bg-[#E4F5B8] text-sm font-semibold text-accent-ink">{data.owner.name.slice(0, 1)}</span>
+				<span class="grid size-9 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-ink">{data.owner.name.slice(0, 1)}</span>
 				<div class="min-w-0 flex-1"><p class="truncate font-medium">{data.owner.name} <span class="text-xs font-normal text-muted">(you)</span></p><p class="truncate text-xs text-muted">{data.owner.email || 'no email yet'}</p></div>
 				<span class="rounded-full bg-ink px-2.5 py-1 text-[11px] text-white">Owner</span>
 			</li>

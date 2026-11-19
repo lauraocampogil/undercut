@@ -24,7 +24,7 @@ export const actions = {
 		const sent = await sendEmail(
 			row.email,
 			'Your Undercut beta invitation',
-			`<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5"><p>Hi ${esc(row.name.split(' ')[0])},</p><p>You’re in: <b>${esc(row.agency)}</b> is one of the first agencies on Undercut. Everything is free during the beta.</p><p><a href="${link}" style="display:inline-block;background:#C6F432;color:#172000;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Create my workspace</a></p><p>Reply to this email anytime — I read everything.</p><p style="color:#85878d;font-size:13px">${link}</p></div>`
+			`<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5"><p>Hi ${esc(row.name.split(' ')[0])},</p><p>You’re in: <b>${esc(row.agency)}</b> is one of the first agencies on Undercut. Everything is free during the beta.</p><p><a href="${link}" style="display:inline-block;background:#0D0D0D;color:#ffffff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Create my workspace</a></p><p>Reply to this email anytime — I read everything.</p><p style="color:#85878d;font-size:13px">${link}</p></div>`
 		);
 		return { invited: row.email, link, sent };
 	}

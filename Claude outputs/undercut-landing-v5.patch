@@ -1,0 +1,263 @@
+From bd70b5039cc66c5019d8e1551fc9eb241838cf22 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 18:46:39 +0100
+Subject: [PATCH] Landing: signature 'cut' type instead of pixel effects,
+ studio note
+
+- CutText: words sliced on the logo's diagonal, lower half slid forward; hero word cycles with a slice transition; footer wordmark slides with the scroll
+- Remove dotted/pixel wordmarks, glyph scramble on headline and links
+- Hairline 'cut' drawn across the hero
+- A note from the studio + 'Designed & built by Unix Creative Studio' credit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/CutText.svelte | 103 ++++++++++++++++++++++++++++++
+ src/routes/+page.svelte           |  69 ++++++++++----------
+ 2 files changed, 139 insertions(+), 33 deletions(-)
+ create mode 100644 src/lib/components/CutText.svelte
+
+diff --git a/src/lib/components/CutText.svelte b/src/lib/components/CutText.svelte
+new file mode 100644
+index 0000000..b5f44ae
+--- /dev/null
++++ b/src/lib/components/CutText.svelte
+@@ -0,0 +1,103 @@
++<script lang="ts">
++	// Undercut's signature: text sliced on the diagonal like the logo, the lower half slid forward.
++	// Cycles through `words` (the old word slices apart, the new one slices together) or shows `text`.
++	// `scroll` drives the slide with the CSS variable --p (use with the scrub action on a parent).
++	let { words = [], text = '', every = 2800, cls = '', shift = 0.08, scroll = false }: { words?: string[]; text?: string; every?: number; cls?: string; shift?: number; scroll?: boolean } = $props();
++	let i = $state(0);
++	let phase = $state<'in' | 'out'>('in');
++	const list = $derived(words.length ? words : [text]);
++	$effect(() => {
++		if (list.length < 2 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
++		let t2: ReturnType<typeof setTimeout>;
++		const t = setInterval(() => {
++			phase = 'out';
++			t2 = setTimeout(() => {
++				i = (i + 1) % list.length;
++				phase = 'in';
++			}, 420);
++		}, every);
++		return () => (clearInterval(t), clearTimeout(t2));
++	});
++	const word = $derived(list[i] ?? '');
++</script>
++
++<span class="cut {phase} {scroll ? 'cut-scroll' : ''} {cls}" style="--shift:{shift}em" aria-label={word}>
++	<span class="cut-ghost" aria-hidden="true">{word}</span>
++	<span class="cut-top" aria-hidden="true">{word}</span>
++	<span class="cut-bot" aria-hidden="true">{word}</span>
++</span>
++
++<style>
++	.cut {
++		position: relative;
++		display: inline-block;
++		white-space: nowrap;
++	}
++	.cut-ghost {
++		visibility: hidden;
++	}
++	.cut-top,
++	.cut-bot {
++		position: absolute;
++		inset: 0;
++		transition:
++			transform 0.7s cubic-bezier(0.2, 0.75, 0.15, 1),
++			opacity 0.45s ease;
++	}
++	/* same angle as the logo cut */
++	.cut-top {
++		clip-path: polygon(0 0, 100% 0, 100% 40%, 0 63%);
++	}
++	.cut-bot {
++		clip-path: polygon(0 63%, 100% 40%, 100% 100%, 0 100%);
++		transform: translateX(var(--shift));
++	}
++	.cut.out .cut-top {
++		transform: translate(-0.35em, -0.08em);
++		opacity: 0;
++	}
++	.cut.out .cut-bot {
++		transform: translate(0.5em, 0.08em);
++		opacity: 0;
++	}
++	.cut:hover .cut-bot {
++		transform: translateX(calc(var(--shift) * 2.5));
++	}
++	.cut-scroll .cut-bot {
++		transform: translateX(calc(var(--p, 0) * var(--shift) * 2.5));
++		transition: none;
++	}
++	.cut-scroll .cut-top {
++		transform: translateX(calc(var(--p, 0) * var(--shift) * -0.5));
++		transition: none;
++	}
++	:global(.js) .cut.in .cut-top {
++		animation: cut-in-top 0.8s cubic-bezier(0.2, 0.75, 0.15, 1) both;
++	}
++	:global(.js) .cut.in .cut-bot {
++		animation: cut-in-bot 0.9s cubic-bezier(0.2, 0.75, 0.15, 1) both;
++	}
++	.cut-scroll.in .cut-top,
++	.cut-scroll.in .cut-bot {
++		animation: none !important;
++	}
++	@keyframes cut-in-top {
++		from {
++			transform: translate(-0.4em, -0.06em);
++			opacity: 0;
++		}
++	}
++	@keyframes cut-in-bot {
++		from {
++			transform: translate(0.6em, 0.06em);
++			opacity: 0;
++		}
++	}
++	@media (prefers-reduced-motion: reduce) {
++		.cut-top,
++		.cut-bot {
++			animation: none !important;
++			transition: none !important;
++		}
++	}
++</style>
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 2de0d94..e7f5cc1 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -4,10 +4,10 @@
+ 	import SplitText from '#lib/components/SplitText.svelte';
+ 	import SplitChars from '#lib/components/SplitChars.svelte';
+ 	import DotGlobe from '#lib/components/DotGlobe.svelte';
+-	import Scramble from '#lib/components/Scramble.svelte';
++	import CutText from '#lib/components/CutText.svelte';
+ 	import Cursor from '#lib/components/Cursor.svelte';
+ 	import Intro from '#lib/components/Intro.svelte';
+-	import { reveal, inview, pointer, scrub, countUp, spotlight, magnetic, hoverScramble, nightZone } from '#lib/motion.ts';
++	import { reveal, inview, pointer, scrub, countUp, spotlight, magnetic, nightZone } from '#lib/motion.ts';
+ 	import { PLANS } from '#lib/plans.ts';
+ 	import { themeStyle } from '#lib/theme.ts';
+ 
+@@ -186,10 +186,10 @@
+ 			<span class="mx-1 hidden h-5 w-px bg-current opacity-15 md:block"></span>
+ 			<nav class="relative hidden items-center md:flex" onpointerleave={() => (ind = { ...ind, on: false })}>
+ 				<span class="dock-ind absolute inset-y-0 rounded-full bg-black/[.06] transition-all duration-300 ease-[cubic-bezier(.2,.75,.15,1)]" style="left:{ind.x}px;width:{ind.w}px;opacity:{ind.on ? 1 : 0}" aria-hidden="true"></span>
+-				{#each nav as [h, l] (h)}<a href={h} onpointerenter={over} class="dock-link relative rounded-full px-4 py-2.5 font-mono text-[11px] tracking-[0.08em] text-ink-2 uppercase" use:hoverScramble>{l}</a>{/each}
++				{#each nav as [h, l] (h)}<a href={h} onpointerenter={over} class="dock-link relative rounded-full px-4 py-2.5 font-mono text-[11px] tracking-[0.08em] text-ink-2 uppercase">{l}</a>{/each}
+ 			</nav>
+ 			<span class="mx-1 hidden h-5 w-px bg-current opacity-15 md:block"></span>
+-			<a href="/login" class="dock-link hidden rounded-full px-3 py-2.5 font-mono text-[11px] tracking-[0.08em] text-ink-2 uppercase sm:block" use:hoverScramble>Log in</a>
++			<a href="/login" class="dock-link hidden rounded-full px-3 py-2.5 font-mono text-[11px] tracking-[0.08em] text-ink-2 uppercase sm:block">Log in</a>
+ 			<a href="/beta" class="group flex items-center gap-2 rounded-full bg-ink py-1.5 pr-1.5 pl-4 text-sm font-medium text-white" use:magnetic={0.2}>Start free<span class="grid size-7 place-items-center rounded-full bg-white text-ink transition-transform duration-300 group-hover:rotate-[-45deg]">→</span></a>
+ 			<button class="grid size-10 place-items-center rounded-full md:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>
+ 				<span class="relative block h-3 w-4"><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 rotate-45' : 'top-0'}"></span><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 -rotate-45' : 'top-3'}"></span></span>
+@@ -216,9 +216,7 @@
+ 			<div class="relative z-10">
+ 				<h1 class="text-[clamp(44px,6.4vw,96px)] leading-[0.98] font-medium tracking-[-0.05em]">
+ 					<SplitChars as="span" class="block" text="Find your next" delay={150} />
+-					<span class="relative my-2 inline-block px-3 align-middle sm:my-3" use:reveal={{ delay: 600 }}>
+-						<span class="corners inline-block font-mono text-[0.78em] font-normal tracking-[-0.06em]"><Scramble words={['clients.', 'leads.', 'projects.', 'clients.']} /></span>
+-					</span>
++					<span class="block" use:reveal={{ delay: 550 }}><CutText words={["clients.", "projects.", "leads."]} shift={0.06} /></span>
+ 					<SplitChars as="span" class="block font-serif font-normal tracking-[-0.02em] text-ink/40 italic" text="Keep them." delay={800} step={40} />
+ 				</h1>
+ 				<p class="mt-10 max-w-md text-[17px] leading-[1.7] text-ink-2" use:reveal={{ delay: 1000 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps.</p>
+@@ -238,10 +236,11 @@
+ 				<p class="tag absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap">1,104 businesses around you · 16 need you</p>
+ 			</div>
+ 		</div>
+-		<!-- giant wordmark: letters spread as you scroll away -->
+-		<div class="pointer-events-none mt-16 overflow-hidden" use:scrub={{ start: 0.9, end: 0.1 }} aria-hidden="true">
+-			<p class="hero-mark text-center text-[19vw] leading-[0.78] font-medium select-none lg:text-[238px]" style="letter-spacing:calc(-0.07em + var(--p,0) * 0.06em);transform:translateY(calc(var(--p,0) * -12%))">undercut</p>
+-		</div>
++		<!-- the cut: a hairline at the logo's angle slices the hero -->
++		<svg class="pointer-events-none absolute inset-0 -z-10 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
++			<line x1="-5" y1="78" x2="105" y2="44" stroke="rgb(13 13 13 / .14)" stroke-width="1" vector-effect="non-scaling-stroke" pathLength="1" class="cut-line" />
++		</svg>
++		<div class="h-16"></div>
+ 	</section>
+ 
+ 	<!-- ================= LIVE SCAN STRIP ================= -->
+@@ -268,7 +267,7 @@
+ 
+ 		<!-- giant words that slide sideways with the scroll -->
+ 		<section class="relative overflow-hidden py-16 sm:py-24" use:scrub={{ start: 1, end: 0 }} aria-hidden="true">
+-			<p class="text-[clamp(64px,13vw,190px)] leading-[0.9] font-medium tracking-[-0.06em] whitespace-nowrap" style="transform:translateX(calc(10% - var(--p,0) * 60%))">Find clients <span class="font-serif font-normal italic opacity-50">—</span> Sign them <span class="font-serif font-normal italic opacity-50">—</span> Keep them</p>
++			<p class="text-[clamp(64px,13vw,190px)] leading-[0.9] font-medium tracking-[-0.06em] whitespace-nowrap" style="transform:translateX(calc(10% - var(--p,0) * 60%))">Find clients <span class="font-serif font-normal italic opacity-50">—</span> Sign them <span class="font-serif font-normal italic opacity-50">—</span> <CutText text="Keep them" shift={0.1} /></p>
+ 			<p class="mt-2 font-mono text-[clamp(28px,5vw,72px)] leading-none tracking-[-0.04em] whitespace-nowrap opacity-40" style="transform:translateX(calc(-50% + var(--p,0) * 45%))">[ prospects ] [ pipeline ] [ clients ] [ fixes ] [ reports ] [ prospects ] [ pipeline ]</p>
+ 		</section>
+ 
+@@ -391,6 +390,18 @@
+ 		</div>
+ 	</section>
+ 
++	<!-- ================= STUDIO NOTE ================= -->
++	<section class="relative mx-auto max-w-[1280px] px-5 pb-8 sm:px-10">
++		<div class="card grid items-center gap-10 p-8 sm:p-14 lg:grid-cols-[auto_1fr]" use:reveal use:spotlight>
++			<div class="grid size-28 place-items-center rounded-[28px] bg-ink text-white shadow-[0_20px_40px_-20px_rgba(0,0,0,.6)] sm:size-36"><Logo size={64} wordmark={false} light /></div>
++			<div>
++				<p class="tag">A note from the studio</p>
++				<p class="mt-6 max-w-3xl text-[clamp(22px,2.4vw,32px)] leading-[1.35] tracking-[-0.02em]">We’re a small studio too. Undercut is built with the same care we put into client work — <span class="font-serif italic">every pixel, every number, every message.</span> If something feels off, you’ll be talking to the people who made it.</p>
++				<p class="mt-8 font-mono text-[11px] tracking-wide text-muted uppercase">— Unix Creative Studio</p>
++			</div>
++		</div>
++	</section>
++
+ 	<!-- ================= PRICING ================= -->
+ 	<section id="pricing" class="relative mx-auto max-w-[1280px] scroll-mt-24 px-4 py-24 sm:px-10 sm:py-40">
+ 		<div class="text-center">
+@@ -449,33 +460,25 @@
+ 	<footer class="relative overflow-hidden px-4 pt-14 sm:px-10">
+ 		<div class="mx-auto flex max-w-[1240px] flex-wrap items-center justify-between gap-4 text-sm text-muted">
+ 			<Logo size={24} />
+-			<nav class="flex gap-5 font-mono text-[11px] uppercase"><a href="/prospects" class="hover:text-ink" use:hoverScramble>Free tool</a><a href="#pricing" class="hover:text-ink" use:hoverScramble>Pricing</a><a href="/login" class="hover:text-ink" use:hoverScramble>Log in</a></nav>
+-			<p class="font-mono text-[11px] uppercase">Cookieless · EU data</p>
++			<nav class="flex gap-5 font-mono text-[11px] uppercase"><a href="/prospects" class="hover:text-ink">Free tool</a><a href="#pricing" class="hover:text-ink">Pricing</a><a href="/login" class="hover:text-ink">Log in</a></nav>
++			<p class="font-mono text-[11px] uppercase">Designed & built by <span class="text-ink">Unix Creative Studio</span></p>
++		</div>
++		<div class="mx-auto mt-10 max-w-[1280px] overflow-hidden pb-4 text-center" use:scrub={{ start: 1, end: 0.6 }} aria-hidden="true">
++			<p class="text-[22vw] leading-[0.85] font-medium tracking-[-0.075em] text-ink select-none lg:text-[280px]"><CutText text="undercut" shift={0.04} scroll /></p>
+ 		</div>
+-		<p class="wordmark mx-auto mt-6 max-w-[1280px] text-center text-[21vw] leading-[0.8] font-medium tracking-[-0.07em] select-none lg:text-[272px]" aria-hidden="true">undercut</p>
+ 	</footer>
+ </div>
+ 
+ <style>
+-	.hero-mark {
+-		background:
+-			radial-gradient(rgb(13 13 13 / 0.6) 1.1px, transparent 1.3px) 0 0 / 5px 5px,
+-			linear-gradient(180deg, rgb(13 13 13 / 0.1), transparent);
+-		-webkit-background-clip: text;
+-		background-clip: text;
+-		color: transparent;
+-		mask-image: linear-gradient(180deg, black 20%, transparent 100%);
+-		-webkit-mask-image: linear-gradient(180deg, black 20%, transparent 100%);
++	.cut-line {
++		stroke-dasharray: 1;
++		stroke-dashoffset: 1;
++		animation: draw 1.6s cubic-bezier(0.7, 0, 0.2, 1) 0.4s forwards;
+ 	}
+-	.wordmark {
+-		background:
+-			radial-gradient(rgb(13 13 13 / 0.55) 1.2px, transparent 1.4px) 0 0 / 6px 6px,
+-			linear-gradient(180deg, rgb(13 13 13 / 0.12), transparent);
+-		-webkit-background-clip: text;
+-		background-clip: text;
+-		color: transparent;
+-		mask-image: linear-gradient(180deg, black 30%, transparent 95%);
+-		-webkit-mask-image: linear-gradient(180deg, black 30%, transparent 95%);
++	@keyframes draw {
++		to {
++			stroke-dashoffset: 0;
++		}
+ 	}
+ 	.lit > span {
+ 		transition: opacity 0.2s linear;
+-- 
+2.43.0
+

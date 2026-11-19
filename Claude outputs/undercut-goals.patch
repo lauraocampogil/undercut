@@ -1,0 +1,595 @@
+From f12cf3e4f237c2b6323bf0234544c53799662c87 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 15 Nov 2026 18:46:33 +0100
+Subject: [PATCH] Goals per client: target + deadline, real progress (snippet,
+ GA4, Search Console, Stripe MRR, app SDK), projection, funnel math and next
+ actions from the client's data; goal card on Summary
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Icon.svelte                |   1 +
+ src/lib/server/goals.ts                       | 257 ++++++++++++++++++
+ src/routes/app/+layout.svelte                 |   2 +-
+ src/routes/app/clients/[id]/+layout.svelte    |   2 +-
+ src/routes/app/clients/[id]/+page.server.ts   |   4 +-
+ src/routes/app/clients/[id]/+page.svelte      |  16 ++
+ .../app/clients/[id]/goals/+page.server.ts    |  78 ++++++
+ .../app/clients/[id]/goals/+page.svelte       | 129 +++++++++
+ 8 files changed, 486 insertions(+), 3 deletions(-)
+ create mode 100644 src/lib/server/goals.ts
+ create mode 100644 src/routes/app/clients/[id]/goals/+page.server.ts
+ create mode 100644 src/routes/app/clients/[id]/goals/+page.svelte
+
+diff --git a/src/lib/components/Icon.svelte b/src/lib/components/Icon.svelte
+index f111829..ecac96b 100644
+--- a/src/lib/components/Icon.svelte
++++ b/src/lib/components/Icon.svelte
+@@ -16,6 +16,7 @@
+ 		check: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4',
+ 		flame: 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3.3.3 1.3 1 2.5 2.5 2.8z',
+ 		megaphone: 'M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1zM15 8.5a4 4 0 0 1 0 7M18 6a8 8 0 0 1 0 12',
++		flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
+ 		bug: 'M8 6a4 4 0 0 1 8 0M7 9h10v5a5 5 0 0 1-10 0zM12 9v10M3 13h4M17 13h4M4 7l3 2M20 7l-3 2M4 19l3-2M20 19l-3-2',
+ 		star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
+ 		lock: 'M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4',
+diff --git a/src/lib/server/goals.ts b/src/lib/server/goals.ts
+new file mode 100644
+index 0000000..97cab54
+--- /dev/null
++++ b/src/lib/server/goals.ts
+@@ -0,0 +1,257 @@
++// Goals per client: "100 visits a day", "30 leads a month", "€10k MRR"…
++// Undercut measures where the client stands today from real sources, projects when the goal will be reached at the
++// current pace, works out what it takes (the funnel math), and turns it into concrete next actions from the
++// client's own data (quick-win keywords, leaking pages, paywall, campaigns…).
++import * as env from '$app/env/private';
++import type { Client, Point } from '#lib/types.ts';
++import { readData, writeData, hasApp, hasWeb } from './store.ts';
++import { getMetrics, getSearchConsole } from './google.ts';
++import { getLeads } from './leads.ts';
++import { getErrors, getPaywall } from './app-events.ts';
++
++export type GoalMetric = 'visits_day' | 'leads_month' | 'search_clicks_month' | 'mrr' | 'app_revenue_month' | 'conversion_rate';
++export type Goal = { id: string; metric: GoalMetric; target: number; deadline: string; createdAt: string; startValue?: number; note?: string };
++type GoalFile = { goals: Goal[]; stripeKey?: string; mrrManual?: { value: number; at: string }[]; arpu?: number };
++
++export const METRICS: Record<GoalMetric, { label: string; unit: string; money?: boolean; help: string; web?: boolean; app?: boolean }> = {
++	visits_day: { label: 'Visits per day', unit: 'visits/day', help: 'Average of the last 7 days (Undercut snippet or GA4).', web: true },
++	leads_month: { label: 'Leads per month', unit: 'leads/month', help: 'Forms, calls, emails and WhatsApp in the last 30 days.', web: true },
++	search_clicks_month: { label: 'Google clicks per month', unit: 'clicks/month', help: 'Clicks from Google Search in the last 28 days (Search Console).', web: true },
++	conversion_rate: { label: 'Visit → lead rate', unit: '%', help: 'Share of visits that become a lead (last 30 days).', web: true },
++	mrr: { label: 'MRR', unit: '€/month', money: true, help: 'Monthly recurring revenue from Stripe (read-only key) or updated by hand.' },
++	app_revenue_month: { label: 'App revenue per month', unit: '€/month', money: true, help: 'Purchases sent by the Undercut app SDK in the last 30 days.', app: true }
++};
++
++const file = (id: string) => `goals-${id}.json`;
++export function goalFile(client: Client): GoalFile {
++	return readData<GoalFile>(file(client.id), { goals: [] });
++}
++export function saveGoalFile(client: Client, g: GoalFile) {
++	writeData(file(client.id), g);
++}
++
++// ---------- Stripe MRR (restricted, read-only key of the client) ----------
++const monthly = (amount: number, interval: string, count: number) => (interval === 'year' ? amount / 12 / count : interval === 'week' ? (amount * 52) / 12 / count : interval === 'day' ? (amount * 365) / 12 / count : amount / count);
++export async function stripeMrr(key: string): Promise<{ mrr: number; customers: number; currency: string } | { error: string }> {
++	let mrr = 0;
++	let customers = 0;
++	let currency = 'eur';
++	let after = '';
++	try {
++		for (let page = 0; page < 20; page++) {
++			const r = await fetch(`https://api.stripe.com/v1/subscriptions?status=active&limit=100${after ? `&starting_after=${after}` : ''}`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10_000) });
++			const j = await r.json();
++			if (!r.ok) return { error: j.error?.message ?? `Stripe answered ${r.status}` };
++			for (const s of j.data ?? []) {
++				customers++;
++				for (const it of s.items?.data ?? []) {
++					const p = it.price ?? it.plan;
++					if (!p?.recurring && !p?.interval) continue;
++					currency = p.currency ?? currency;
++					const amount = ((p.unit_amount ?? p.amount ?? 0) * (it.quantity ?? 1)) / 100;
++					mrr += monthly(amount, p.recurring?.interval ?? p.interval, p.recurring?.interval_count ?? p.interval_count ?? 1);
++				}
++				const off = s.discount?.coupon?.percent_off;
++				if (off) mrr -= 0; // discounts kept simple: list price
++			}
++			if (!j.has_more) break;
++			after = j.data.at(-1).id;
++		}
++		return { mrr: Math.round(mrr), customers, currency: currency.toUpperCase() };
++	} catch (e) {
++		return { error: (e as Error).message };
++	}
++}
++
++// ---------- progress ----------
++export type GoalProgress = {
++	goal: Goal;
++	label: string;
++	unit: string;
++	money: boolean;
++	current: number | null;
++	source: string;
++	pct: number;
++	series: Point[]; // weekly values, oldest first
++	weeklyGrowth: number | null; // % per week at the current pace
++	eta: string | null; // date the goal is reached at the current pace
++	neededGrowth: number | null; // % per week needed to hit the deadline
++	status: 'reached' | 'on_track' | 'behind' | 'no_data';
++	math: string[]; // the funnel: what it takes
++	actions: { title: string; why: string; href?: string; impact?: string }[];
++	error?: string;
++};
++
++const weeksBetween = (a: Date, b: Date) => Math.max(0.1, (b.getTime() - a.getTime()) / (7 * 864e5));
++const fmt = (n: number, money = false) => (money ? `€${Math.round(n).toLocaleString('en-US')}` : n >= 100 ? Math.round(n).toLocaleString('en-US') : String(+n.toFixed(1)));
++
++function weekly(daily: Point[], agg: 'avg' | 'sum') {
++	const out: Point[] = [];
++	for (let i = daily.length; i > 0; i -= 7) {
++		const w = daily.slice(Math.max(0, i - 7), i);
++		if (w.length < 4) continue;
++		const s = w.reduce((t, p) => t + p.value, 0);
++		out.unshift({ date: w[0].date, value: agg === 'avg' ? s / w.length : (s / w.length) * 30 });
++	}
++	return out;
++}
++/** Compound weekly growth from a weekly series (ignores empty weeks at the start). */
++function growth(series: Point[]) {
++	const s = series.filter((p, i) => p.value > 0 || i > series.findIndex((x) => x.value > 0));
++	if (s.length < 3 || s[0].value <= 0) return null;
++	const g = Math.pow(s.at(-1)!.value / s[0].value, 1 / (s.length - 1)) - 1;
++	return Number.isFinite(g) ? Math.round(g * 1000) / 10 : null;
++}
++
++export async function goalProgress(client: Client, goal: Goal): Promise<GoalProgress> {
++	const m = METRICS[goal.metric];
++	const gf = goalFile(client);
++	const base = `/app/clients/${client.id}`;
++	let current: number | null = null;
++	let series: Point[] = [];
++	let source = '';
++	let error: string | undefined;
++	const math: string[] = [];
++	const actions: GoalProgress['actions'] = [];
++
++	const [metrics, leads] = hasWeb(client) && ['visits_day', 'leads_month', 'conversion_rate', 'mrr', 'search_clicks_month'].includes(goal.metric) ? await Promise.all([getMetrics(client, 90).catch(() => null), Promise.resolve(getLeads(client, 90))]) : [null, null];
++	const leads30 = hasWeb(client) ? getLeads(client, 30) : null;
++	const visits30 = metrics ? metrics.visits.daily.slice(-30).reduce((s, p) => s + p.value, 0) : 0;
++	const conv = leads30 && visits30 ? leads30.totals.leads / visits30 : null;
++
++	if (goal.metric === 'visits_day' && metrics) {
++		const d = metrics.visits.daily;
++		current = d.slice(-7).reduce((s, p) => s + p.value, 0) / Math.max(1, Math.min(7, d.length));
++		series = weekly(d, 'avg');
++		source = metrics.sources.ga4 === 'google' ? 'Google Analytics' : 'Undercut snippet';
++	} else if (goal.metric === 'leads_month' && leads) {
++		current = leads30?.totals.leads ?? 0;
++		series = weekly(leads.daily, 'sum');
++		source = 'Undercut snippet';
++	} else if (goal.metric === 'conversion_rate' && leads30) {
++		current = conv != null ? Math.round(conv * 1000) / 10 : null;
++		source = 'Undercut snippet';
++	} else if (goal.metric === 'search_clicks_month') {
++		const g = await getSearchConsole(client, 90).catch(() => null);
++		if (g && g.source !== 'off') {
++			current = g.daily.slice(-28).reduce((s, p) => s + p.clicks, 0);
++			series = weekly(g.daily.map((p) => ({ date: p.date, value: p.clicks })), 'sum');
++			source = 'Search Console';
++		} else error = 'Link Search Console in Setup to measure Google clicks.';
++	} else if (goal.metric === 'app_revenue_month' && hasApp(client)) {
++		const r = getPaywall(client, 90);
++		current = getPaywall(client, 30).totals.revenue;
++		series = weekly(r.daily, 'sum');
++		source = r.source === 'waiting' ? '' : 'Undercut app SDK';
++		if (r.source === 'waiting') error = 'Add the Undercut SDK to the app (Paywall page) to measure purchases.';
++	} else if (goal.metric === 'mrr') {
++		if (gf.stripeKey) {
++			const s = await stripeMrr(gf.stripeKey);
++			if ('error' in s) error = `Stripe: ${s.error}`;
++			else {
++				current = s.mrr;
++				source = `Stripe · ${s.customers} active subscriptions`;
++				const hist = (gf.mrrManual ?? []).filter((x) => x.at.slice(0, 10) !== new Date().toISOString().slice(0, 10));
++				gf.mrrManual = [...hist, { value: s.mrr, at: new Date().toISOString() }].slice(-60);
++				gf.arpu = s.customers ? s.mrr / s.customers : gf.arpu;
++				saveGoalFile(client, gf);
++			}
++		}
++		if (current == null && gf.mrrManual?.length) {
++			current = gf.mrrManual.at(-1)!.value;
++			source = source || 'Updated by hand';
++		}
++		series = (gf.mrrManual ?? []).map((x) => ({ date: x.at.slice(0, 10), value: x.value }));
++		if (current == null && !error) error = 'Connect Stripe (read-only key) or type the current MRR.';
++	}
++
++	const target = goal.target;
++	const pct = current != null && target ? Math.min(100, Math.round((current / target) * 100)) : 0;
++	const g = growth(series);
++	const now = new Date();
++	const deadline = new Date(goal.deadline + 'T23:59:59');
++	const weeksLeft = weeksBetween(now, deadline);
++	const neededGrowth = current && current > 0 && current < target ? Math.round((Math.pow(target / current, 1 / weeksLeft) - 1) * 1000) / 10 : null;
++	let eta: string | null = null;
++	if (current != null && current >= target) eta = now.toISOString().slice(0, 10);
++	else if (current && g && g > 0) eta = new Date(now.getTime() + (Math.log(target / current) / Math.log(1 + g / 100)) * 7 * 864e5).toISOString().slice(0, 10);
++	const status: GoalProgress['status'] = current == null ? 'no_data' : current >= target ? 'reached' : eta && eta <= goal.deadline ? 'on_track' : 'behind';
++
++	// ---- the math: what it takes ----
++	const convPct = conv != null && conv > 0 ? conv : null;
++	if (current != null && current >= target) math.push(`Goal reached: ${fmt(current, Boolean(m.money))} for a target of ${fmt(target, Boolean(m.money))}. Set a bigger one?`);
++	else if (goal.metric === 'visits_day' && current != null) {
++		math.push(`You need ${fmt(target - current)} more visits a day (×${(target / Math.max(1, current)).toFixed(1)}).`);
++		if (convPct) math.push(`At your ${(convPct * 100).toFixed(1)}% visit→lead rate, ${fmt(target)} visits/day ≈ ${fmt(target * 30 * convPct)} leads a month.`);
++	}
++	if (goal.metric === 'leads_month' && current != null && current < target) {
++		if (convPct) math.push(`At ${(convPct * 100).toFixed(1)}% conversion you need ≈ ${fmt(target / convPct / 30)} visits a day (today ${fmt(visits30 / 30)}).`, `Or keep the traffic and raise conversion to ${((target / Math.max(1, visits30)) * 100).toFixed(1)}%.`);
++		else math.push('Not enough visits yet to know the conversion rate — install the snippet and wait a week.');
++	}
++	if (goal.metric === 'mrr' && current != null && current < target) {
++		const arpu = gf.arpu && gf.arpu > 0 ? gf.arpu : null;
++		if (arpu) {
++			const need = Math.ceil((target - current) / arpu);
++			math.push(`At ${fmt(arpu, true)} per customer you need ${need} more paying customers (${Math.ceil(target / arpu)} in total).`);
++			const perWeek = Math.ceil(need / weeksLeft);
++			math.push(`That is about ${perWeek} new customer${perWeek > 1 ? 's' : ''} a week until ${goal.deadline}.`);
++			if (convPct) math.push(`If ${(convPct * 100).toFixed(1)}% of visits become a lead and 1 lead in 5 pays: ≈ ${fmt((perWeek * 5) / convPct / 7)} visits a day.`);
++		} else math.push('Add the price per customer (ARPU) to see how many customers it takes.');
++	}
++	if (goal.metric === 'app_revenue_month' && current != null && current < target) {
++		const pw = getPaywall(client, 30);
++		const avg = pw.totals.purchases ? pw.totals.revenue / pw.totals.purchases : 0;
++		if (avg) math.push(`At ${fmt(avg, true)} per purchase: ${Math.ceil((target - current) / avg)} more purchases a month.`, `At ${pw.totals.conv}% paywall conversion that means ≈ ${fmt((target - current) / avg / Math.max(0.001, pw.totals.conv / 100))} more people seeing the paywall a month.`);
++	}
++	if (goal.metric === 'search_clicks_month' && current != null && current < target) math.push(`You need ${fmt(target - current)} more Google clicks a month.`);
++	if (neededGrowth != null) math.push(`Needed pace: +${neededGrowth}% per week until ${goal.deadline}${g != null ? ` — current pace ${g >= 0 ? '+' : ''}${g}% per week` : ''}.`);
++
++	// ---- next actions, from the client's own data ----
++	const trafficGoal = ['visits_day', 'search_clicks_month', 'leads_month', 'mrr'].includes(goal.metric);
++	if (trafficGoal && hasWeb(client)) {
++		const gsc = await getSearchConsole(client, 28).catch(() => null);
++		const wins = (gsc?.queries ?? []).filter((q) => q.position >= 4 && q.position <= 20).sort((a, b) => b.impressions - a.impressions).slice(0, 3);
++		for (const w of wins) actions.push({ title: `Push “${w.key}” to the top 3`, why: `Seen ${w.impressions}× on Google at position ${w.position}. Reaching the top 3 usually multiplies clicks by 3–5.`, href: `${base}/keywords`, impact: `+${Math.max(1, Math.round(w.impressions * 0.12 - w.clicks))} clicks/month` });
++		if (gsc?.source === 'off') actions.push({ title: 'Link Search Console', why: 'Without it Undercut cannot see which searches bring visits.', href: `${base}/settings` });
++	}
++	if (['leads_month', 'conversion_rate', 'mrr'].includes(goal.metric) && leads30) {
++		const leak = [...leads30.byLanding].filter((l) => l.entries >= 5).sort((a, b) => b.entries - a.entries).find((l) => l.leads === 0);
++		if (leak) actions.push({ title: `Add a clear call to action on ${leak.path}`, why: `${leak.entries} visits started there this month, none became a lead.`, href: `${base}/heatmaps?path=${encodeURIComponent(leak.path)}` });
++		const best = [...leads30.byChannel].sort((a, b) => b.leads - a.leads)[0];
++		if (best?.leads) actions.push({ title: `Do more of what works: ${best.channel}`, why: `${best.channel} brought ${best.leads} lead${best.leads > 1 ? 's' : ''} this month — the best channel.`, href: `${base}/leads` });
++	}
++	if (goal.metric === 'visits_day' || goal.metric === 'leads_month') actions.push({ title: 'Publish the open SEO fixes', why: 'Titles, descriptions and image texts Google can read better — live in one click.', href: `${base}/seo` });
++	if (goal.metric === 'app_revenue_month' || (goal.metric === 'mrr' && hasApp(client))) {
++		const pw = getPaywall(client, 30);
++		if (pw.winner?.enough) actions.push({ title: `Show paywall variant “${pw.winner.best}” to everyone`, why: `It converts ${pw.winner.lift}% better.`, href: `${base}/paywall` });
++		else actions.push({ title: 'A/B test the paywall', why: 'Yearly plan first or a free trial are the two tests that most often raise revenue.', href: `${base}/paywall` });
++	}
++	if (goal.metric === 'app_revenue_month' || (goal.metric === 'mrr' && hasApp(client))) {
++		const crash = getErrors(client, 14).issues.find((i) => i.fatal && (i.status === 'open' || i.status === 'regressed'));
++		if (crash) actions.push({ title: `Fix the crash “${crash.title.slice(0, 50)}”`, why: `${crash.users} people hit it in 14 days — people who crash rarely pay.`, href: `${base}/errors` });
++		actions.push({ title: 'Answer the 1–2★ reviews', why: 'Ratings drive App Store ranking and downloads — reply within 48 h.', href: `${base}/store` });
++	}
++	if (goal.metric === 'mrr') actions.push({ title: 'Track a UTM link per campaign', why: 'See which post, newsletter or ad brings paying customers, not just visits.', href: `${base}/campaigns` });
++
++	return { goal, label: m.label, unit: m.unit, money: Boolean(m.money), current: current == null ? null : Math.round(current * 10) / 10, source, pct, series, weeklyGrowth: g, eta, neededGrowth, status, math, actions: actions.slice(0, 5), error };
++}
++
++/** Optional: Claude turns the numbers into a short weekly coaching note. */
++export async function goalCoach(client: Client, p: GoalProgress[]): Promise<string | null> {
++	if (!env.ANTHROPIC_API_KEY || !p.length) return null;
++	try {
++		const res = await fetch('https://api.anthropic.com/v1/messages', {
++			method: 'POST',
++			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
++			body: JSON.stringify({
++				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
++				max_tokens: 250,
++				messages: [{ role: 'user', content: `You coach a web agency on a client goal. 3 short sentences, plain words, no markdown: where they stand, the single biggest lever, what to do this week. Use only these facts.\n\nClient: ${client.name}\n${p.map((x) => `Goal: ${x.label} ${x.goal.target} by ${x.goal.deadline}. Now: ${x.current ?? 'unknown'} (${x.pct}%). Pace ${x.weeklyGrowth ?? '?'}%/week, needed ${x.neededGrowth ?? '?'}%/week. Math: ${x.math.join(' ')} Actions: ${x.actions.map((a) => a.title + ' (' + a.why + ')').join('; ')}`).join('\n')}` }]
++			})
++		});
++		if (!res.ok) return null;
++		return (await res.json()).content?.[0]?.text?.trim() ?? null;
++	} catch {
++		return null;
++	}
++}
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 6df5913..848de3a 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -26,7 +26,7 @@
+ 		const web = current.type !== 'app';
+ 		const app = current.type !== 'web';
+ 		return [
+-			{ group: '', items: [{ href: b, label: 'Summary', icon: 'gauge' }] },
++			{ group: '', items: [{ href: b, label: 'Summary', icon: 'gauge' }, { href: `${b}/goals`, label: 'Goals', icon: 'flag' }] },
+ 			...(web
+ 				? [
+ 						{
+diff --git a/src/routes/app/clients/[id]/+layout.svelte b/src/routes/app/clients/[id]/+layout.svelte
+index 4199030..ff1d8a5 100644
+--- a/src/routes/app/clients/[id]/+layout.svelte
++++ b/src/routes/app/clients/[id]/+layout.svelte
+@@ -5,7 +5,7 @@
+ 	const days = $derived(Number(page.url.searchParams.get('days')) || 28);
+ 	const showDays = $derived(!/\/(settings|seo|heatmaps)$/.test(page.url.pathname));
+ 	const section = $derived(
+-		({ leads: 'Leads', traffic: 'Traffic', search: 'Search & Maps', seo: 'SEO & fixes', keywords: 'Keywords', campaigns: 'Campaigns', heatmaps: 'Heatmaps', app: 'App analytics', store: 'App Store', paywall: 'Paywall', errors: 'Errors', settings: 'Setup & connections' } as Record<string, string>)[page.url.pathname.split('/')[4] ?? ''] ?? 'Summary'
++		({ leads: 'Leads', traffic: 'Traffic', search: 'Search & Maps', seo: 'SEO & fixes', keywords: 'Keywords', campaigns: 'Campaigns', heatmaps: 'Heatmaps', app: 'App analytics', store: 'App Store', goals: 'Goals', paywall: 'Paywall', errors: 'Errors', settings: 'Setup & connections' } as Record<string, string>)[page.url.pathname.split('/')[4] ?? ''] ?? 'Summary'
+ 	);
+ 	const kind = $derived(data.web && data.app ? 'Website + app' : data.app ? 'App' : 'Website');
+ </script>
+diff --git a/src/routes/app/clients/[id]/+page.server.ts b/src/routes/app/clients/[id]/+page.server.ts
+index 617a78f..e39235a 100644
+--- a/src/routes/app/clients/[id]/+page.server.ts
++++ b/src/routes/app/clients/[id]/+page.server.ts
+@@ -1,6 +1,7 @@
+ import { getClientOverview } from '#lib/server/overview.ts';
+ import { aiSummary } from '#lib/server/insights.ts';
+ import { getClient, toggleDone } from '#lib/server/store.ts';
++import { goalFile, goalProgress } from '#lib/server/goals.ts';
+ 
+ export const load = async ({ parent, url }) => {
+ 	const { client } = await parent();
+@@ -15,7 +16,8 @@ export const load = async ({ parent, url }) => {
+ 			ai: false
+ 		};
+ 	else summary = { text: 'No data yet.', ai: false };
+-	return { days, areas: o.areas, tasks: o.tasks, health: o.health, summary };
++	const goals = await Promise.all(goalFile(client).goals.slice(0, 2).map((g) => goalProgress(client, g).catch(() => null)));
++	return { days, areas: o.areas, tasks: o.tasks, health: o.health, summary, goals: goals.filter((g) => g !== null) };
+ };
+ 
+ export const actions = {
+diff --git a/src/routes/app/clients/[id]/+page.svelte b/src/routes/app/clients/[id]/+page.svelte
+index b4d2eb4..32dcf06 100644
+--- a/src/routes/app/clients/[id]/+page.svelte
++++ b/src/routes/app/clients/[id]/+page.svelte
+@@ -30,6 +30,22 @@
+ 
+ <svelte:head><title>{c.name} · Undercut</title></svelte:head>
+ 
++<!-- 0. The goal -->
++{#if data.goals.length}
++	<section class="mb-4 grid gap-3 {data.goals.length > 1 ? 'lg:grid-cols-2' : ''}">
++		{#each data.goals as g (g.goal.id)}
++			<a href="/app/clients/{c.id}/goals" class="group card flex flex-col gap-3 p-5 transition-transform hover:-translate-y-0.5">
++				<div class="flex items-center justify-between gap-2 text-sm"><span class="text-muted">🎯 Goal · {g.label} by {g.goal.deadline}</span><span class="rounded-full px-2.5 py-0.5 text-[11px] font-medium {g.status === 'behind' ? 'bg-bad-bg text-bad' : g.status === 'no_data' ? 'bg-tile text-muted' : 'bg-good-bg text-good'}">{g.status === 'reached' ? 'Reached' : g.status === 'on_track' ? 'On track' : g.status === 'behind' ? 'Behind' : 'Not measured'}</span></div>
++				<p class="flex items-baseline gap-2"><span class="big text-[36px]">{g.current == null ? '—' : g.money ? `€${Math.round(g.current).toLocaleString('en-US')}` : g.current}</span><span class="text-muted">/ {g.money ? `€${g.goal.target.toLocaleString('en-US')}` : g.goal.target}</span></p>
++				<div class="h-2 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full bg-accent" style="width:{Math.max(2, g.pct)}%"></div></div>
++				{#if g.actions[0]}<p class="text-sm text-ink-2"><b class="text-ink">Next:</b> {g.actions[0].title} <span class="text-muted transition-transform group-hover:translate-x-0.5">→</span></p>{/if}
++			</a>
++		{/each}
++	</section>
++{:else}
++	<a href="/app/clients/{c.id}/goals" class="mb-4 flex items-center gap-3 rounded-[22px] border-2 border-dashed border-line px-5 py-3.5 text-sm text-ink-2 hover:border-ink"><span class="text-lg">🎯</span><span class="flex-1">Set a goal for {c.name} — e.g. 100 visits a day or €10k MRR — and Undercut helps you get there.</span><span class="font-medium text-ink">Set a goal →</span></a>
++{/if}
++
+ <!-- 1. Where do we stand? -->
+ <section class="grid gap-4 lg:grid-cols-[1fr_2fr]">
+ 	<div class="card-dark flex flex-col justify-between gap-6 p-6 sm:p-7">
+diff --git a/src/routes/app/clients/[id]/goals/+page.server.ts b/src/routes/app/clients/[id]/goals/+page.server.ts
+new file mode 100644
+index 0000000..2d8eaa3
+--- /dev/null
++++ b/src/routes/app/clients/[id]/goals/+page.server.ts
+@@ -0,0 +1,78 @@
++import { fail } from '@sveltejs/kit';
++import { getClient, hasApp, hasWeb } from '#lib/server/store.ts';
++import { goalCoach, goalFile, goalProgress, METRICS, saveGoalFile, stripeMrr, type GoalMetric } from '#lib/server/goals.ts';
++
++export const load = async ({ parent }) => {
++	const { client } = await parent();
++	const gf = goalFile(client);
++	const progress = await Promise.all(gf.goals.map((g) => goalProgress(client, g)));
++	const metrics = (Object.keys(METRICS) as GoalMetric[]).filter((k) => (METRICS[k].web ? hasWeb(client) : METRICS[k].app ? hasApp(client) : true)).map((k) => ({ key: k, ...METRICS[k] }));
++	return {
++		progress,
++		metrics,
++		coach: await goalCoach(client, progress),
++		stripe: gf.stripeKey ? `${gf.stripeKey.slice(0, 8)}…${gf.stripeKey.slice(-4)}` : null,
++		arpu: gf.arpu ?? null,
++		hasMrr: gf.goals.some((g) => g.metric === 'mrr')
++	};
++};
++
++const num = (v: FormDataEntryValue | null) => Number(String(v ?? '').replace(',', '.').replace(/[^\d.]/g, ''));
++
++export const actions = {
++	add: async ({ params, request }) => {
++		const client = getClient(params.id);
++		if (!client) return fail(404);
++		const f = await request.formData();
++		const metric = String(f.get('metric')) as GoalMetric;
++		const target = num(f.get('target'));
++		const deadline = String(f.get('deadline'));
++		if (!(metric in METRICS)) return fail(400, { error: 'Pick what you want to grow.' });
++		if (!target || target <= 0) return fail(400, { error: 'Give a target number.' });
++		if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline) || deadline <= new Date().toISOString().slice(0, 10)) return fail(400, { error: 'Pick a date in the future.' });
++		const gf = goalFile(client);
++		gf.goals = [...gf.goals.filter((g) => g.metric !== metric), { id: `${metric}-${Date.now().toString(36)}`, metric, target, deadline, createdAt: new Date().toISOString() }].slice(0, 4);
++		saveGoalFile(client, gf);
++		return { ok: true };
++	},
++	remove: async ({ params, request }) => {
++		const client = getClient(params.id);
++		if (!client) return fail(404);
++		const id = String((await request.formData()).get('id'));
++		const gf = goalFile(client);
++		gf.goals = gf.goals.filter((g) => g.id !== id);
++		saveGoalFile(client, gf);
++		return { ok: true };
++	},
++	stripe: async ({ params, request }) => {
++		const client = getClient(params.id);
++		if (!client) return fail(404);
++		const key = String((await request.formData()).get('key') ?? '').trim();
++		const gf = goalFile(client);
++		if (!key) {
++			delete gf.stripeKey;
++			saveGoalFile(client, gf);
++			return { ok: true };
++		}
++		if (!/^(rk|sk)_(live|test)_/.test(key)) return fail(400, { stripeError: 'This does not look like a Stripe key (it starts with rk_live_…).' });
++		const r = await stripeMrr(key);
++		if ('error' in r) return fail(400, { stripeError: `Stripe refused the key: ${r.error}` });
++		gf.stripeKey = key;
++		gf.arpu = r.customers ? r.mrr / r.customers : gf.arpu;
++		gf.mrrManual = [...(gf.mrrManual ?? []), { value: r.mrr, at: new Date().toISOString() }].slice(-60);
++		saveGoalFile(client, gf);
++		return { ok: true };
++	},
++	mrr: async ({ params, request }) => {
++		const client = getClient(params.id);
++		if (!client) return fail(404);
++		const f = await request.formData();
++		const gf = goalFile(client);
++		const v = num(f.get('mrr'));
++		const arpu = num(f.get('arpu'));
++		if (f.get('mrr') && Number.isFinite(v)) gf.mrrManual = [...(gf.mrrManual ?? []).filter((x) => x.at.slice(0, 10) !== new Date().toISOString().slice(0, 10)), { value: v, at: new Date().toISOString() }].slice(-60);
++		if (arpu > 0) gf.arpu = arpu;
++		saveGoalFile(client, gf);
++		return { ok: true };
++	}
++};
+diff --git a/src/routes/app/clients/[id]/goals/+page.svelte b/src/routes/app/clients/[id]/goals/+page.svelte
+new file mode 100644
+index 0000000..fe0ecb5
+--- /dev/null
++++ b/src/routes/app/clients/[id]/goals/+page.svelte
+@@ -0,0 +1,129 @@
++<script lang="ts">
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	import Sparkline from '#lib/components/Sparkline.svelte';
++	let { data, form } = $props();
++	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
++	let adding = $state(false);
++	let metric = $state('visits_day');
++	const m = $derived(data.metrics.find((x) => x.key === metric));
++	const inThreeMonths = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
++	const fmt = (n: number | null, money: boolean) => (n == null ? '—' : money ? `€${Math.round(n).toLocaleString('en-US')}` : n >= 100 ? Math.round(n).toLocaleString('en-US') : String(n));
++	const badge = { reached: ['Reached 🎉', 'bg-accent text-accent-ink'], on_track: ['On track', 'bg-good-bg text-good'], behind: ['Behind', 'bg-bad-bg text-bad'], no_data: ['Not measured yet', 'bg-tile text-muted'] } as const;
++	const daysLeft = (d: string) => Math.max(0, Math.ceil((Date.parse(d + 'T23:59:59') - Date.now()) / 864e5));
++	const examples = [
++		['visits_day', 100, 'Visits per day'],
++		['leads_month', 30, 'Leads per month'],
++		['mrr', 10000, 'MRR']
++	] as const;
++</script>
++
++<svelte:head><title>Goals · {data.client.name}</title></svelte:head>
++
++{#if !data.progress.length && !adding}
++	<section class="card-dark relative overflow-hidden p-6 sm:p-10">
++		<div class="pointer-events-none absolute -right-24 -bottom-24 size-80 rounded-full bg-accent/30 blur-3xl"></div>
++		<p class="relative text-sm text-accent">Goals</p>
++		<h2 class="relative mt-2 max-w-2xl text-[32px] leading-tight font-medium sm:text-[44px]">What should {data.client.name} reach — and by when?</h2>
++		<p class="relative mt-3 max-w-xl text-white/60">Undercut measures where you stand today, tells you if you’re on track, works out what it takes, and gives the next actions from the client’s own data.</p>
++		<div class="relative mt-6 flex flex-wrap gap-2">
++			{#each examples.filter(([k]) => data.metrics.some((x) => x.key === k)) as [k, v, l] (k)}
++				<button class="rounded-full bg-white/10 px-4 py-2 text-sm hover:bg-white/20" onclick={() => { metric = k; adding = true; }}>{k === 'mrr' ? '€10k' : v} {l.toLowerCase()}</button>
++			{/each}
++			<button class="btn btn-accent" onclick={() => (adding = true)}>+ Set a goal</button>
++		</div>
++	</section>
++{/if}
++
++{#if data.coach}
++	<p class="mb-4 rounded-[24px] bg-[#E4F5B8] p-5 text-[17px] leading-relaxed">✦ {data.coach}</p>
++{/if}
++
++<section class="grid gap-4">
++	{#each data.progress as p (p.goal.id)}
++		{@const b = badge[p.status]}
++		<article class="card p-5 sm:p-7">
++			<div class="flex flex-wrap items-start justify-between gap-3">
++				<div>
++					<p class="text-sm text-muted">{p.label} · by {p.goal.deadline} ({daysLeft(p.goal.deadline)} days left)</p>
++					<p class="mt-2 flex flex-wrap items-baseline gap-x-3"><span class="big text-[52px]">{fmt(p.current, p.money)}</span><span class="text-xl text-muted">/ {fmt(p.goal.target, p.money)} {p.money ? '' : p.unit}</span></p>
++				</div>
++				<div class="flex items-center gap-2">
++					<span class="rounded-full px-3 py-1 text-xs font-medium {b[1]}">{b[0]}</span>
++					<form method="POST" action={act('remove')} use:enhance={keep}><input type="hidden" name="id" value={p.goal.id} /><button class="icon-btn size-8 text-xs" aria-label="Delete goal">✕</button></form>
++				</div>
++			</div>
++			<div class="mt-4 h-3 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full {p.status === 'behind' ? 'bg-ink' : 'bg-accent'}" style="width:{Math.max(2, p.pct)}%"></div></div>
++			<div class="mt-2 flex flex-wrap justify-between gap-2 text-xs text-muted">
++				<span>{p.pct}% · {p.source || 'no source yet'}</span>
++				<span>{p.status === 'reached' ? 'Goal reached' : p.eta ? `At this pace: reached around ${p.eta}` : p.weeklyGrowth != null && p.weeklyGrowth <= 0 ? 'Not growing at the moment' : 'Projection after a few weeks of data'}</span>
++			</div>
++			{#if p.error}<p class="mt-3 rounded-[14px] bg-warn-bg p-3 text-sm text-warn">{p.error}</p>{/if}
++
++			<div class="mt-6 grid gap-4 lg:grid-cols-2">
++				<div class="rounded-[22px] bg-tile p-5">
++					<p class="text-sm font-medium">What it takes</p>
++					{#if p.series.length >= 2}<div class="mt-3"><Sparkline data={p.series} width={300} height={44} /></div>{/if}
++					<ul class="mt-3 space-y-2 text-sm text-ink-2">
++						{#each p.math as line (line)}<li class="flex gap-2"><span class="text-muted">→</span>{line}</li>{:else}<li class="text-muted">Shows up once the metric is measured.</li>{/each}
++					</ul>
++				</div>
++				<div class="rounded-[22px] bg-ink p-5 text-white">
++					<p class="text-sm font-medium text-accent">Next actions</p>
++					<ol class="mt-3 space-y-2">
++						{#each p.actions as a, i (a.title)}
++							<li>
++								<a href={a.href ?? '#'} class="flex gap-3 rounded-[16px] bg-white/[.06] p-3 hover:bg-white/10">
++									<span class="grid size-6 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-semibold text-accent-ink">{i + 1}</span>
++									<span class="min-w-0"><b class="block text-sm font-medium">{a.title}</b><span class="text-xs text-white/60">{a.why}</span>{#if a.impact}<span class="mt-1 block text-xs text-accent">{a.impact}</span>{/if}</span>
++								</a>
++							</li>
++						{:else}
++							<li class="text-sm text-white/60">Actions appear once there is data to act on.</li>
++						{/each}
++					</ol>
++				</div>
++			</div>
++		</article>
++	{/each}
++</section>
++
++{#if data.hasMrr}
++	<section class="card mt-4 grid gap-6 p-5 sm:p-7 lg:grid-cols-2">
++		<form method="POST" action={act('stripe')} use:enhance={keep}>
++			<p class="font-medium">Connect Stripe (read-only)</p>
++			<p class="mt-1 text-sm text-ink-2">Stripe → Developers → API keys → <b>Create restricted key</b> → give <i>Subscriptions: Read</i> only. Undercut reads the MRR every day.</p>
++			{#if data.stripe}<p class="mt-3 text-sm">Connected: <code>{data.stripe}</code></p>{/if}
++			<div class="mt-3 flex gap-2"><input name="key" type="password" autocomplete="off" class="input text-sm" placeholder={data.stripe ? 'Paste a new key, or leave empty and save to disconnect' : 'rk_live_…'} /><button class="btn btn-primary shrink-0">Save</button></div>
++			{#if form?.stripeError}<p class="mt-2 text-sm text-bad">{form.stripeError}</p>{/if}
++		</form>
++		<form method="POST" action={act('mrr')} use:enhance={keep}>
++			<p class="font-medium">Or update it by hand</p>
++			<p class="mt-1 text-sm text-ink-2">Type today’s MRR (each update draws the curve) and the average price per customer.</p>
++			<div class="mt-3 grid grid-cols-2 gap-2">
++				<label class="text-xs text-muted">MRR today (€)<input name="mrr" class="input mt-1 text-sm" inputmode="decimal" placeholder="1 250" /></label>
++				<label class="text-xs text-muted">Price per customer (€/month)<input name="arpu" class="input mt-1 text-sm" inputmode="decimal" value={data.arpu ? Math.round(data.arpu) : ''} placeholder="49" /></label>
++			</div>
++			<button class="btn btn-primary mt-2">Update</button>
++		</form>
++	</section>
++{/if}
++
++{#if adding || data.progress.length}
++	<section class="mt-4">
++		{#if !adding}
++			<button class="pill" onclick={() => (adding = true)}>+ Add a goal</button>
++		{:else}
++			<form method="POST" action={act('add')} use:enhance={() => async ({ update, result }) => { await update({ reset: false }); if (result.type === 'success') adding = false; }} class="card grid gap-4 p-5 sm:p-7 lg:grid-cols-[1.4fr_1fr_1fr_auto] lg:items-end">
++				<label class="text-sm"><span class="label">What do you want to grow?</span>
++					<select name="metric" class="input mt-1.5" bind:value={metric}>{#each data.metrics as x (x.key)}<option value={x.key}>{x.label}</option>{/each}</select>
++					{#if m}<span class="mt-1 block text-xs text-muted">{m.help}</span>{/if}
++				</label>
++				<label class="text-sm"><span class="label">Target ({m?.unit ?? ''})</span><input name="target" class="input mt-1.5" inputmode="decimal" placeholder={metric === 'mrr' ? '10000' : metric === 'visits_day' ? '100' : metric === 'conversion_rate' ? '3' : '30'} required /></label>
++				<label class="text-sm"><span class="label">By</span><input name="deadline" type="date" class="input mt-1.5" value={inThreeMonths} required /></label>
++				<div class="flex gap-2"><button class="btn btn-primary py-3">Save goal</button><button type="button" class="pill" onclick={() => (adding = false)}>Cancel</button></div>
++				{#if form?.error}<p class="text-sm text-bad lg:col-span-4">{form.error}</p>{/if}
++			</form>
++		{/if}
++	</section>
++{/if}
+-- 
+2.43.0
+

@@ -1,0 +1,973 @@
+From 03e9f8adcd52f7370eee78cdc20de92a14e24581 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 18:28:51 +0100
+Subject: [PATCH] Landing v3: black/white/grey only, much more motion and air
+
+- No lime: black accent (white on dark); agency colour still optional in the app
+- Intro counter, letter-by-letter blur headlines, scrambling word, hover-scramble nav, magnetic buttons, custom cursor
+- Globe with scanning band, live Brussels clock and coordinates, live scan marquee
+- Pinned scroll-lit manifesto, dashboard that tilts flat on scroll with annotations, sticky 'how it works' with drawn dotted timeline, counters, cursor-light glass cards
+- Bigger spacing everywhere, dotted giant wordmarks
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Cursor.svelte             |  51 +++
+ src/lib/components/DotGlobe.svelte           |   8 +-
+ src/lib/components/Intro.svelte              |  39 ++
+ src/lib/components/SplitChars.svelte         |  10 +
+ src/lib/motion.ts                            |  47 +++
+ src/lib/server/agency-actions.ts             |   5 +-
+ src/lib/server/store.ts                      |   2 +-
+ src/routes/+page.svelte                      | 370 ++++++++++++-------
+ src/routes/admin/+page.server.ts             |   2 +-
+ src/routes/app/+page.svelte                  |   3 +-
+ src/routes/app/settings/team/+page.server.ts |   2 +-
+ src/routes/layout.css                        |  83 ++++-
+ 12 files changed, 464 insertions(+), 158 deletions(-)
+ create mode 100644 src/lib/components/Cursor.svelte
+ create mode 100644 src/lib/components/Intro.svelte
+ create mode 100644 src/lib/components/SplitChars.svelte
+
+diff --git a/src/lib/components/Cursor.svelte b/src/lib/components/Cursor.svelte
+new file mode 100644
+index 0000000..83a5190
+--- /dev/null
++++ b/src/lib/components/Cursor.svelte
+@@ -0,0 +1,51 @@
++<script lang="ts">
++	// A precise little cursor: a dot and a ring that lags behind and grows over anything clickable. Desktop only.
++	let on = $state(false);
++	let dot: HTMLDivElement;
++	let ring: HTMLDivElement;
++	$effect(() => {
++		if (matchMedia('(hover: none), (prefers-reduced-motion: reduce)').matches) return;
++		on = true;
++		let x = innerWidth / 2, y = innerHeight / 2, rx = x, ry = y, raf = 0;
++		const move = (e: PointerEvent) => {
++			x = e.clientX;
++			y = e.clientY;
++			const hot = (e.target as HTMLElement).closest('a,button,input,label,summary,[role=button]');
++			ring.classList.toggle('hot', Boolean(hot));
++		};
++		const loop = () => {
++			rx += (x - rx) * 0.18;
++			ry += (y - ry) * 0.18;
++			dot.style.transform = `translate(${x}px, ${y}px)`;
++			ring.style.transform = `translate(${rx}px, ${ry}px)`;
++			raf = requestAnimationFrame(loop);
++		};
++		addEventListener('pointermove', move);
++		raf = requestAnimationFrame(loop);
++		document.documentElement.classList.add('has-cursor');
++		return () => (removeEventListener('pointermove', move), cancelAnimationFrame(raf), document.documentElement.classList.remove('has-cursor'));
++	});
++</script>
++
++<div class="pointer-events-none fixed top-0 left-0 z-[100] {on ? '' : 'hidden'}" aria-hidden="true">
++	<div bind:this={dot} class="absolute -mt-[3px] -ml-[3px] size-[6px] rounded-full bg-ink mix-blend-difference invert"></div>
++	<div bind:this={ring} class="cursor-ring absolute -mt-4 -ml-4 size-8 rounded-full border border-ink/40"></div>
++</div>
++
++<style>
++	.cursor-ring {
++		transition:
++			width 0.25s,
++			height 0.25s,
++			margin 0.25s,
++			background 0.25s;
++	}
++	:global(.cursor-ring.hot) {
++		width: 56px;
++		height: 56px;
++		margin: -28px 0 0 -28px;
++		background: rgb(255 255 255 / 0.25);
++		backdrop-filter: blur(2px) invert(0.05);
++		border-color: rgb(13 13 13 / 0.6);
++	}
++</style>
+diff --git a/src/lib/components/DotGlobe.svelte b/src/lib/components/DotGlobe.svelte
+index 90ac3f9..adb9985 100644
+--- a/src/lib/components/DotGlobe.svelte
++++ b/src/lib/components/DotGlobe.svelte
+@@ -6,7 +6,7 @@
+ 	$effect(() => {
+ 		const ctx = canvas.getContext('2d')!;
+ 		const dpr = Math.min(2, window.devicePixelRatio || 1);
+-		const accent = getComputedStyle(canvas).getPropertyValue('--color-accent').trim() || '#c6f432';
++		const accent = getComputedStyle(canvas).getPropertyValue('--color-accent').trim() || '#0d0d0d';
+ 		let W = 0;
+ 		const resize = () => {
+ 			W = canvas.clientWidth;
+@@ -33,6 +33,7 @@
+ 			ctx.clearRect(0, 0, W, W);
+ 			const R = W * 0.46;
+ 			const c = W / 2;
++			const scan = ((t / 4200) % 1) * 2.4 - 1.2; // a scanning band sweeps across
+ 			const ca = Math.cos(a), sa = Math.sin(a), ct = Math.cos(tilt), st = Math.sin(tilt);
+ 			for (const p of pts) {
+ 				const x1 = p.x * ca + p.z * sa;
+@@ -54,10 +55,11 @@
+ 					ctx.arc(px, py, 2.6 + depth * 1.6, 0, Math.PI * 2);
+ 					ctx.fill();
+ 				} else {
++					const b = z2 > 0 ? Math.max(0, 1 - Math.abs(x1 - scan) / 0.09) : 0;
+ 					ctx.fillStyle = dark ? '#ffffff' : '#0d0d0d';
+-					ctx.globalAlpha = 0.05 + depth * 0.38;
++					ctx.globalAlpha = 0.05 + depth * 0.34 + b * 0.5;
+ 					ctx.beginPath();
+-					ctx.arc(px, py, 0.5 + depth * 1.25, 0, Math.PI * 2);
++					ctx.arc(px, py, 0.5 + depth * 1.2 + b * 1.1, 0, Math.PI * 2);
+ 					ctx.fill();
+ 				}
+ 			}
+diff --git a/src/lib/components/Intro.svelte b/src/lib/components/Intro.svelte
+new file mode 100644
+index 0000000..00ccf1d
+--- /dev/null
++++ b/src/lib/components/Intro.svelte
+@@ -0,0 +1,39 @@
++<script lang="ts">
++	// Short intro, once per visit: a counter runs to 100, the wordmark resolves, the curtain lifts.
++	let show = $state(false);
++	let n = $state(0);
++	let leaving = $state(false);
++	$effect(() => {
++		try {
++			if (sessionStorage.getItem('uc-intro') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
++			sessionStorage.setItem('uc-intro', '1');
++		} catch {
++			return;
++		}
++		show = true;
++		const t0 = performance.now();
++		let raf = 0;
++		const step = (t: number) => {
++			const p = Math.min(1, (t - t0) / 1100);
++			n = Math.round(100 * (1 - Math.pow(1 - p, 3)));
++			if (p < 1) raf = requestAnimationFrame(step);
++			else {
++				setTimeout(() => (leaving = true), 180);
++				setTimeout(() => (show = false), 1100);
++			}
++		};
++		raf = requestAnimationFrame(step);
++		return () => cancelAnimationFrame(raf);
++	});
++</script>
++
++{#if show}
++	<div class="fixed inset-0 z-[90] flex flex-col justify-between bg-paper p-5 transition-transform duration-[900ms] ease-[cubic-bezier(.7,0,.2,1)] sm:p-8 {leaving ? '-translate-y-full' : ''}" aria-hidden="true">
++		<div class="flex justify-between font-mono text-[11px] tracking-wide text-muted uppercase"><span>Undercut · Brussels</span><span>Loading dashboard</span></div>
++		<div class="flex items-end justify-between gap-6">
++			<p class="text-[22vw] leading-[0.8] font-medium tracking-[-0.07em] sm:text-[16vw]">undercut</p>
++			<p class="font-mono text-[11vw] leading-none tabular-nums sm:text-[6vw]">{String(n).padStart(3, '0')}</p>
++		</div>
++		<div class="h-px w-full bg-black/10"><div class="h-px bg-ink" style="width:{n}%"></div></div>
++	</div>
++{/if}
+diff --git a/src/lib/components/SplitChars.svelte b/src/lib/components/SplitChars.svelte
+new file mode 100644
+index 0000000..99d0af3
+--- /dev/null
++++ b/src/lib/components/SplitChars.svelte
+@@ -0,0 +1,10 @@
++<script lang="ts">
++	// Headline whose letters rise out of a blur, one by one, when scrolled into view.
++	import { inview } from '#lib/motion.ts';
++	let { text, as = 'span', class: cls = '', delay = 0, step = 22 }: { text: string; as?: string; class?: string; delay?: number; step?: number } = $props();
++	const words = $derived(text.split(' '));
++</script>
++
++<svelte:element this={as} class="chars {cls}" use:inview={{ delay }} aria-label={text}>
++	{#each words as w, wi (wi)}<span class="inline-block whitespace-nowrap" aria-hidden="true">{#each [...w] as ch, ci (ci)}<span class="ch" style="--i:{words.slice(0, wi).join('').length + ci};--st:{step}ms">{ch}</span>{/each}</span>{#if wi < words.length - 1}{' '}{/if}{/each}
++</svelte:element>
+diff --git a/src/lib/motion.ts b/src/lib/motion.ts
+index 9becc21..ac35476 100644
+--- a/src/lib/motion.ts
++++ b/src/lib/motion.ts
+@@ -107,3 +107,50 @@ export function inview(node: HTMLElement, opts: { delay?: number } = {}) {
+ 	const off = observe(node, () => node.classList.add('in'));
+ 	return { destroy: off };
+ }
++
++/** Cursor-following light on a glass card: writes --sx / --sy in px (see .spot in layout.css). */
++export function spotlight(node: HTMLElement) {
++	if (reduced() || matchMedia('(hover: none)').matches) return;
++	node.classList.add('spot');
++	const move = (e: PointerEvent) => {
++		const r = node.getBoundingClientRect();
++		node.style.setProperty('--sx', `${e.clientX - r.left}px`);
++		node.style.setProperty('--sy', `${e.clientY - r.top}px`);
++	};
++	node.addEventListener('pointermove', move);
++	return { destroy: () => node.removeEventListener('pointermove', move) };
++}
++
++/** Buttons that lean towards the pointer. */
++export function magnetic(node: HTMLElement, strength = 0.25) {
++	if (reduced() || matchMedia('(hover: none)').matches) return;
++	node.style.transition = 'transform .35s cubic-bezier(.2,.75,.15,1)';
++	const move = (e: PointerEvent) => {
++		const r = node.getBoundingClientRect();
++		node.style.transform = `translate(${(e.clientX - r.left - r.width / 2) * strength}px, ${(e.clientY - r.top - r.height / 2) * strength}px)`;
++	};
++	const leave = () => (node.style.transform = '');
++	node.addEventListener('pointermove', move);
++	node.addEventListener('pointerleave', leave);
++	return { destroy: () => (node.removeEventListener('pointermove', move), node.removeEventListener('pointerleave', leave)) };
++}
++
++/** Text decodes through random glyphs on hover (links, labels). */
++export function hoverScramble(node: HTMLElement) {
++	if (reduced()) return;
++	const glyphs = '▚▞░▒#*+=/<>01';
++	let raf = 0;
++	const run = () => {
++		const target = node.dataset.text ?? (node.dataset.text = node.textContent ?? '');
++		const t0 = performance.now();
++		cancelAnimationFrame(raf);
++		const step = (t: number) => {
++			const p = Math.min(1, (t - t0) / 420);
++			node.textContent = [...target].map((ch, i) => (ch === ' ' || i / target.length < p ? ch : glyphs[(Math.random() * glyphs.length) | 0])).join('');
++			if (p < 1) raf = requestAnimationFrame(step);
++		};
++		raf = requestAnimationFrame(step);
++	};
++	node.addEventListener('pointerenter', run);
++	return { destroy: () => (node.removeEventListener('pointerenter', run), cancelAnimationFrame(raf)) };
++}
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index 9bfe430..8fea0c5 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -74,8 +74,7 @@ export const agencyActions = {
+ 		// colour requests: "make it blue", "en violet", "neutre", "couleur de mon site"
+ 		const t = text.toLowerCase();
+ 		const COLORS: [RegExp, string | null | 'site'][] = [
+-			[/undercut|default|défaut|lime/, null],
+-			[/neutr|black|noir|zwart|sobre|no colou?r|sans couleur/, '#0D0D0D'],
++			[/undercut|default|défaut|neutr|black|noir|zwart|sobre|no colou?r|sans couleur|gris|grey|gray/, null],
+ 			[/(my|mon|de mon|mijn) site|site colou?r|couleur du site/, 'site'],
+ 			[/blue|bleu|blauw/, '#2F6BFF'],
+ 			[/purple|violet|paars/, '#7C5CFF'],
+@@ -90,7 +89,7 @@ export const agencyActions = {
+ 			if (hit) {
+ 				const v = hit[1] === 'site' ? getOS().profile?.color ?? null : hit[1];
+ 				setTheme(v);
+-				return { asked: v === '#0D0D0D' ? 'Black & white it is.' : v ? 'Done — new colour applied.' : 'Back to Undercut lime.' };
++				return { asked: v ? 'Done — new colour applied.' : 'Back to black & white.' };
+ 			}
+ 		}
+ 		return { asked: applyAsk(text) };
+diff --git a/src/lib/server/store.ts b/src/lib/server/store.ts
+index 9f53002..3a8e6d0 100644
+--- a/src/lib/server/store.ts
++++ b/src/lib/server/store.ts
+@@ -188,7 +188,7 @@ export function deleteClient(id: string) {
+ export function getAgency(): Agency {
+ 	return read<Agency>('agency.json', {
+ 		name: 'Unix Creative Studio',
+-		color: '#C6F432',
++		color: '#0D0D0D',
+ 		reportFooter: 'Questions? Reply to this email and we will help.'
+ 	});
+ }
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 7636530..1321c2e 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -2,10 +2,13 @@
+ 	import { slide } from 'svelte/transition';
+ 	import Logo from '#lib/components/Logo.svelte';
+ 	import SplitText from '#lib/components/SplitText.svelte';
++	import SplitChars from '#lib/components/SplitChars.svelte';
+ 	import DotGlobe from '#lib/components/DotGlobe.svelte';
+ 	import Scramble from '#lib/components/Scramble.svelte';
+ 	import SoundToggle from '#lib/components/SoundToggle.svelte';
+-	import { reveal, inview, pointer } from '#lib/motion.ts';
++	import Cursor from '#lib/components/Cursor.svelte';
++	import Intro from '#lib/components/Intro.svelte';
++	import { reveal, inview, pointer, scrub, countUp, spotlight, magnetic, hoverScramble } from '#lib/motion.ts';
+ 	import { PLANS } from '#lib/plans.ts';
+ 	import { themeStyle } from '#lib/theme.ts';
+ 
+@@ -14,38 +17,46 @@
+ 	let y = $state(0);
+ 	let going = $state(false);
+ 
+-	// "Becomes yours": the demo dashboard takes the agency's colour
+-	const demo = [
+-		{ name: 'Undercut', c: null },
+-		{ name: 'Studio Nova', c: '#2F6BFF' },
+-		{ name: 'Atelier Brut', c: '#E8590C' },
+-		{ name: 'Pixel & Co', c: '#7C5CFF' },
+-		{ name: 'Black & white', c: '#0D0D0D' }
+-	];
+-	let pick = $state(0);
+-	let auto = $state(true);
++	// live clock, Brussels — a small "it's running" detail
++	let clock = $state('');
+ 	$effect(() => {
+-		if (!auto || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+-		const t = setInterval(() => (pick = (pick + 1) % demo.length), 2800);
++		const tick = () => (clock = new Date().toLocaleTimeString('en-GB', { timeZone: 'Europe/Brussels' }));
++		tick();
++		const t = setInterval(tick, 1000);
+ 		return () => clearInterval(t);
+ 	});
+-	const choose = (i: number) => {
+-		auto = false;
+-		pick = i;
+-	};
+ 
+-	// dot-matrix bars (deterministic)
+ 	const bars = [3, 5, 4, 7, 6, 9, 8, 11, 10, 13];
+ 	const steps = [
+-		{ n: '01', t: 'Paste your URL', d: 'Your site or your Instagram. We read what you sell, where you work — and your brand colour.', b: [2, 3, 2, 4] },
+-		{ n: '02', t: 'Get prospects', d: 'Real businesses around you, each website checked: mobile, speed, https, last update, socials.', b: [3, 5, 4, 6] },
+-		{ n: '03', t: 'Send the message', d: 'The first message is written from what we found. You read it and send it yourself.', b: [4, 4, 6, 5] },
+-		{ n: '04', t: 'Keep the client', d: 'Once they sign, their site or app lives in your dashboard: leads, fixes, reports.', b: [5, 6, 7, 8] }
++		{ n: '01', t: 'Paste your URL', d: 'Your site or your Instagram. We read what you sell, where you work, in which language.', k: 'READING youragency.be' },
++		{ n: '02', t: 'Get prospects', d: 'Real businesses around you. Each website opened and checked: mobile, speed, https, last update, socials.', k: 'SCANNING 1,104 businesses' },
++		{ n: '03', t: 'Send the message', d: 'The first message is written from what we found. You read it, change it, send it yourself.', k: 'WRITING message 1/5' },
++		{ n: '04', t: 'Keep the client', d: 'Once they sign, their site or app lives in your dashboard: leads, fixes, reports, every Monday.', k: 'TRACKING 3 clients' }
++	];
++	const scans = [
++		'coiffure-lila.be · mobile ✕ · https ✕ · score 90',
++		'boulangerie-dupont · no website · score 70',
++		'cabinet-martin.be · last update 2019 · score 55',
++		'resto-moderne.be · 4.8 s on mobile · score 48',
++		'atelier-brut.be · no instagram · score 40',
++		'kine-schaerbeek.be · 46 leads this month',
++		'moove app · crash-free 99.7%'
+ 	];
++	const statement =
++		'Agencies don’t need another tool with forty tabs. Every Monday they need to know [who to call next], [which client needs them] and [what to fix]. One screen, built from your own URL. The rest is noise.';
++	const lit = (() => {
++		let on = false;
++		return statement.split(' ').map((raw) => {
++			if (raw.startsWith('[')) on = true;
++			const w = { t: raw.replace(/[[\]]/g, ''), hi: on };
++			if (raw.includes(']')) on = false;
++			return w;
++		});
++	})();
+ 	const faqs = [
+ 		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
+ 		{ q: 'Do you send the messages for me?', a: 'No, on purpose. Undercut writes the first message from what it found; you read it, change it and send it yourself. No spam, no burnt domain.' },
+-		{ q: 'Can I make the dashboard mine?', a: 'Yes. It takes your site’s colour automatically. Change the colour, hide blocks or reorder them — or just type “hide agenda” or “make it blue”.' },
++		{ q: 'Can I make the dashboard mine?', a: 'Yes. Hide blocks, reorder them, give it your colour — or just type “hide agenda” or “clients first”.' },
+ 		{ q: 'What if my agency is only on Instagram?', a: 'Paste the Instagram link and tell us your city and what you sell. That’s enough to start.' },
+ 		{ q: 'What does it track for my clients?', a: 'Leads (forms, calls, WhatsApp), visits, Google Search and Maps, speed and SEO with one-click fixes, heatmaps — and for apps: users, crashes, store reviews and paywall.' },
+ 		{ q: 'Is it GDPR-friendly?', a: 'No cookies, no IP addresses, nothing typed in forms is recorded. Data in the EU.' }
+@@ -58,25 +69,33 @@
+ 		['#faq', 'FAQ']
+ 	];
+ 	const chips = [
+-		{ n: 'Coiffure Lila', w: 'not mobile · no https', s: 90, x: '4%', y: '18%', d: 0 },
+-		{ n: 'Boulangerie Dupont', w: 'no website', s: 70, x: '58%', y: '8%', d: -2 },
+-		{ n: 'Cabinet Martin', w: 'last update 2019', s: 55, x: '52%', y: '74%', d: -4 }
++		{ n: 'Coiffure Lila', w: 'not mobile · no https', s: 90, x: '2%', y: '20%', d: 0 },
++		{ n: 'Boulangerie Dupont', w: 'no website', s: 70, x: '56%', y: '6%', d: -2 },
++		{ n: 'Cabinet Martin', w: 'last update 2019', s: 55, x: '50%', y: '72%', d: -4 }
++	];
++	const notes = [
++		{ t: 'Prospects found for you', x: '-2%', y: '30%', side: 'left' },
++		{ t: 'Pipeline · who signed', x: '102%', y: '22%', side: 'right' },
++		{ t: 'Your clients’ health', x: '102%', y: '78%', side: 'right' }
+ 	];
+ </script>
+ 
+ <svelte:window bind:scrollY={y} />
+ <svelte:head>
+ 	<title>Undercut — find clients, keep them. The dashboard for agencies.</title>
+-	<meta name="description" content="Paste your agency’s URL. Undercut finds local businesses that need what you sell, writes the first message, and keeps your clients’ sites and apps healthy — one dashboard, in your colours." />
++	<meta name="description" content="Paste your agency’s URL. Undercut finds local businesses that need what you sell, writes the first message, and keeps your clients’ sites and apps healthy — one dashboard." />
+ 	<meta name="theme-color" content="#ECECEA" />
+ </svelte:head>
+ 
++<Intro />
++<Cursor />
++
+ {#snippet urlForm(id: string)}
+ 	<form method="POST" action="/prospects" class="w-full max-w-xl" onsubmit={() => (going = true)}>
+ 		<div class="card flex flex-col gap-2 rounded-[22px]! p-1.5 focus-within:shadow-[0_0_0_2px_rgba(13,13,13,.25)] sm:flex-row">
+ 			<label class="sr-only" for={id}>Your agency’s website or Instagram</label>
+-			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.be" class="min-w-0 flex-1 bg-transparent px-4 py-3 font-mono text-[15px] outline-none placeholder:text-muted" />
+-			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-0.5">→</span></button>
++			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.be" class="min-w-0 flex-1 bg-transparent px-4 py-3 font-mono text-[15px] text-ink outline-none placeholder:text-muted" />
++			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going} use:magnetic={0.15}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-0.5">→</span></button>
+ 		</div>
+ 	</form>
+ {/snippet}
+@@ -86,7 +105,7 @@
+ 		{#each hs as h, i (i)}
+ 			<div class="flex flex-col-reverse gap-[4px]">
+ 				{#each Array(max) as _, k (k)}
+-					<span class="size-[5px] rounded-full transition-all duration-500 {k < h ? (i === hs.length - 1 ? 'bg-accent' : dark ? 'bg-white/80' : 'bg-ink/75') : dark ? 'bg-white/10' : 'bg-ink/[.07]'} {k < h ? 'scale-0 group-[.in]:scale-100' : ''}" style="transition-delay:{i * 60 + k * 25}ms"></span>
++					<span class="size-[5px] rounded-full transition-all duration-500 {k < h ? (dark ? 'bg-white/85' : 'bg-ink/80') : dark ? 'bg-white/10' : 'bg-ink/[.07]'} {k < h ? 'scale-0 group-[.in]:scale-100' : ''}" style="transition-delay:{i * 60 + k * 25}ms"></span>
+ 				{/each}
+ 			</div>
+ 		{/each}
+@@ -141,149 +160,202 @@
+ {/snippet}
+ 
+ <div class="relative min-h-dvh overflow-x-clip text-ink">
+-	<!-- frame: two hairlines that run down the page -->
+-	<div class="pointer-events-none fixed inset-y-0 left-1/2 z-0 hidden w-full max-w-[1240px] -translate-x-1/2 border-x border-black/[.06] lg:block" aria-hidden="true"></div>
++	<!-- frame: hairlines down the page, like a technical drawing -->
++	<div class="pointer-events-none fixed inset-y-0 left-1/2 z-0 hidden w-full max-w-[1280px] -translate-x-1/2 border-x border-black/[.06] lg:block" aria-hidden="true">
++		<div class="absolute inset-y-0 left-1/2 border-l border-dashed border-black/[.04]"></div>
++	</div>
+ 
+ 	<!-- ================= NAV ================= -->
+ 	<header class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5">
+-		<div class="mx-auto flex max-w-[1200px] items-center justify-between gap-4 rounded-full py-1.5 pr-1.5 pl-3 transition-all duration-300 {y > 30 ? 'glass-btn' : ''}">
++		<div class="mx-auto flex max-w-[1240px] items-center justify-between gap-4 rounded-full py-1.5 pr-1.5 pl-3 transition-all duration-500 {y > 30 ? 'glass-btn' : ''}">
+ 			<a href="/" aria-label="Undercut home"><Logo size={28} /></a>
+ 			<nav class="hidden items-center gap-1 text-sm md:flex">
+-				{#each nav as [h, l] (h)}<a href={h} class="rounded-full px-3.5 py-2 text-ink-2 transition-colors hover:bg-white/70 hover:text-ink">{l}</a>{/each}
++				{#each nav as [h, l] (h)}<a href={h} class="rounded-full px-3.5 py-2 font-mono text-[12px] tracking-wide text-ink-2 uppercase transition-colors hover:bg-white/70 hover:text-ink" use:hoverScramble>{l}</a>{/each}
+ 			</nav>
+ 			<div class="flex items-center gap-1.5">
+ 				<SoundToggle />
+ 				<a href="/login" class="hidden px-3 text-sm text-ink-2 hover:text-ink sm:block">Log in</a>
+-				<a href="/beta" class="btn btn-primary">Start free</a>
++				<a href="/beta" class="btn btn-primary" use:magnetic>Start free</a>
+ 				<button class="glass-btn grid size-10 place-items-center rounded-full md:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
+ 			</div>
+ 		</div>
+ 		{#if menu}
+-			<nav class="card mx-auto mt-2 grid max-w-[1200px] gap-1 p-2 text-sm md:hidden" transition:slide={{ duration: 220 }}>
++			<nav class="card mx-auto mt-2 grid max-w-[1240px] gap-1 p-2 text-sm md:hidden" transition:slide={{ duration: 220 }}>
+ 				{#each [...nav, ['/login', 'Log in']] as [h, l] (h)}<a href={h} class="rounded-xl px-3 py-2.5 hover:bg-white/70" onclick={() => (menu = false)}>{l}</a>{/each}
+ 			</nav>
+ 		{/if}
+ 	</header>
+ 
+ 	<!-- ================= HERO ================= -->
+-	<section class="relative isolate mx-auto grid max-w-[1240px] items-center gap-6 px-5 pt-32 sm:px-8 sm:pt-40 lg:grid-cols-[1.1fr_1fr] lg:pt-36" use:pointer>
+-		<div class="relative z-10">
+-			<p class="tag" use:reveal={{ delay: 50 }}>For web, app & communication agencies</p>
+-			<h1 class="mt-6 text-[clamp(44px,6.3vw,92px)] leading-[0.94] font-medium tracking-[-0.05em]">
+-				<SplitText as="span" class="block" text="Find your next" delay={120} />
+-				<span class="relative mt-1 mb-2 inline-block px-3 align-middle" use:reveal={{ delay: 420 }}>
+-					<span class="corners inline-block font-mono text-[0.78em] font-normal tracking-[-0.06em]"><Scramble words={['clients.', 'leads.', 'projects.', 'clients.']} /></span>
+-				</span>
+-				<SplitText as="span" class="block" text="*Keep them.*" emClass="font-serif font-normal tracking-[-0.02em] text-ink/40" delay={560} />
+-			</h1>
+-			<p class="mt-7 max-w-lg text-[17px] leading-relaxed text-ink-2" use:reveal={{ delay: 700 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps. In your colours.</p>
+-			<div class="mt-8" use:reveal={{ delay: 820 }}>
+-				{@render urlForm('hero-url')}
+-				<p class="mt-3 font-mono text-[11px] tracking-wide text-muted uppercase">Free · no account · ~30 seconds</p>
++	<section class="relative isolate mx-auto flex min-h-dvh max-w-[1280px] flex-col px-5 pt-32 sm:px-10 sm:pt-40" use:pointer>
++		<div class="flex flex-wrap items-center justify-between gap-3 font-mono text-[11px] tracking-wide text-muted uppercase" use:reveal>
++			<span class="tag">For web, app & communication agencies</span>
++			<span class="hidden sm:inline">50.8333° N · 4.3667° E — Brussels {clock}</span>
++		</div>
++		<div class="mt-10 grid flex-1 items-center gap-10 lg:mt-6 lg:grid-cols-[1.15fr_1fr]">
++			<div class="relative z-10">
++				<h1 class="text-[clamp(44px,6.4vw,96px)] leading-[0.98] font-medium tracking-[-0.05em]">
++					<SplitChars as="span" class="block" text="Find your next" delay={150} />
++					<span class="relative my-2 inline-block px-3 align-middle sm:my-3" use:reveal={{ delay: 600 }}>
++						<span class="corners inline-block font-mono text-[0.78em] font-normal tracking-[-0.06em]"><Scramble words={['clients.', 'leads.', 'projects.', 'clients.']} /></span>
++					</span>
++					<SplitChars as="span" class="block font-serif font-normal tracking-[-0.02em] text-ink/40 italic" text="Keep them." delay={800} step={40} />
++				</h1>
++				<p class="mt-10 max-w-md text-[17px] leading-[1.7] text-ink-2" use:reveal={{ delay: 1000 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps.</p>
++				<div class="mt-10" use:reveal={{ delay: 1150 }}>
++					{@render urlForm('hero-url')}
++					<p class="mt-4 font-mono text-[11px] tracking-wide text-muted uppercase">Free · no account · ~30 seconds</p>
++				</div>
++			</div>
++			<div class="relative mx-auto w-full max-w-[600px]" use:reveal={{ delay: 400 }} style="transform:translate(calc(var(--mx,0) * -12px), calc(var(--my,0) * -10px))">
++				<DotGlobe />
++				{#each chips as c (c.n)}
++					<div class="card absolute flex w-[min(210px,46%)] items-center gap-3 rounded-[18px]! p-2.5 pr-3.5 [animation:floaty_6s_ease-in-out_infinite]" style="left:{c.x};top:{c.y};animation-delay:{c.d}s">
++						<span class="grid size-9 shrink-0 place-items-center rounded-full bg-ink text-xs font-semibold text-white">{c.s}</span>
++						<span class="min-w-0"><b class="block truncate text-[13px] font-medium">{c.n}</b><span class="block truncate font-mono text-[10px] text-muted">{c.w}</span></span>
++					</div>
++				{/each}
++				<p class="tag absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap">1,104 businesses around Ixelles · 16 need you</p>
+ 			</div>
+ 		</div>
++		<!-- giant wordmark: letters spread as you scroll away -->
++		<div class="pointer-events-none mt-16 overflow-hidden" use:scrub={{ start: 0.9, end: 0.1 }} aria-hidden="true">
++			<p class="hero-mark text-center text-[19vw] leading-[0.78] font-medium select-none lg:text-[238px]" style="letter-spacing:calc(-0.07em + var(--p,0) * 0.06em);transform:translateY(calc(var(--p,0) * -12%))">undercut</p>
++		</div>
++	</section>
+ 
+-		<div class="relative mx-auto w-full max-w-[580px]" use:reveal={{ delay: 300 }} style="transform:translate(calc(var(--mx,0) * -10px), calc(var(--my,0) * -8px))">
+-			<DotGlobe />
+-			{#each chips as c (c.n)}
+-				<div class="card absolute flex w-[min(210px,46%)] items-center gap-3 rounded-[18px]! p-2.5 pr-3.5 [animation:floaty_6s_ease-in-out_infinite]" style="left:{c.x};top:{c.y};animation-delay:{c.d}s">
+-					<span class="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold text-accent-ink">{c.s}</span>
+-					<span class="min-w-0"><b class="block truncate text-[13px] font-medium">{c.n}</b><span class="block truncate font-mono text-[10px] text-muted">{c.w}</span></span>
++	<!-- ================= LIVE SCAN STRIP ================= -->
++	<div class="relative overflow-hidden border-y border-black/[.07] bg-white/40 py-4 backdrop-blur" aria-hidden="true">
++		<div class="flex w-max [animation:marquee_45s_linear_infinite]">
++			{#each [0, 1] as k (k)}
++				<div class="flex items-center gap-10 pr-10 font-mono text-[12px] tracking-wide text-ink-2 uppercase">
++					{#each scans as t (t)}<span class="flex items-center gap-3 whitespace-nowrap"><span class="size-1.5 rounded-full bg-ink/70"></span>{t}</span>{/each}
+ 				</div>
+ 			{/each}
+-			<p class="tag absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap">1,100 businesses around Ixelles · 16 need you</p>
++		</div>
++	</div>
++
++	<!-- ================= STATEMENT (scroll-lit) ================= -->
++	<section class="relative h-[220vh]" use:scrub={{ start: 0, end: 1 }}>
++		<div class="sticky top-0 flex h-dvh flex-col items-center justify-center px-6">
++			<p class="tag mb-10">Manifesto</p>
++			<p class="lit mx-auto max-w-5xl text-center text-[clamp(30px,4.6vw,64px)] leading-[1.15] font-medium tracking-[-0.035em]" style="--n:{lit.length}">
++				{#each lit as w, i (i)}<span style="--i:{i}" class={w.hi ? 'font-serif font-normal italic' : ''}>{w.t}</span>{' '}{/each}
++			</p>
+ 		</div>
+ 	</section>
+ 
+-	<!-- ================= MOCK ================= -->
+-	<section class="relative mx-auto max-w-[1240px] px-4 pt-20 sm:px-8 sm:pt-28">
+-		<div class="mb-8 flex flex-wrap items-end justify-between gap-6">
+-			<SplitText text={'One dashboard.\n*In your colours.*'} class="text-[clamp(36px,5vw,64px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
+-			<div class="flex flex-wrap items-center gap-2 text-sm">
+-				<span class="tag mr-1">Try a colour</span>
+-				{#each demo as d, i (d.name)}
+-					<button class="grid size-9 place-items-center rounded-full ring-offset-2 ring-offset-paper transition {pick === i ? 'ring-2 ring-ink' : 'hover:scale-110'}" style="background:{d.c ?? '#C6F432'}" onclick={() => choose(i)} aria-label={d.name} aria-pressed={pick === i} title={d.name}></button>
+-				{/each}
+-			</div>
++	<!-- ================= PRODUCT (tilts flat on scroll) ================= -->
++	<section class="relative mx-auto max-w-[1280px] px-4 py-24 sm:px-10 sm:py-40">
++		<div class="text-center">
++			<p class="tag" use:reveal>The dashboard</p>
++			<SplitText text={'One screen.\n*Everything that matters.*'} class="mt-6 text-[clamp(38px,5.4vw,76px)] leading-[1] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
++			<p class="mx-auto mt-8 max-w-lg leading-[1.7] text-ink-2" use:reveal={{ delay: 200 }}>Prospects, pipeline, this week’s to-do and every client’s site and app. It builds itself from your URL — then you shape it.</p>
+ 		</div>
+-		<div class="card rounded-[30px]! p-2 sm:p-2.5" use:reveal>
+-			<div class="flex items-center gap-2 px-3 pt-1 pb-2.5">
+-				<span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span>
+-				<span class="mx-auto rounded-full bg-black/[.04] px-4 py-1 font-mono text-[11px] text-muted">app.getundercut.app</span>
++		<div class="relative mt-20 [perspective:2000px]" use:scrub={{ start: 1, end: 0.35 }}>
++			<div class="relative origin-top transition-transform duration-150 ease-out" style="transform:rotateX(calc(22deg - var(--p,0) * 22deg)) scale(calc(.9 + var(--p,0) * .1));opacity:calc(.4 + var(--p,0) * .6)">
++				<div class="card rounded-[30px]! p-2 sm:p-2.5">
++					<div class="flex items-center gap-2 px-3 pt-1 pb-2.5">
++						<span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span>
++						<span class="mx-auto rounded-full bg-black/[.04] px-4 py-1 font-mono text-[11px] text-muted">app.getundercut.app</span>
++					</div>
++					{@render mock(null, 'Your agency')}
++				</div>
++				{#each notes as n, i (n.t)}
++					<div class="pointer-events-none absolute hidden items-center gap-3 xl:flex {n.side === 'left' ? '-translate-x-full flex-row-reverse' : ''}" style="left:{n.x};top:{n.y};opacity:clamp(0, calc(var(--p,0) * 3 - {1 + i * 0.4}), 1)">
++						<span class="h-px w-12 bg-ink/30"></span><span class="tag whitespace-nowrap text-ink!">0{i + 1} · {n.t}</span>
++					</div>
++				{/each}
+ 			</div>
+-			{@render mock(demo[pick].c, demo[pick].name === 'Undercut' || demo[pick].name === 'Black & white' ? 'Your agency' : demo[pick].name)}
+ 		</div>
+ 	</section>
+ 
+-	<!-- ================= HOW ================= -->
+-	<section id="how" class="relative mx-auto max-w-[1240px] scroll-mt-24 px-4 py-28 sm:px-8 sm:py-36">
+-		<div class="flex flex-wrap items-end justify-between gap-6">
+-			<div>
+-				<p class="tag" use:reveal>How it works</p>
+-				<SplitText text={'From one URL\n*to your first call.*'} class="mt-4 text-[clamp(36px,5vw,64px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
+-			</div>
+-			<p class="max-w-sm text-ink-2" use:reveal={{ delay: 200 }}>No CRM to set up, no list to buy, no ten open tabs. One screen that tells you who to call and which client needs you.</p>
++	<!-- ================= HOW (sticky title + drawn timeline) ================= -->
++	<section id="how" class="relative mx-auto grid max-w-[1280px] scroll-mt-24 gap-16 px-5 py-24 sm:px-10 sm:py-40 lg:grid-cols-[1fr_1.2fr]">
++		<div class="lg:sticky lg:top-32 lg:self-start">
++			<p class="tag" use:reveal>How it works</p>
++			<SplitText text={'Four steps.\n*One morning.*'} class="mt-6 text-[clamp(38px,5.4vw,76px)] leading-[1] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
++			<p class="mt-8 max-w-sm leading-[1.7] text-ink-2" use:reveal={{ delay: 200 }}>No CRM to set up, no list to buy, no ten open tabs. From your URL to your first call before lunch.</p>
+ 		</div>
+-		<ol class="mt-14 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" use:reveal>
+-			{#each steps as s (s.n)}
+-				<li class="card group flex min-h-[290px] flex-col p-6" data-stagger use:inview>
+-					<div class="flex items-start justify-between"><span class="font-mono text-xs text-muted">{s.n}</span>{@render dotbars(s.b, false, 8)}</div>
+-					<h3 class="mt-auto text-[24px] leading-tight font-medium tracking-[-0.03em]">{s.t}</h3>
+-					<p class="mt-2 text-sm text-ink-2">{s.d}</p>
++		<ol class="relative" use:scrub={{ start: 0.8, end: 0.5 }}>
++			<span class="absolute top-2 bottom-2 left-[11px] w-px origin-top bg-[linear-gradient(to_bottom,rgba(13,13,13,.5)_50%,transparent_50%)] bg-[length:1px_6px]" style="transform:scaleY(var(--p,0))" aria-hidden="true"></span>
++			{#each steps as s, i (s.n)}
++				<li class="relative pb-20 pl-14 last:pb-0" use:reveal={{ delay: i * 80 }}>
++					<span class="absolute top-1 left-0 grid size-[23px] place-items-center rounded-full border border-ink/30 bg-paper"><span class="size-2 rounded-full bg-ink"></span></span>
++					<p class="font-mono text-xs text-muted">{s.n} — <span class="caret">{s.k}</span></p>
++					<h3 class="mt-4 text-[clamp(28px,3vw,40px)] leading-tight font-medium tracking-[-0.035em]">{s.t}</h3>
++					<p class="mt-4 max-w-md leading-[1.7] text-ink-2">{s.d}</p>
+ 				</li>
+ 			{/each}
+ 		</ol>
+ 	</section>
+ 
++	<!-- ================= NUMBERS ================= -->
++	<section class="relative mx-auto max-w-[1280px] px-5 py-16 sm:px-10">
++		<div class="grid grid-cols-2 border-y border-black/[.08] lg:grid-cols-4" use:reveal>
++			{#each [[30, ' s', 'to your first prospects'], [1104, '', 'businesses scanned around Ixelles'], [1, ' click', 'to ship a fix'], [0, '', 'cookies, events or setup']] as [v, suf, l], i (l)}
++				<div class="border-black/[.08] px-2 py-10 sm:px-6 {i ? 'lg:border-l' : ''} {i % 2 ? 'border-l' : ''}" data-stagger>
++					<p class="big text-[clamp(44px,5vw,72px)] whitespace-nowrap" use:countUp={{ to: v as number, suffix: suf as string, ms: 1400 + i * 200 }}>{v}{suf}</p>
++					<p class="mt-3 font-mono text-[11px] tracking-wide text-muted uppercase">{l}</p>
++				</div>
++			{/each}
++		</div>
++	</section>
++
+ 	<!-- ================= FEATURES ================= -->
+-	<section id="features" class="relative mx-auto max-w-[1240px] scroll-mt-24 px-4 pb-28 sm:px-8 sm:pb-36">
+-		<p class="tag" use:reveal>Features</p>
+-		<SplitText text={'Find. Sign. Keep.\n*Nothing else.*'} class="mt-4 text-[clamp(36px,5vw,64px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
+-		<div class="mt-14 grid grid-cols-1 gap-3 md:grid-cols-6" use:reveal>
+-			<article class="card group flex flex-col gap-6 p-7 md:col-span-4" data-stagger use:inview>
++	<section id="features" class="relative mx-auto max-w-[1280px] scroll-mt-24 px-4 py-24 sm:px-10 sm:py-40">
++		<div class="flex flex-wrap items-end justify-between gap-8">
++			<div>
++				<p class="tag" use:reveal>Features</p>
++				<SplitText text={'Find. Sign. Keep.\n*Nothing else.*'} class="mt-6 text-[clamp(38px,5.4vw,76px)] leading-[1] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
++			</div>
++			<p class="max-w-sm leading-[1.7] text-ink-2" use:reveal={{ delay: 200 }}>Everything an agency needs to bring clients in and keep them happy. Nothing an analyst would.</p>
++		</div>
++		<div class="mt-20 grid grid-cols-1 gap-3 md:grid-cols-6" use:reveal>
++			<article class="card group flex flex-col gap-8 p-8 md:col-span-4" data-stagger use:inview use:spotlight>
+ 				<div class="flex flex-wrap items-start justify-between gap-3">
+-					<div><span class="tag">Find clients</span><h3 class="mt-3 text-[30px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
+-					<p class="max-w-xs text-sm text-ink-2">Real businesses around you, each website checked, a first message written from what we found.</p>
++					<div><span class="tag">Find clients</span><h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
++					<p class="max-w-xs text-sm leading-[1.7] text-ink-2">Real businesses around you, each website checked, a first message written from what we found.</p>
+ 				</div>
+ 				<div class="rounded-[20px] bg-white/60 p-5 shadow-[inset_0_0_0_1px_rgba(0,0,0,.05)]">
+-					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Coiffure Lila</b><span class="font-mono text-xs text-muted">Hairdresser · Ixelles · 400 m</span></span><span class="grid size-12 place-items-center rounded-full bg-accent font-semibold text-accent-ink">90</span></p>
+-					<div class="mt-3 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full bg-white px-3 py-1 font-mono text-[11px] opacity-0 shadow-[0_0_0_1px_rgba(0,0,0,.06)] transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
+-					<p class="mt-3 rounded-[14px] bg-black/[.04] p-3 text-sm text-ink-2">“Bonjour, en regardant votre site j’ai remarqué qu’il ne s’affiche pas bien sur mobile…”</p>
++					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Coiffure Lila</b><span class="font-mono text-xs text-muted">Hairdresser · Ixelles · 400 m</span></span><span class="grid size-12 place-items-center rounded-full bg-ink font-semibold text-white">90</span></p>
++					<div class="mt-4 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full bg-white px-3 py-1 font-mono text-[11px] opacity-0 shadow-[0_0_0_1px_rgba(0,0,0,.06)] transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
++					<p class="mt-4 overflow-hidden rounded-[14px] bg-black/[.04] p-3 text-sm whitespace-nowrap text-ink-2 [clip-path:inset(0_100%_0_0)] transition-[clip-path] delay-700 duration-[1800ms] ease-linear group-[.in]:[clip-path:inset(0_0_0_0)]">“Bonjour, en regardant votre site j’ai remarqué qu’il ne s’affiche pas bien sur mobile…”</p>
+ 				</div>
+ 			</article>
+-			<article class="card-dark group flex flex-col gap-5 p-7 md:col-span-2" data-stagger use:inview>
+-				<div><span class="tag text-white/50!">Pipeline</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Signed this month.</h3></div>
++			<article class="card-dark group flex flex-col gap-6 p-8 md:col-span-2" data-stagger use:inview use:spotlight>
++				<div><span class="tag text-white/50!">Pipeline</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Signed this month.</h3></div>
+ 				<div class="mt-auto">{@render dotbars(bars, true)}</div>
+ 				<p class="font-mono text-xs text-white/50">reply rate 32% · 3 signed</p>
+ 			</article>
+-			<article class="card flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
+-				<div><span class="tag">Make it yours</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Your colour. Your blocks.</h3></div>
+-				<p class="text-sm text-ink-2">Takes your site’s colour. Hide, reorder — or just type it.</p>
+-				<p class="mt-auto rounded-[16px] bg-black/[.04] px-4 py-3 font-mono text-[12px] text-ink-2">✦ hide agenda, clients first_</p>
++			<article class="card flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:spotlight>
++				<div><span class="tag">Make it yours</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Shape it in words.</h3></div>
++				<p class="text-sm leading-[1.7] text-ink-2">Hide blocks, reorder them — or just type what you want.</p>
++				<p class="mt-auto rounded-[16px] bg-black/[.04] px-4 py-3 font-mono text-[12px] text-ink-2"><span class="caret">✦ hide agenda, clients first</span></p>
+ 			</article>
+-			<article class="card flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
+-				<div><span class="tag">Keep clients</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3></div>
+-				<p class="text-sm text-ink-2">Forms, calls and WhatsApps counted per channel. No cookies, no setup.</p>
+-				<p class="mt-auto"><span class="big text-[56px]">46</span><span class="ml-2 font-mono text-xs text-muted">leads · ↑ 24%</span></p>
++			<article class="card flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:spotlight>
++				<div><span class="tag">Keep clients</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3></div>
++				<p class="text-sm leading-[1.7] text-ink-2">Forms, calls and WhatsApps counted per channel. No cookies, no setup.</p>
++				<p class="mt-auto"><span class="big text-[56px]" use:countUp={{ to: 46 }}>46</span><span class="ml-2 font-mono text-xs text-muted">leads · ↑ 24%</span></p>
+ 			</article>
+-			<article class="card group flex flex-col gap-5 p-7 md:col-span-2" data-stagger use:inview>
+-				<div><span class="tag">One-click fixes</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Fix it. Don’t ticket it.</h3></div>
++			<article class="card group flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:inview use:spotlight>
++				<div><span class="tag">One-click fixes</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Fix it. Don’t ticket it.</h3></div>
+ 				<div class="mt-auto rounded-[18px] bg-black/[.04] p-4">
+ 					<p class="font-mono text-[11px] text-muted">/services · description missing</p>
+ 					<div class="mt-3 flex items-center justify-between">
+-						<span class="relative h-7 w-12 rounded-full bg-black/10 transition-colors delay-700 duration-300 group-[.in]:bg-accent"><span class="absolute top-1 left-1 size-5 rounded-full bg-white shadow transition-transform delay-700 duration-300 group-[.in]:translate-x-5"></span></span>
++						<span class="relative h-7 w-12 rounded-full bg-black/10 transition-colors delay-700 duration-300 group-[.in]:bg-ink"><span class="absolute top-1 left-1 size-5 rounded-full bg-white shadow transition-transform delay-700 duration-300 group-[.in]:translate-x-5"></span></span>
+ 						<span class="text-xs font-medium opacity-0 transition-opacity delay-1000 duration-300 group-[.in]:opacity-100">Live on the site ✓</span>
+ 					</div>
+ 				</div>
+ 			</article>
+-			<article class="card flex flex-col gap-5 p-7 md:col-span-3" data-stagger>
+-				<div><span class="tag">Apps too</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Crashes, reviews, paywall.</h3></div>
++			<article class="card flex flex-col gap-5 p-8 md:col-span-3" data-stagger use:spotlight>
++				<div><span class="tag">Apps too</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Crashes, reviews, paywall.</h3></div>
+ 				<div class="mt-auto grid grid-cols-3 gap-2 text-center">
+-					{#each [['99.7%', 'crash-free'], ['4.6★', 'app store'], ['3.1%', 'paywall']] as [v, l] (l)}<div class="rounded-[16px] bg-black/[.04] p-3"><p class="text-xl font-medium">{v}</p><p class="font-mono text-[10px] text-muted uppercase">{l}</p></div>{/each}
++					{#each [['99.7%', 'crash-free'], ['4.6★', 'app store'], ['3.1%', 'paywall']] as [v, l] (l)}<div class="rounded-[16px] bg-black/[.04] p-4"><p class="text-xl font-medium">{v}</p><p class="mt-1 font-mono text-[10px] text-muted uppercase">{l}</p></div>{/each}
+ 				</div>
+ 			</article>
+-			<article class="card flex flex-col gap-5 p-7 md:col-span-3" data-stagger>
+-				<div><span class="tag">Reports</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Monday reports with your logo.</h3></div>
++			<article class="card flex flex-col gap-5 p-8 md:col-span-3" data-stagger use:spotlight>
++				<div><span class="tag">Reports</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Monday reports with your logo.</h3></div>
+ 				<div class="mt-auto flex items-center gap-4 rounded-[18px] bg-black/[.04] p-4">
+ 					<span class="grid size-11 shrink-0 place-items-center rounded-xl border border-dashed border-ink/20 font-mono text-[10px] text-muted">logo</span>
+ 					<div class="min-w-0 flex-1"><p class="text-sm font-medium">October for Maison Lou</p><p class="truncate font-mono text-[11px] text-muted">38 leads (+12) · 4 fixes done</p></div>
+@@ -293,41 +365,41 @@
+ 	</section>
+ 
+ 	<!-- ================= PRICING ================= -->
+-	<section id="pricing" class="relative mx-auto max-w-[1240px] scroll-mt-24 px-4 pb-28 sm:px-8 sm:pb-36">
++	<section id="pricing" class="relative mx-auto max-w-[1280px] scroll-mt-24 px-4 py-24 sm:px-10 sm:py-40">
+ 		<div class="text-center">
+ 			<p class="tag" use:reveal>Pricing</p>
+-			<SplitText text={'One new client\n*pays for the year.*'} class="mt-4 text-[clamp(38px,5.6vw,76px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
+-			<p class="mt-5 text-ink-2" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-ink">The first 30 agencies keep −50% for life.</b></p>
++			<SplitText text={'One new client\n*pays for the year.*'} class="mt-6 text-[clamp(38px,5.6vw,80px)] leading-[1] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
++			<p class="mt-8 text-ink-2" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-ink">The first 30 agencies keep −50% for life.</b></p>
+ 		</div>
+-		<div class="mt-14 grid gap-3 md:grid-cols-3" use:reveal>
++		<div class="mt-20 grid gap-3 md:grid-cols-3" use:reveal>
+ 			{#each ['freelance', 'agency', 'studio'] as const as id (id)}
+ 				{@const p = PLANS[id]}
+-				<div class="flex flex-col gap-4 p-8 {id === 'agency' ? 'card-dark' : 'card'}" data-stagger>
+-					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-accent px-2.5 py-0.5 font-mono text-[10px] font-medium text-accent-ink uppercase">Popular</span>{/if}</div>
+-					<p><span class="big text-[60px]">€{Math.round(p.price / 2)}</span><span class="text-sm opacity-60"> / month for life</span></p>
+-					<p class="-mt-2 font-mono text-xs opacity-60"><s>€{p.price}</s> after the first 30</p>
+-					<ul class="space-y-1.5 text-sm opacity-80">
++				<div class="flex flex-col gap-5 p-8 {id === 'agency' ? 'card-dark' : 'card'}" data-stagger use:spotlight>
++					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-white px-2.5 py-0.5 font-mono text-[10px] font-medium text-ink uppercase">Popular</span>{/if}</div>
++					<p><span class="big text-[64px]">€{Math.round(p.price / 2)}</span><span class="text-sm opacity-60"> / month for life</span></p>
++					<p class="-mt-3 font-mono text-xs opacity-60"><s>€{p.price}</s> after the first 30</p>
++					<ul class="space-y-2 text-sm opacity-80">
+ 						<li>✓ {p.prospects} prospects a month</li>
+ 						<li>✓ Up to {p.clients} clients (sites & apps)</li>
+ 						<li>✓ {id === 'freelance' ? 'Pipeline, agenda, goals' : id === 'agency' ? 'Team & client logins · white-label reports' : 'Own report domain · priority support'}</li>
+ 					</ul>
+-					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'btn-accent' : 'btn-primary'}">Start free</a>
++					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'bg-white text-ink hover:bg-white/90' : 'btn-primary'}">Start free</a>
+ 				</div>
+ 			{/each}
+ 		</div>
+ 	</section>
+ 
+ 	<!-- ================= FAQ ================= -->
+-	<section id="faq" class="relative mx-auto max-w-3xl scroll-mt-24 px-4 pb-28 sm:px-6 sm:pb-36">
++	<section id="faq" class="relative mx-auto max-w-3xl scroll-mt-24 px-4 py-24 sm:px-6 sm:py-40">
+ 		<p class="tag text-center" use:reveal>FAQ</p>
+-		<SplitText text="Straight *answers.*" class="mt-4 text-center text-[clamp(36px,5vw,60px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-ink/40" />
+-		<ul class="mt-12 space-y-2" use:reveal>
++		<SplitText text="Straight *answers.*" class="mt-6 text-center text-[clamp(36px,5vw,64px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-ink/40" />
++		<ul class="mt-16 space-y-2" use:reveal>
+ 			{#each faqs as f, i (f.q)}
+ 				<li class="card overflow-hidden" data-stagger>
+-					<button class="flex w-full items-center justify-between gap-4 p-5 text-left font-medium" onclick={() => (open = open === i ? null : i)} aria-expanded={open === i}>
+-						{f.q}<span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-ink text-white' : 'bg-black/5'}">+</span>
++					<button class="flex w-full items-center justify-between gap-4 p-6 text-left font-medium" onclick={() => (open = open === i ? null : i)} aria-expanded={open === i}>
++						<span class="flex items-baseline gap-4"><span class="font-mono text-xs text-muted">0{i + 1}</span>{f.q}</span><span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-ink text-white' : 'bg-black/5'}">+</span>
+ 					</button>
+-					{#if open === i}<p class="px-5 pb-5 text-sm text-ink-2" transition:slide={{ duration: 260 }}>{f.a}</p>{/if}
++					{#if open === i}<p class="px-6 pb-6 pl-14 text-sm leading-[1.7] text-ink-2" transition:slide={{ duration: 260 }}>{f.a}</p>{/if}
+ 				</li>
+ 			{/each}
+ 		</ul>
+@@ -335,30 +407,39 @@
+ 
+ 	<!-- ================= FINAL CTA ================= -->
+ 	<section class="relative px-3 pb-3 sm:px-5">
+-		<div class="card-dark relative isolate mx-auto flex max-w-[1240px] flex-col items-center overflow-hidden rounded-[36px]! px-6 py-24 text-center sm:py-32">
+-			<div class="pointer-events-none absolute -bottom-40 left-1/2 -z-10 w-[700px] -translate-x-1/2 opacity-60" aria-hidden="true"><DotGlobe size={700} points={900} hot={10} dark /></div>
++		<div class="card-dark relative isolate mx-auto flex max-w-[1280px] flex-col items-center overflow-hidden rounded-[36px]! px-6 py-28 text-center sm:py-40">
++			<div class="pointer-events-none absolute -bottom-56 left-1/2 -z-10 w-[760px] -translate-x-1/2 opacity-70" aria-hidden="true"><DotGlobe size={760} points={1000} hot={12} dark /></div>
+ 			<p class="tag text-white/50!">Free tool</p>
+-			<h2 class="mt-4 text-[clamp(40px,7vw,96px)] leading-[0.95] font-medium tracking-[-0.045em]">
+-				<SplitText as="span" class="block" text="Your next client" />
+-				<SplitText as="span" class="block" text="*is around the corner.*" emClass="font-serif font-normal text-white/45" delay={250} />
++			<h2 class="mt-6 text-[clamp(40px,7vw,104px)] leading-[0.95] font-medium tracking-[-0.045em]">
++				<SplitChars as="span" class="block" text="Your next client" />
++				<SplitChars as="span" class="block font-serif font-normal text-white/45 italic" text="is around the corner." delay={300} step={30} />
+ 			</h2>
+-			<div class="mt-10 flex w-full justify-center text-ink" use:reveal={{ delay: 300 }}>{@render urlForm('cta-url')}</div>
+-			<p class="mt-4 font-mono text-[11px] text-white/50 uppercase">No card · −50% for life for the first 30 · Data in the EU</p>
++			<div class="mt-12 flex w-full justify-center" use:reveal={{ delay: 300 }}>{@render urlForm('cta-url')}</div>
++			<p class="mt-5 font-mono text-[11px] text-white/50 uppercase">No card · −50% for life for the first 30 · Data in the EU</p>
+ 		</div>
+ 	</section>
+ 
+-	<footer class="relative overflow-hidden px-4 pt-12 sm:px-8">
+-		<div class="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-4 text-sm text-muted">
++	<footer class="relative overflow-hidden px-4 pt-14 sm:px-10">
++		<div class="mx-auto flex max-w-[1240px] flex-wrap items-center justify-between gap-4 text-sm text-muted">
+ 			<Logo size={24} />
+-			<nav class="flex gap-5"><a href="/prospects" class="hover:text-ink">Free tool</a><a href="#pricing" class="hover:text-ink">Pricing</a><a href="/login" class="hover:text-ink">Log in</a></nav>
+-			<p class="font-mono text-[11px] uppercase">Made in Brussels · Cookieless · EU data</p>
++			<nav class="flex gap-5 font-mono text-[11px] uppercase"><a href="/prospects" class="hover:text-ink" use:hoverScramble>Free tool</a><a href="#pricing" class="hover:text-ink" use:hoverScramble>Pricing</a><a href="/login" class="hover:text-ink" use:hoverScramble>Log in</a></nav>
++			<p class="font-mono text-[11px] uppercase">Made in Brussels · {clock}</p>
+ 		</div>
+-		<p class="wordmark mx-auto mt-6 max-w-[1240px] text-center text-[21vw] leading-[0.8] font-medium tracking-[-0.07em] select-none lg:text-[270px]" aria-hidden="true">undercut</p>
++		<p class="wordmark mx-auto mt-6 max-w-[1280px] text-center text-[21vw] leading-[0.8] font-medium tracking-[-0.07em] select-none lg:text-[272px]" aria-hidden="true">undercut</p>
+ 	</footer>
+ </div>
+ 
+ <style>
+-	/* giant wordmark fading into a dot screen */
++	.hero-mark {
++		background:
++			radial-gradient(rgb(13 13 13 / 0.6) 1.1px, transparent 1.3px) 0 0 / 5px 5px,
++			linear-gradient(180deg, rgb(13 13 13 / 0.1), transparent);
++		-webkit-background-clip: text;
++		background-clip: text;
++		color: transparent;
++		mask-image: linear-gradient(180deg, black 20%, transparent 100%);
++		-webkit-mask-image: linear-gradient(180deg, black 20%, transparent 100%);
++	}
+ 	.wordmark {
+ 		background:
+ 			radial-gradient(rgb(13 13 13 / 0.55) 1.2px, transparent 1.4px) 0 0 / 6px 6px,
+@@ -369,4 +450,7 @@
+ 		mask-image: linear-gradient(180deg, black 30%, transparent 95%);
+ 		-webkit-mask-image: linear-gradient(180deg, black 30%, transparent 95%);
+ 	}
++	.lit > span {
++		transition: opacity 0.2s linear;
++	}
+ </style>
+diff --git a/src/routes/admin/+page.server.ts b/src/routes/admin/+page.server.ts
+index 1642b9f..6c54544 100644
+--- a/src/routes/admin/+page.server.ts
++++ b/src/routes/admin/+page.server.ts
+@@ -24,7 +24,7 @@ export const actions = {
+ 		const sent = await sendEmail(
+ 			row.email,
+ 			'Your Undercut beta invitation',
+-			`<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5"><p>Hi ${esc(row.name.split(' ')[0])},</p><p>You’re in: <b>${esc(row.agency)}</b> is one of the first agencies on Undercut. Everything is free during the beta.</p><p><a href="${link}" style="display:inline-block;background:#C6F432;color:#172000;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Create my workspace</a></p><p>Reply to this email anytime — I read everything.</p><p style="color:#85878d;font-size:13px">${link}</p></div>`
++			`<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5"><p>Hi ${esc(row.name.split(' ')[0])},</p><p>You’re in: <b>${esc(row.agency)}</b> is one of the first agencies on Undercut. Everything is free during the beta.</p><p><a href="${link}" style="display:inline-block;background:#0D0D0D;color:#ffffff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Create my workspace</a></p><p>Reply to this email anytime — I read everything.</p><p style="color:#85878d;font-size:13px">${link}</p></div>`
+ 		);
+ 		return { invited: row.email, link, sent };
+ 	}
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index 08c2c8e..182f54c 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -87,8 +87,7 @@
+ 		<div>
+ 			<p class="label">Colour</p>
+ 			<div class="mt-2 flex flex-wrap items-center gap-2">
+-				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="" /><button class="pill text-sm {!data.accent ? 'pill-active' : ''}"><span class="size-3.5 rounded-full bg-[#C6F432]"></span>Undercut</button></form>
+-				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value={NEUTRAL} /><button class="pill text-sm {data.accent === NEUTRAL ? 'pill-active' : ''}"><span class="size-3.5 rounded-full border border-line bg-[linear-gradient(135deg,#fff_50%,#0d0d0d_50%)]"></span>Black & white</button></form>
++				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="" /><button class="pill text-sm {!data.accent || data.accent === NEUTRAL ? 'pill-active' : ''}"><span class="size-3.5 rounded-full border border-line bg-[linear-gradient(135deg,#fff_50%,#0d0d0d_50%)]"></span>Black & white</button></form>
+ 				{#if data.siteColor}
+ 					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="site" /><button class="pill text-sm {data.accent === data.siteColor ? 'pill-active' : ''}"><span class="size-3.5 rounded-full" style="background:{data.siteColor}"></span>Your site’s colour</button></form>
+ 				{/if}
+diff --git a/src/routes/app/settings/team/+page.server.ts b/src/routes/app/settings/team/+page.server.ts
+index 83f31dc..20baaf0 100644
+--- a/src/routes/app/settings/team/+page.server.ts
++++ b/src/routes/app/settings/team/+page.server.ts
+@@ -30,7 +30,7 @@ export const actions = {
+ 		const sent = await sendEmail(
+ 			email,
+ 			`${agency} invited you to Undercut`,
+-			`<div style="font-family:system-ui,sans-serif;font-size:15px"><p><b>${esc(agency)}</b> invited you to ${client ? `see the dashboard of <b>${esc(client)}</b>` : 'their Undercut workspace'}.</p><p><a href="${link}" style="display:inline-block;background:#C6F432;color:#172000;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Accept the invitation</a></p><p style="color:#85878d;font-size:13px">Or open: ${link}</p></div>`
++			`<div style="font-family:system-ui,sans-serif;font-size:15px"><p><b>${esc(agency)}</b> invited you to ${client ? `see the dashboard of <b>${esc(client)}</b>` : 'their Undercut workspace'}.</p><p><a href="${link}" style="display:inline-block;background:#0D0D0D;color:#ffffff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Accept the invitation</a></p><p style="color:#85878d;font-size:13px">Or open: ${link}</p></div>`
+ 		);
+ 		return { invited: email, link, sent };
+ 	},
+diff --git a/src/routes/layout.css b/src/routes/layout.css
+index d4cb4df..7d5d268 100644
+--- a/src/routes/layout.css
++++ b/src/routes/layout.css
+@@ -5,7 +5,7 @@
+ 	--font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+ 	--font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+ 
+-	/* Light greys + glass. Undercut lime is the default accent; the agency's own colour replaces it at runtime. */
++	/* Light greys + glass, black accent (white on dark). The agency's own colour can replace it at runtime. */
+ 	--color-paper: #ececea;
+ 	--color-card: #ffffff;
+ 	--color-tile: rgb(0 0 0 / 0.04);
+@@ -13,8 +13,8 @@
+ 	--color-ink-2: #3b3c40;
+ 	--color-muted: #8a8b90;
+ 	--color-line: rgb(0 0 0 / 0.08);
+-	--color-accent: #c6f432;
+-	--color-accent-ink: #0d0d0d;
++	--color-accent: #0d0d0d;
++	--color-accent-ink: #ffffff;
+ 	--color-accent-soft: color-mix(in oklab, var(--color-accent) 12%, white);
+ 	--color-good: #2f9e44;
+ 	--color-good-bg: #e8f7d4;
+@@ -27,7 +27,7 @@
+ }
+ 
+ :root {
+-	--accent-dark: #c6f432;
++	--accent-dark: #ffffff;
+ 	--accent-dark-ink: #0d0d0d;
+ }
+ 
+@@ -512,3 +512,78 @@ html {
+ 		animation: none;
+ 	}
+ }
++
++/* letters rising out of a blur */
++.js .chars .ch {
++	display: inline-block;
++	opacity: 0;
++	filter: blur(10px);
++	transform: translateY(0.35em);
++	transition:
++		opacity 0.7s var(--ease-out),
++		filter 0.8s var(--ease-out),
++		transform 0.9s var(--ease-out);
++	transition-delay: calc(var(--d, 0ms) + var(--i) * var(--st, 22ms));
++}
++.js .chars.in .ch {
++	opacity: 1;
++	filter: none;
++	transform: none;
++}
++/* cursor light on glass */
++.spot {
++	position: relative;
++	isolation: isolate;
++}
++.spot::after {
++	content: '';
++	position: absolute;
++	inset: 0;
++	border-radius: inherit;
++	pointer-events: none;
++	background: radial-gradient(260px circle at var(--sx, -300px) var(--sy, -300px), rgb(255 255 255 / 0.55), transparent 60%);
++	opacity: 0;
++	transition: opacity 0.3s;
++	z-index: 1;
++	mix-blend-mode: soft-light;
++}
++.spot:hover::after {
++	opacity: 1;
++}
++.card-dark.spot::after {
++	background: radial-gradient(260px circle at var(--sx, -300px) var(--sy, -300px), rgb(255 255 255 / 0.12), transparent 60%);
++	mix-blend-mode: normal;
++}
++.has-cursor body,
++.has-cursor a,
++.has-cursor button {
++	cursor: none;
++}
++.has-cursor input,
++.has-cursor textarea {
++	cursor: text;
++}
++@keyframes scan {
++	from {
++		transform: translateY(-100%);
++	}
++	to {
++		transform: translateY(100%);
++	}
++}
++@keyframes blink {
++	50% {
++		opacity: 0;
++	}
++}
++.caret::after {
++	content: '_';
++	animation: blink 1s steps(1) infinite;
++}
++@media (prefers-reduced-motion: reduce) {
++	.js .chars .ch {
++		opacity: 1 !important;
++		filter: none !important;
++		transform: none !important;
++	}
++}
+-- 
+2.43.0
+

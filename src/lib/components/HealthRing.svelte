@@ -4,7 +4,7 @@
 	const stroke = $derived(Math.max(5, size * 0.13));
 	const r = $derived(size / 2 - stroke / 2 - 1);
 	const c = $derived(2 * Math.PI * r);
-	const color = $derived(score >= 75 ? (dark ? '#C6F432' : '#0D0D0D') : score >= 50 ? '#E3A21A' : '#E0473E');
+	const color = $derived(score >= 75 ? (dark ? 'var(--color-accent)' : '#0D0D0D') : score >= 50 ? '#E3A21A' : '#E0473E');
 </script>
 
 <svg width={size} height={size} viewBox="0 0 {size} {size}" role="img" aria-label="Health score {score} out of 100" class="shrink-0">

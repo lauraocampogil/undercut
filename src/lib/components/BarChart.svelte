@@ -26,7 +26,7 @@
 			width={bw}
 			height={bh}
 			rx={Math.min(bw / 2, 14)}
-			fill={i === active ? '#C6F432' : dark ? 'rgba(255,255,255,.14)' : '#E7E7E2'}
+			fill={i === active ? 'var(--color-accent)' : dark ? 'rgba(255,255,255,.14)' : '#E7E7E2'}
 			class="transition-[fill] duration-150"
 			role="presentation"
 			onpointerenter={() => (hover = i)}

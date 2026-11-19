@@ -52,7 +52,7 @@
 	<div class="card-dark p-5"><p class="text-xs text-white/50">Leads from campaigns</p><p class="big mt-2 text-[44px] leading-none text-accent">{totals.leads}</p></div>
 	<div class="card p-5"><p class="text-xs text-muted">Visits from campaigns</p><p class="big mt-2 text-[44px] leading-none">{totals.visits.toLocaleString('en-US')}</p></div>
 	<div class="card p-5"><p class="text-xs text-muted">Budget</p><p class="big mt-2 text-[44px] leading-none">{totals.spend ? eur(totals.spend) : '—'}</p></div>
-	<div class="rounded-[28px] bg-[#E4F5B8] p-5"><p class="text-xs text-accent-ink/70">Cost per lead</p><p class="big mt-2 text-[44px] leading-none">{totals.cpl ? eur(totals.cpl) : '—'}</p></div>
+	<div class="rounded-[28px] bg-accent-soft p-5"><p class="text-xs text-muted">Cost per lead</p><p class="big mt-2 text-[44px] leading-none">{totals.cpl ? eur(totals.cpl) : '—'}</p></div>
 </section>
 
 <!-- How it works -->
@@ -127,7 +127,7 @@
 					</div>
 					<svg viewBox="0 0 220 44" class="hidden h-11 w-[160px] sm:block" preserveAspectRatio="none" aria-hidden="true">
 						<path d={spark(s.daily, 'visits')} fill="none" stroke="#0D0D0D" stroke-width="2" />
-						<path d={spark(s.daily, 'leads')} fill="none" stroke="#9bb93a" stroke-width="2" stroke-dasharray="3 3" />
+						<path d={spark(s.daily, 'leads')} fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-dasharray="3 3" />
 					</svg>
 				</div>
 
@@ -170,7 +170,7 @@
 							<ul class="mt-2 space-y-1.5">
 								{#each s.posts as p, i (p.key)}
 									{@const pl = c.postLinks.find((x) => x.post === p.key)}
-									<li class="flex items-center gap-2 rounded-xl px-3 py-2 text-sm {i === 0 && p.leads ? 'bg-[#E4F5B8]' : 'bg-tile'}">
+									<li class="flex items-center gap-2 rounded-xl px-3 py-2 text-sm {i === 0 && p.leads ? 'bg-accent-soft' : 'bg-tile'}">
 										<span class="min-w-0 flex-1 truncate">{i === 0 && p.leads ? '🏆 ' : ''}{p.key}</span><span class="text-xs text-muted">{p.visits} visits · <b class="text-ink">{p.leads} leads</b></span>
 										{#if pl}<button class="text-xs underline" onclick={() => copy(pl.link)}>{copied === pl.link ? '✓' : 'link'}</button>{/if}
 									</li>

@@ -1,0 +1,1147 @@
+From cfd981213c7b1f9dbe5c30b6e7e66e660daa2fb2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 18:21:51 +0100
+Subject: [PATCH] Glass design, Undercut lime accent, interface sounds
+
+- Liquid-glass cards, glass sidebar and pills over a soft grey dot background
+- Undercut lime is the default accent; agency site colour still overrides; black & white option
+- Mono bracket labels (Geist Mono), corner marks, scrambling headline word
+- Dot globe of local businesses (prospects light up), dot-matrix bars, giant dotted wordmark
+- Synthesised UI sounds (hover tick, click, found chime), off by default, toggle in nav and sidebar
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ package-lock.json                     |  10 +
+ package.json                          |   1 +
+ src/lib/components/DotGlobe.svelte    |  83 ++++++++
+ src/lib/components/Scramble.svelte    |  36 ++++
+ src/lib/components/SoundToggle.svelte |  12 ++
+ src/lib/server/agency-actions.ts      |   6 +-
+ src/lib/sound.svelte.ts               |  80 ++++++++
+ src/lib/theme.ts                      |   5 +-
+ src/routes/+layout.svelte             |   6 +
+ src/routes/+page.svelte               | 283 +++++++++++++-------------
+ src/routes/app/+layout.svelte         |   7 +-
+ src/routes/app/+page.svelte           |  10 +-
+ src/routes/app/prospects/+page.svelte |   3 +-
+ src/routes/layout.css                 | 140 +++++++++++--
+ 14 files changed, 515 insertions(+), 167 deletions(-)
+ create mode 100644 src/lib/components/DotGlobe.svelte
+ create mode 100644 src/lib/components/Scramble.svelte
+ create mode 100644 src/lib/components/SoundToggle.svelte
+ create mode 100644 src/lib/sound.svelte.ts
+
+diff --git a/package-lock.json b/package-lock.json
+index a3659f8..44dc541 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -9,6 +9,7 @@
+ 			"version": "0.0.1",
+ 			"dependencies": {
+ 				"@fontsource-variable/geist": "^5.3.0",
++				"@fontsource-variable/geist-mono": "^5.3.0",
+ 				"@fontsource/instrument-serif": "^5.3.0",
+ 				"fast-xml-parser": "^5.12.0",
+ 				"lighthouse": "^13.6.0",
+@@ -71,6 +72,15 @@
+ 				"url": "https://github.com/sponsors/ayuhito"
+ 			}
+ 		},
++		"node_modules/@fontsource-variable/geist-mono": {
++			"version": "5.3.0",
++			"resolved": "https://registry.npmjs.org/@fontsource-variable/geist-mono/-/geist-mono-5.3.0.tgz",
++			"integrity": "sha512-vBbuwDEo9AkrqADMXOrlAR3DFcJi4/JxeuU43FoiQERnNwsfXNnvxvReZG02cQKmyk4DZkZdBZX3oTDvy2zBAw==",
++			"license": "OFL-1.1",
++			"funding": {
++				"url": "https://github.com/sponsors/ayuhito"
++			}
++		},
+ 		"node_modules/@fontsource/instrument-serif": {
+ 			"version": "5.3.0",
+ 			"resolved": "https://registry.npmjs.org/@fontsource/instrument-serif/-/instrument-serif-5.3.0.tgz",
+diff --git a/package.json b/package.json
+index 7c4cf2e..ba8161a 100644
+--- a/package.json
++++ b/package.json
+@@ -29,6 +29,7 @@
+ 	},
+ 	"dependencies": {
+ 		"@fontsource-variable/geist": "^5.3.0",
++		"@fontsource-variable/geist-mono": "^5.3.0",
+ 		"@fontsource/instrument-serif": "^5.3.0",
+ 		"fast-xml-parser": "^5.12.0",
+ 		"lighthouse": "^13.6.0",
+diff --git a/src/lib/components/DotGlobe.svelte b/src/lib/components/DotGlobe.svelte
+new file mode 100644
+index 0000000..90ac3f9
+--- /dev/null
++++ b/src/lib/components/DotGlobe.svelte
+@@ -0,0 +1,83 @@
++<script lang="ts">
++	// A slowly turning globe of dots — the businesses around you. A few light up in the accent colour: prospects.
++	let { size = 560, points = 1100, hot = 16, cls = '', dark = false }: { size?: number; points?: number; hot?: number; cls?: string; dark?: boolean } = $props();
++	let canvas: HTMLCanvasElement;
++
++	$effect(() => {
++		const ctx = canvas.getContext('2d')!;
++		const dpr = Math.min(2, window.devicePixelRatio || 1);
++		const accent = getComputedStyle(canvas).getPropertyValue('--color-accent').trim() || '#c6f432';
++		let W = 0;
++		const resize = () => {
++			W = canvas.clientWidth;
++			canvas.width = W * dpr;
++			canvas.height = W * dpr;
++		};
++		resize();
++		// fibonacci sphere (deterministic)
++		const pts = Array.from({ length: points }, (_, i) => {
++			const y = 1 - (i / (points - 1)) * 2;
++			const r = Math.sqrt(1 - y * y);
++			const th = i * 2.399963;
++			return { x: Math.cos(th) * r, y, z: Math.sin(th) * r, hot: false, ph: (i * 0.618) % 1 };
++		});
++		for (let k = 0; k < hot; k++) pts[Math.floor(((k * 7919) % points + points * 0.15) % points)].hot = true;
++
++		let a = 0.6;
++		let raf = 0;
++		let visible = true;
++		const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
++		const tilt = -0.35;
++		const draw = (t: number) => {
++			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
++			ctx.clearRect(0, 0, W, W);
++			const R = W * 0.46;
++			const c = W / 2;
++			const ca = Math.cos(a), sa = Math.sin(a), ct = Math.cos(tilt), st = Math.sin(tilt);
++			for (const p of pts) {
++				const x1 = p.x * ca + p.z * sa;
++				const z1 = -p.x * sa + p.z * ca;
++				const y2 = p.y * ct - z1 * st;
++				const z2 = p.y * st + z1 * ct;
++				const depth = (z2 + 1) / 2; // 0 back → 1 front
++				const px = c + x1 * R;
++				const py = c + y2 * R;
++				if (p.hot && z2 > -0.1) {
++					const pulse = (t / 1600 + p.ph) % 1;
++					ctx.fillStyle = accent;
++					ctx.globalAlpha = 0.25 * (1 - pulse) * depth;
++					ctx.beginPath();
++					ctx.arc(px, py, 3 + pulse * 14, 0, Math.PI * 2);
++					ctx.fill();
++					ctx.globalAlpha = 0.6 + depth * 0.4;
++					ctx.beginPath();
++					ctx.arc(px, py, 2.6 + depth * 1.6, 0, Math.PI * 2);
++					ctx.fill();
++				} else {
++					ctx.fillStyle = dark ? '#ffffff' : '#0d0d0d';
++					ctx.globalAlpha = 0.05 + depth * 0.38;
++					ctx.beginPath();
++					ctx.arc(px, py, 0.5 + depth * 1.25, 0, Math.PI * 2);
++					ctx.fill();
++				}
++			}
++			ctx.globalAlpha = 1;
++		};
++		const loop = (t: number) => {
++			if (visible) {
++				a += 0.0016;
++				draw(t);
++			}
++			raf = requestAnimationFrame(loop);
++		};
++		if (still) draw(0);
++		else raf = requestAnimationFrame(loop);
++		const io = new IntersectionObserver(([e]) => (visible = e.isIntersecting));
++		io.observe(canvas);
++		const ro = new ResizeObserver(() => (resize(), still && draw(0)));
++		ro.observe(canvas);
++		return () => (cancelAnimationFrame(raf), io.disconnect(), ro.disconnect());
++	});
++</script>
++
++<canvas bind:this={canvas} class="aspect-square w-full {cls}" style="max-width:{size}px" aria-hidden="true"></canvas>
+diff --git a/src/lib/components/Scramble.svelte b/src/lib/components/Scramble.svelte
+new file mode 100644
+index 0000000..6e9dfeb
+--- /dev/null
++++ b/src/lib/components/Scramble.svelte
+@@ -0,0 +1,36 @@
++<script lang="ts">
++	// A word that decodes into the next one, letter by letter (mono, like a terminal).
++	let { words, every = 2600, cls = '' }: { words: string[]; every?: number; cls?: string } = $props();
++	let text = $state('');
++	$effect.pre(() => {
++		if (!text) text = words[0];
++	});
++	const glyphs = '▚▞▙▟░▒#*+=/<>01';
++	$effect(() => {
++		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
++		let i = 0;
++		let raf = 0;
++		const t = setInterval(() => {
++			i = (i + 1) % words.length;
++			const target = words[i];
++			const from = text;
++			const len = Math.max(from.length, target.length);
++			const start = performance.now();
++			const step = (now: number) => {
++				const p = Math.min(1, (now - start) / 700);
++				let out = '';
++				for (let k = 0; k < len; k++) {
++					const done = k / len < p;
++					out += done ? (target[k] ?? '') : k < Math.max(target.length, from.length * (1 - p)) ? glyphs[Math.floor(Math.random() * glyphs.length)] : '';
++				}
++				text = out;
++				if (p < 1) raf = requestAnimationFrame(step);
++				else text = target;
++			};
++			raf = requestAnimationFrame(step);
++		}, every);
++		return () => (clearInterval(t), cancelAnimationFrame(raf));
++	});
++</script>
++
++<span class={cls} aria-live="off">{text}</span>
+diff --git a/src/lib/components/SoundToggle.svelte b/src/lib/components/SoundToggle.svelte
+new file mode 100644
+index 0000000..ee7642d
+--- /dev/null
++++ b/src/lib/components/SoundToggle.svelte
+@@ -0,0 +1,12 @@
++<script lang="ts">
++	import { sound, toggleSound } from '#lib/sound.svelte.ts';
++	let { dark = false, cls = '' }: { dark?: boolean; cls?: string } = $props();
++</script>
++
++<button type="button" class="glass-btn grid size-10 place-items-center rounded-full {dark ? 'text-white' : ''} {cls}" onclick={toggleSound} aria-pressed={sound.on} aria-label={sound.on ? 'Turn sound off' : 'Turn sound on'} title={sound.on ? 'Sound on' : 'Sound off'}>
++	<span class="flex h-3.5 items-end gap-[2px]" aria-hidden="true">
++		{#each [0.5, 1, 0.7, 0.35] as h, i (i)}
++			<span class="w-[2px] rounded-full bg-current transition-all duration-300 {sound.on ? 'eq' : ''}" style="height:{sound.on ? h * 100 : 18}%;animation-delay:{i * 0.12}s"></span>
++		{/each}
++	</span>
++</button>
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index 4d46136..9bfe430 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -74,13 +74,13 @@ export const agencyActions = {
+ 		// colour requests: "make it blue", "en violet", "neutre", "couleur de mon site"
+ 		const t = text.toLowerCase();
+ 		const COLORS: [RegExp, string | null | 'site'][] = [
+-			[/neutr|black|noir|zwart|sobre|no colou?r|sans couleur/, null],
++			[/undercut|default|défaut|lime/, null],
++			[/neutr|black|noir|zwart|sobre|no colou?r|sans couleur/, '#0D0D0D'],
+ 			[/(my|mon|de mon|mijn) site|site colou?r|couleur du site/, 'site'],
+ 			[/blue|bleu|blauw/, '#2F6BFF'],
+ 			[/purple|violet|paars/, '#7C5CFF'],
+ 			[/orange|oranje/, '#E8590C'],
+ 			[/pink|rose|roze/, '#E64980'],
+-			[/lime|citron/, '#C6F432'],
+ 			[/green|vert|groen/, '#12B886'],
+ 			[/yellow|jaune|geel/, '#F2C94C'],
+ 			[/red|rouge|rood/, '#E03131']
+@@ -90,7 +90,7 @@ export const agencyActions = {
+ 			if (hit) {
+ 				const v = hit[1] === 'site' ? getOS().profile?.color ?? null : hit[1];
+ 				setTheme(v);
+-				return { asked: v ? 'Done — new colour applied.' : 'Back to neutral black & white.' };
++				return { asked: v === '#0D0D0D' ? 'Black & white it is.' : v ? 'Done — new colour applied.' : 'Back to Undercut lime.' };
+ 			}
+ 		}
+ 		return { asked: applyAsk(text) };
+diff --git a/src/lib/sound.svelte.ts b/src/lib/sound.svelte.ts
+new file mode 100644
+index 0000000..a749126
+--- /dev/null
++++ b/src/lib/sound.svelte.ts
+@@ -0,0 +1,80 @@
++// Interface sounds, synthesised with Web Audio (no files): a soft tick on hover, a click, a "found" chime.
++// Off by default until the visitor turns it on; remembered per browser. Respects reduced motion.
++const KEY = 'uc-sound';
++export const sound = $state({ on: false });
++
++let ctx: AudioContext | null = null;
++let last = 0;
++
++export function initSound() {
++	try {
++		sound.on = localStorage.getItem(KEY) === '1' && !matchMedia('(prefers-reduced-motion: reduce)').matches;
++	} catch {
++		/* storage blocked */
++	}
++}
++export function toggleSound() {
++	sound.on = !sound.on;
++	try {
++		localStorage.setItem(KEY, sound.on ? '1' : '0');
++	} catch {
++		/* ignore */
++	}
++	if (sound.on) play('on');
++}
++
++function ac() {
++	if (!ctx) ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
++	if (ctx.state === 'suspended') ctx.resume();
++	return ctx;
++}
++
++function blip(freq: number, dur: number, gain: number, type: OscillatorType = 'sine', at = 0, slide?: number) {
++	const c = ac();
++	const t = c.currentTime + at;
++	const o = c.createOscillator();
++	const g = c.createGain();
++	o.type = type;
++	o.frequency.setValueAtTime(freq, t);
++	if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
++	g.gain.setValueAtTime(0.0001, t);
++	g.gain.exponentialRampToValueAtTime(gain, t + 0.004);
++	g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
++	o.connect(g).connect(c.destination);
++	o.start(t);
++	o.stop(t + dur + 0.02);
++}
++
++export type Sfx = 'tick' | 'click' | 'found' | 'on' | 'error';
++export function play(kind: Sfx) {
++	if (!sound.on || typeof window === 'undefined') return;
++	const now = performance.now();
++	if (kind === 'tick' && now - last < 45) return; // no machine-gun ticks
++	last = now;
++	try {
++		if (kind === 'tick') blip(2400, 0.035, 0.035, 'triangle');
++		else if (kind === 'click') blip(900, 0.06, 0.08, 'triangle', 0, 520);
++		else if (kind === 'on') (blip(660, 0.08, 0.06), blip(990, 0.1, 0.05, 'sine', 0.07));
++		else if (kind === 'found') [523, 659, 784, 1046].forEach((f, i) => blip(f, 0.16, 0.05, 'sine', i * 0.07));
++		else if (kind === 'error') blip(220, 0.18, 0.07, 'square', 0, 160);
++	} catch {
++		/* audio unavailable */
++	}
++}
++
++/** Global: tick when hovering buttons/links, click on press. Opt out with data-silent. */
++export function soundDelegation(root: HTMLElement) {
++	const sel = 'a[href],button,[role="button"],summary,label[for],input[type="checkbox"],input[type="radio"]';
++	const over = (e: PointerEvent) => {
++		if (e.pointerType !== 'mouse') return;
++		const el = (e.target as HTMLElement).closest(sel);
++		if (el && !el.closest('[data-silent]') && !(el as HTMLElement).contains(e.relatedTarget as Node)) play('tick');
++	};
++	const down = (e: PointerEvent) => {
++		const el = (e.target as HTMLElement).closest(sel);
++		if (el && !el.closest('[data-silent]')) play('click');
++	};
++	root.addEventListener('pointerover', over);
++	root.addEventListener('pointerdown', down);
++	return { destroy: () => (root.removeEventListener('pointerover', over), root.removeEventListener('pointerdown', down)) };
++}
+diff --git a/src/lib/theme.ts b/src/lib/theme.ts
+index 5811d87..cba7c47 100644
+--- a/src/lib/theme.ts
++++ b/src/lib/theme.ts
+@@ -1,4 +1,4 @@
+-// The agency's colour → CSS variables. Neutral (black & white) when no colour is set.
++// The agency's colour → CSS variables. No colour = Undercut lime (set in layout.css). NEUTRAL = black & white.
+ const hex = (h: string) => {
+ 	const m = /^#?([0-9a-f]{6})$/i.exec(h.trim());
+ 	if (!m) return null;
+@@ -27,4 +27,5 @@ export function themeStyle(accent: string | null | undefined) {
+ 	return `--color-accent:${toHex(c)};--color-accent-soft:color-mix(in oklab, ${toHex(c)} 12%, white);--color-accent-ink:${ink};--accent-dark:${toHex(dark)};--accent-dark-ink:${darkInk}`;
+ }
+ 
+-export const SWATCHES = ['#0D0D0D', '#2F6BFF', '#7C5CFF', '#E8590C', '#E64980', '#12B886', '#C6F432', '#F2C94C'];
++export const NEUTRAL = '#0D0D0D';
++export const SWATCHES = ['#2F6BFF', '#7C5CFF', '#E8590C', '#E64980', '#12B886', '#F2C94C'];
+diff --git a/src/routes/+layout.svelte b/src/routes/+layout.svelte
+index 060e169..fe2bab0 100644
+--- a/src/routes/+layout.svelte
++++ b/src/routes/+layout.svelte
+@@ -1,12 +1,18 @@
+ <script lang="ts">
+ 	import '@fontsource-variable/geist';
++	import '@fontsource-variable/geist-mono';
+ 	import '@fontsource/instrument-serif/400.css';
+ 	import '@fontsource/instrument-serif/400-italic.css';
+ 	import './layout.css';
+ 	import favicon from '#lib/assets/favicon.svg';
++	import { initSound, soundDelegation } from '#lib/sound.svelte.ts';
+ 	import type { LayoutProps } from './$types';
+ 
+ 	let { children }: LayoutProps = $props();
++	$effect(() => {
++		initSound();
++		return soundDelegation(document.body).destroy;
++	});
+ </script>
+ 
+ <svelte:head>
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index af12f31..7636530 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -2,6 +2,9 @@
+ 	import { slide } from 'svelte/transition';
+ 	import Logo from '#lib/components/Logo.svelte';
+ 	import SplitText from '#lib/components/SplitText.svelte';
++	import DotGlobe from '#lib/components/DotGlobe.svelte';
++	import Scramble from '#lib/components/Scramble.svelte';
++	import SoundToggle from '#lib/components/SoundToggle.svelte';
+ 	import { reveal, inview, pointer } from '#lib/motion.ts';
+ 	import { PLANS } from '#lib/plans.ts';
+ 	import { themeStyle } from '#lib/theme.ts';
+@@ -11,19 +14,19 @@
+ 	let y = $state(0);
+ 	let going = $state(false);
+ 
+-	// "Starts neutral, becomes yours": the demo dashboard takes the colour you pick
++	// "Becomes yours": the demo dashboard takes the agency's colour
+ 	const demo = [
+-		{ name: 'Neutral', c: null },
++		{ name: 'Undercut', c: null },
+ 		{ name: 'Studio Nova', c: '#2F6BFF' },
+ 		{ name: 'Atelier Brut', c: '#E8590C' },
+ 		{ name: 'Pixel & Co', c: '#7C5CFF' },
+-		{ name: 'Maison Verte', c: '#12B886' }
++		{ name: 'Black & white', c: '#0D0D0D' }
+ 	];
+ 	let pick = $state(0);
+ 	let auto = $state(true);
+ 	$effect(() => {
+ 		if (!auto || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+-		const t = setInterval(() => (pick = (pick + 1) % demo.length), 2600);
++		const t = setInterval(() => (pick = (pick + 1) % demo.length), 2800);
+ 		return () => clearInterval(t);
+ 	});
+ 	const choose = (i: number) => {
+@@ -31,16 +34,18 @@
+ 		pick = i;
+ 	};
+ 
++	// dot-matrix bars (deterministic)
++	const bars = [3, 5, 4, 7, 6, 9, 8, 11, 10, 13];
+ 	const steps = [
+-		{ n: '01', t: 'Paste your URL', d: 'Your site or your Instagram. We read what you sell, where you work — and your brand colour.' },
+-		{ n: '02', t: 'Get prospects', d: 'Real businesses around you. Each website checked: mobile, speed, https, last update, socials.' },
+-		{ n: '03', t: 'Send the message', d: 'The first message is written from what we found. You read it and send it yourself.' },
+-		{ n: '04', t: 'Keep the client', d: 'Once they sign, their site or app lives in your dashboard: leads, fixes, reports.' }
++		{ n: '01', t: 'Paste your URL', d: 'Your site or your Instagram. We read what you sell, where you work — and your brand colour.', b: [2, 3, 2, 4] },
++		{ n: '02', t: 'Get prospects', d: 'Real businesses around you, each website checked: mobile, speed, https, last update, socials.', b: [3, 5, 4, 6] },
++		{ n: '03', t: 'Send the message', d: 'The first message is written from what we found. You read it and send it yourself.', b: [4, 4, 6, 5] },
++		{ n: '04', t: 'Keep the client', d: 'Once they sign, their site or app lives in your dashboard: leads, fixes, reports.', b: [5, 6, 7, 8] }
+ 	];
+ 	const faqs = [
+ 		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
+ 		{ q: 'Do you send the messages for me?', a: 'No, on purpose. Undercut writes the first message from what it found; you read it, change it and send it yourself. No spam, no burnt domain.' },
+-		{ q: 'Can I make the dashboard mine?', a: 'Yes. It starts in black & white and takes your site’s colour. Change the colour, hide blocks or reorder them — or just type “hide agenda” or “make it blue”.' },
++		{ q: 'Can I make the dashboard mine?', a: 'Yes. It takes your site’s colour automatically. Change the colour, hide blocks or reorder them — or just type “hide agenda” or “make it blue”.' },
+ 		{ q: 'What if my agency is only on Instagram?', a: 'Paste the Instagram link and tell us your city and what you sell. That’s enough to start.' },
+ 		{ q: 'What does it track for my clients?', a: 'Leads (forms, calls, WhatsApp), visits, Google Search and Maps, speed and SEO with one-click fixes, heatmaps — and for apps: users, crashes, store reviews and paywall.' },
+ 		{ q: 'Is it GDPR-friendly?', a: 'No cookies, no IP addresses, nothing typed in forms is recorded. Data in the EU.' }
+@@ -52,25 +57,42 @@
+ 		['#pricing', 'Pricing'],
+ 		['#faq', 'FAQ']
+ 	];
++	const chips = [
++		{ n: 'Coiffure Lila', w: 'not mobile · no https', s: 90, x: '4%', y: '18%', d: 0 },
++		{ n: 'Boulangerie Dupont', w: 'no website', s: 70, x: '58%', y: '8%', d: -2 },
++		{ n: 'Cabinet Martin', w: 'last update 2019', s: 55, x: '52%', y: '74%', d: -4 }
++	];
+ </script>
+ 
+ <svelte:window bind:scrollY={y} />
+ <svelte:head>
+ 	<title>Undercut — find clients, keep them. The dashboard for agencies.</title>
+ 	<meta name="description" content="Paste your agency’s URL. Undercut finds local businesses that need what you sell, writes the first message, and keeps your clients’ sites and apps healthy — one dashboard, in your colours." />
+-	<meta name="theme-color" content="#F7F7F5" />
++	<meta name="theme-color" content="#ECECEA" />
+ </svelte:head>
+ 
+ {#snippet urlForm(id: string)}
+ 	<form method="POST" action="/prospects" class="w-full max-w-xl" onsubmit={() => (going = true)}>
+-		<div class="flex flex-col gap-2 rounded-[22px] border border-line bg-white p-1.5 shadow-[0_8px_30px_-12px_rgba(0,0,0,.15)] focus-within:border-ink/40 sm:flex-row">
++		<div class="card flex flex-col gap-2 rounded-[22px]! p-1.5 focus-within:shadow-[0_0_0_2px_rgba(13,13,13,.25)] sm:flex-row">
+ 			<label class="sr-only" for={id}>Your agency’s website or Instagram</label>
+-			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.be" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-muted" />
++			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.be" class="min-w-0 flex-1 bg-transparent px-4 py-3 font-mono text-[15px] outline-none placeholder:text-muted" />
+ 			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-0.5">→</span></button>
+ 		</div>
+ 	</form>
+ {/snippet}
+ 
++{#snippet dotbars(hs: number[], dark = false, max = 13)}
++	<div class="flex items-end gap-[5px]" aria-hidden="true">
++		{#each hs as h, i (i)}
++			<div class="flex flex-col-reverse gap-[4px]">
++				{#each Array(max) as _, k (k)}
++					<span class="size-[5px] rounded-full transition-all duration-500 {k < h ? (i === hs.length - 1 ? 'bg-accent' : dark ? 'bg-white/80' : 'bg-ink/75') : dark ? 'bg-white/10' : 'bg-ink/[.07]'} {k < h ? 'scale-0 group-[.in]:scale-100' : ''}" style="transition-delay:{i * 60 + k * 25}ms"></span>
++				{/each}
++			</div>
++		{/each}
++	</div>
++{/snippet}
++
+ <!-- A small, live dashboard: neutral, or in the agency's colour -->
+ {#snippet mock(accent: string | null, name: string)}
+ 	<div class="overflow-hidden rounded-[22px] bg-paper text-left text-ink transition-colors duration-700" style={themeStyle(accent)}>
+@@ -118,179 +140,192 @@
+ 	</div>
+ {/snippet}
+ 
+-<div class="min-h-dvh overflow-x-clip bg-paper text-ink">
++<div class="relative min-h-dvh overflow-x-clip text-ink">
++	<!-- frame: two hairlines that run down the page -->
++	<div class="pointer-events-none fixed inset-y-0 left-1/2 z-0 hidden w-full max-w-[1240px] -translate-x-1/2 border-x border-black/[.06] lg:block" aria-hidden="true"></div>
++
+ 	<!-- ================= NAV ================= -->
+ 	<header class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5">
+-		<div class="mx-auto flex max-w-[1200px] items-center justify-between gap-4 rounded-full py-1.5 pr-1.5 pl-3 transition-all {y > 30 ? 'border border-line bg-white/80 shadow-[0_8px_30px_-16px_rgba(0,0,0,.25)] backdrop-blur-xl' : 'border border-transparent'}">
++		<div class="mx-auto flex max-w-[1200px] items-center justify-between gap-4 rounded-full py-1.5 pr-1.5 pl-3 transition-all duration-300 {y > 30 ? 'glass-btn' : ''}">
+ 			<a href="/" aria-label="Undercut home"><Logo size={28} /></a>
+ 			<nav class="hidden items-center gap-1 text-sm md:flex">
+-				{#each nav as [h, l] (h)}<a href={h} class="rounded-full px-3.5 py-2 text-ink-2 transition-colors hover:bg-black/5 hover:text-ink">{l}</a>{/each}
++				{#each nav as [h, l] (h)}<a href={h} class="rounded-full px-3.5 py-2 text-ink-2 transition-colors hover:bg-white/70 hover:text-ink">{l}</a>{/each}
+ 			</nav>
+ 			<div class="flex items-center gap-1.5">
++				<SoundToggle />
+ 				<a href="/login" class="hidden px-3 text-sm text-ink-2 hover:text-ink sm:block">Log in</a>
+ 				<a href="/beta" class="btn btn-primary">Start free</a>
+-				<button class="grid size-10 place-items-center rounded-full border border-line bg-white md:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
++				<button class="glass-btn grid size-10 place-items-center rounded-full md:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
+ 			</div>
+ 		</div>
+ 		{#if menu}
+-			<nav class="mx-auto mt-2 grid max-w-[1200px] gap-1 rounded-[24px] border border-line bg-white p-2 text-sm shadow-lg md:hidden" transition:slide={{ duration: 220 }}>
+-				{#each [...nav, ['/login', 'Log in']] as [h, l] (h)}<a href={h} class="rounded-xl px-3 py-2.5 hover:bg-tile" onclick={() => (menu = false)}>{l}</a>{/each}
++			<nav class="card mx-auto mt-2 grid max-w-[1200px] gap-1 p-2 text-sm md:hidden" transition:slide={{ duration: 220 }}>
++				{#each [...nav, ['/login', 'Log in']] as [h, l] (h)}<a href={h} class="rounded-xl px-3 py-2.5 hover:bg-white/70" onclick={() => (menu = false)}>{l}</a>{/each}
+ 			</nav>
+ 		{/if}
+ 	</header>
+ 
+ 	<!-- ================= HERO ================= -->
+-	<section class="relative isolate px-4 pt-32 sm:px-6 sm:pt-40" use:pointer>
+-		<div class="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+-			<div class="halo absolute top-[-280px] left-1/2 h-[760px] w-[1200px] -translate-x-1/2"></div>
+-			<div class="dots absolute inset-x-0 top-0 h-[720px]"></div>
+-		</div>
+-		<div class="mx-auto flex max-w-[1000px] flex-col items-center text-center">
+-			<a href="/prospects" class="inline-flex items-center gap-2 rounded-full border border-line bg-white py-1 pr-3 pl-1 text-xs text-ink-2 shadow-sm hover:border-ink/30" use:reveal={{ delay: 50 }}>
+-				<span class="rounded-full bg-ink px-2 py-0.5 font-medium text-white">Free</span>Your first 5 prospects — no account →
+-			</a>
+-			<h1 class="mt-8 text-[clamp(48px,8.6vw,116px)] leading-[0.92] font-medium tracking-[-0.05em]">
+-				<SplitText as="span" class="block" text="Find clients." delay={120} />
+-				<SplitText as="span" class="block text-muted" text="*Keep them.*" emClass="font-serif font-normal tracking-[-0.02em] text-ink/45" delay={320} />
++	<section class="relative isolate mx-auto grid max-w-[1240px] items-center gap-6 px-5 pt-32 sm:px-8 sm:pt-40 lg:grid-cols-[1.1fr_1fr] lg:pt-36" use:pointer>
++		<div class="relative z-10">
++			<p class="tag" use:reveal={{ delay: 50 }}>For web, app & communication agencies</p>
++			<h1 class="mt-6 text-[clamp(44px,6.3vw,92px)] leading-[0.94] font-medium tracking-[-0.05em]">
++				<SplitText as="span" class="block" text="Find your next" delay={120} />
++				<span class="relative mt-1 mb-2 inline-block px-3 align-middle" use:reveal={{ delay: 420 }}>
++					<span class="corners inline-block font-mono text-[0.78em] font-normal tracking-[-0.06em]"><Scramble words={['clients.', 'leads.', 'projects.', 'clients.']} /></span>
++				</span>
++				<SplitText as="span" class="block" text="*Keep them.*" emClass="font-serif font-normal tracking-[-0.02em] text-ink/40" delay={560} />
+ 			</h1>
+-			<p class="mt-7 max-w-xl text-[17px] leading-relaxed text-ink-2 sm:text-lg" use:reveal={{ delay: 600 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps. In your colours.</p>
+-			<div class="mt-9 flex w-full flex-col items-center" use:reveal={{ delay: 750 }}>
++			<p class="mt-7 max-w-lg text-[17px] leading-relaxed text-ink-2" use:reveal={{ delay: 700 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps. In your colours.</p>
++			<div class="mt-8" use:reveal={{ delay: 820 }}>
+ 				{@render urlForm('hero-url')}
+-				<p class="mt-3 text-xs text-muted">Free · no account · about 30 seconds</p>
++				<p class="mt-3 font-mono text-[11px] tracking-wide text-muted uppercase">Free · no account · ~30 seconds</p>
+ 			</div>
+ 		</div>
+ 
+-		<div class="relative mx-auto mt-16 max-w-[1100px] sm:mt-20" use:reveal={{ delay: 300 }}>
+-			<div class="frame rounded-[28px] p-2 sm:p-2.5" style="transform:translate(calc(var(--mx,0) * -6px), calc(var(--my,0) * -4px))">
+-				<div class="flex items-center gap-2 px-3 pt-1 pb-2.5">
+-					<span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span>
+-					<span class="mx-auto rounded-full bg-black/[.04] px-4 py-1 text-[11px] text-muted">app.getundercut.app</span>
++		<div class="relative mx-auto w-full max-w-[580px]" use:reveal={{ delay: 300 }} style="transform:translate(calc(var(--mx,0) * -10px), calc(var(--my,0) * -8px))">
++			<DotGlobe />
++			{#each chips as c (c.n)}
++				<div class="card absolute flex w-[min(210px,46%)] items-center gap-3 rounded-[18px]! p-2.5 pr-3.5 [animation:floaty_6s_ease-in-out_infinite]" style="left:{c.x};top:{c.y};animation-delay:{c.d}s">
++					<span class="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold text-accent-ink">{c.s}</span>
++					<span class="min-w-0"><b class="block truncate text-[13px] font-medium">{c.n}</b><span class="block truncate font-mono text-[10px] text-muted">{c.w}</span></span>
+ 				</div>
+-				{@render mock(demo[pick].c, demo[pick].name)}
+-			</div>
+-			<div class="mt-5 flex flex-wrap items-center justify-center gap-2 text-sm">
+-				<span class="mr-1 text-muted">Try it in your colour</span>
++			{/each}
++			<p class="tag absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap">1,100 businesses around Ixelles · 16 need you</p>
++		</div>
++	</section>
++
++	<!-- ================= MOCK ================= -->
++	<section class="relative mx-auto max-w-[1240px] px-4 pt-20 sm:px-8 sm:pt-28">
++		<div class="mb-8 flex flex-wrap items-end justify-between gap-6">
++			<SplitText text={'One dashboard.\n*In your colours.*'} class="text-[clamp(36px,5vw,64px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
++			<div class="flex flex-wrap items-center gap-2 text-sm">
++				<span class="tag mr-1">Try a colour</span>
+ 				{#each demo as d, i (d.name)}
+-					<button class="grid size-8 place-items-center rounded-full ring-offset-2 ring-offset-paper transition {pick === i ? 'ring-2 ring-ink' : 'hover:scale-110'}" style="background:{d.c ?? 'linear-gradient(135deg,#fff 50%,#0d0d0d 50%)'};{d.c ? '' : 'border:1px solid var(--color-line)'}" onclick={() => choose(i)} aria-label={d.name} aria-pressed={pick === i}></button>
++					<button class="grid size-9 place-items-center rounded-full ring-offset-2 ring-offset-paper transition {pick === i ? 'ring-2 ring-ink' : 'hover:scale-110'}" style="background:{d.c ?? '#C6F432'}" onclick={() => choose(i)} aria-label={d.name} aria-pressed={pick === i} title={d.name}></button>
+ 				{/each}
+ 			</div>
+ 		</div>
+-	</section>
+-
+-	<!-- ================= AUDIENCE STRIP ================= -->
+-	<section class="mx-auto mt-24 max-w-[1200px] px-4 sm:px-6">
+-		<div class="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 border-y border-line py-6 text-sm text-muted">
+-			<span>Built for</span><b class="font-medium text-ink">Web agencies</b><span aria-hidden="true">·</span><b class="font-medium text-ink">App studios</b><span aria-hidden="true">·</span><b class="font-medium text-ink">Communication agencies</b><span aria-hidden="true">·</span><b class="font-medium text-ink">Freelancers</b>
++		<div class="card rounded-[30px]! p-2 sm:p-2.5" use:reveal>
++			<div class="flex items-center gap-2 px-3 pt-1 pb-2.5">
++				<span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span>
++				<span class="mx-auto rounded-full bg-black/[.04] px-4 py-1 font-mono text-[11px] text-muted">app.getundercut.app</span>
++			</div>
++			{@render mock(demo[pick].c, demo[pick].name === 'Undercut' || demo[pick].name === 'Black & white' ? 'Your agency' : demo[pick].name)}
+ 		</div>
+ 	</section>
+ 
+ 	<!-- ================= HOW ================= -->
+-	<section id="how" class="mx-auto max-w-[1200px] scroll-mt-24 px-4 py-28 sm:px-6 sm:py-36">
++	<section id="how" class="relative mx-auto max-w-[1240px] scroll-mt-24 px-4 py-28 sm:px-8 sm:py-36">
+ 		<div class="flex flex-wrap items-end justify-between gap-6">
+-			<SplitText text={'From one URL\n*to your first call.*'} class="text-[clamp(38px,5.6vw,72px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/45" />
++			<div>
++				<p class="tag" use:reveal>How it works</p>
++				<SplitText text={'From one URL\n*to your first call.*'} class="mt-4 text-[clamp(36px,5vw,64px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
++			</div>
+ 			<p class="max-w-sm text-ink-2" use:reveal={{ delay: 200 }}>No CRM to set up, no list to buy, no ten open tabs. One screen that tells you who to call and which client needs you.</p>
+ 		</div>
+ 		<ol class="mt-14 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" use:reveal>
+-			{#each steps as s, i (s.n)}
+-				<li class="card relative flex min-h-[250px] flex-col overflow-hidden p-6" data-stagger>
+-					<span class="text-sm text-muted tabular-nums">{s.n}</span>
++			{#each steps as s (s.n)}
++				<li class="card group flex min-h-[290px] flex-col p-6" data-stagger use:inview>
++					<div class="flex items-start justify-between"><span class="font-mono text-xs text-muted">{s.n}</span>{@render dotbars(s.b, false, 8)}</div>
+ 					<h3 class="mt-auto text-[24px] leading-tight font-medium tracking-[-0.03em]">{s.t}</h3>
+ 					<p class="mt-2 text-sm text-ink-2">{s.d}</p>
+-					{#if i === 0}<span class="absolute top-5 right-5 rounded-full border border-line px-2.5 py-1 text-[11px] text-muted">youragency.be</span>{/if}
+ 				</li>
+ 			{/each}
+ 		</ol>
+ 	</section>
+ 
+ 	<!-- ================= FEATURES ================= -->
+-	<section id="features" class="mx-auto max-w-[1200px] scroll-mt-24 px-4 pb-28 sm:px-6 sm:pb-36">
+-		<SplitText text={'Find. Sign. Keep.\n*One dashboard.*'} class="text-[clamp(38px,5.6vw,72px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/45" />
++	<section id="features" class="relative mx-auto max-w-[1240px] scroll-mt-24 px-4 pb-28 sm:px-8 sm:pb-36">
++		<p class="tag" use:reveal>Features</p>
++		<SplitText text={'Find. Sign. Keep.\n*Nothing else.*'} class="mt-4 text-[clamp(36px,5vw,64px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
+ 		<div class="mt-14 grid grid-cols-1 gap-3 md:grid-cols-6" use:reveal>
+ 			<article class="card group flex flex-col gap-6 p-7 md:col-span-4" data-stagger use:inview>
+ 				<div class="flex flex-wrap items-start justify-between gap-3">
+-					<div><span class="label">Find clients</span><h3 class="mt-3 text-[30px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
++					<div><span class="tag">Find clients</span><h3 class="mt-3 text-[30px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
+ 					<p class="max-w-xs text-sm text-ink-2">Real businesses around you, each website checked, a first message written from what we found.</p>
+ 				</div>
+-				<div class="rounded-[20px] bg-tile p-5">
+-					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Coiffure Lila</b><span class="text-sm text-muted">Hairdresser · Ixelles · 400 m</span></span><span class="grid size-12 place-items-center rounded-full bg-ink font-semibold text-white">90</span></p>
+-					<div class="mt-3 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full border border-line bg-white px-3 py-1 text-xs opacity-0 transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
+-					<p class="mt-3 rounded-[14px] bg-white p-3 text-sm text-ink-2">“Bonjour, en regardant votre site j’ai remarqué qu’il ne s’affiche pas bien sur mobile…”</p>
++				<div class="rounded-[20px] bg-white/60 p-5 shadow-[inset_0_0_0_1px_rgba(0,0,0,.05)]">
++					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Coiffure Lila</b><span class="font-mono text-xs text-muted">Hairdresser · Ixelles · 400 m</span></span><span class="grid size-12 place-items-center rounded-full bg-accent font-semibold text-accent-ink">90</span></p>
++					<div class="mt-3 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full bg-white px-3 py-1 font-mono text-[11px] opacity-0 shadow-[0_0_0_1px_rgba(0,0,0,.06)] transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
++					<p class="mt-3 rounded-[14px] bg-black/[.04] p-3 text-sm text-ink-2">“Bonjour, en regardant votre site j’ai remarqué qu’il ne s’affiche pas bien sur mobile…”</p>
+ 				</div>
+ 			</article>
+-			<article class="card flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
+-				<div><span class="label">Pipeline</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">A CRM you’ll actually use.</h3></div>
+-				<ul class="mt-auto space-y-2 text-sm">
+-					{#each [['To contact', 7], ['Contacted', 5], ['Talking', 3], ['Won', 1]] as [l, n] (l)}<li class="flex items-center justify-between rounded-[14px] bg-tile px-4 py-2.5"><span>{l}</span><b class="font-medium">{n}</b></li>{/each}
+-				</ul>
++			<article class="card-dark group flex flex-col gap-5 p-7 md:col-span-2" data-stagger use:inview>
++				<div><span class="tag text-white/50!">Pipeline</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Signed this month.</h3></div>
++				<div class="mt-auto">{@render dotbars(bars, true)}</div>
++				<p class="font-mono text-xs text-white/50">reply rate 32% · 3 signed</p>
+ 			</article>
+-			<article class="card-dark flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
+-				<div><span class="text-xs text-white/50">Make it yours</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Your colour. Your blocks.</h3></div>
+-				<p class="text-sm text-white/60">Starts black & white, takes your site’s colour. Hide, reorder, or just type it.</p>
+-				<p class="mt-auto rounded-[16px] bg-white/[.07] px-4 py-3 text-sm text-white/80">✦ “hide agenda, clients first”</p>
++			<article class="card flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
++				<div><span class="tag">Make it yours</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Your colour. Your blocks.</h3></div>
++				<p class="text-sm text-ink-2">Takes your site’s colour. Hide, reorder — or just type it.</p>
++				<p class="mt-auto rounded-[16px] bg-black/[.04] px-4 py-3 font-mono text-[12px] text-ink-2">✦ hide agenda, clients first_</p>
+ 			</article>
+ 			<article class="card flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
+-				<div><span class="label">Keep clients</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3></div>
++				<div><span class="tag">Keep clients</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3></div>
+ 				<p class="text-sm text-ink-2">Forms, calls and WhatsApps counted per channel. No cookies, no setup.</p>
+-				<p class="mt-auto"><span class="big text-[56px]">46</span><span class="ml-2 text-sm text-muted">leads this month · ↑ 24%</span></p>
++				<p class="mt-auto"><span class="big text-[56px]">46</span><span class="ml-2 font-mono text-xs text-muted">leads · ↑ 24%</span></p>
+ 			</article>
+ 			<article class="card group flex flex-col gap-5 p-7 md:col-span-2" data-stagger use:inview>
+-				<div><span class="label">One-click fixes</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Fix it. Don’t ticket it.</h3></div>
+-				<div class="mt-auto rounded-[18px] bg-tile p-4">
+-					<p class="text-xs text-muted">/services · description missing</p>
++				<div><span class="tag">One-click fixes</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Fix it. Don’t ticket it.</h3></div>
++				<div class="mt-auto rounded-[18px] bg-black/[.04] p-4">
++					<p class="font-mono text-[11px] text-muted">/services · description missing</p>
+ 					<div class="mt-3 flex items-center justify-between">
+-						<span class="relative h-7 w-12 rounded-full bg-black/10 transition-colors delay-700 duration-300 group-[.in]:bg-ink"><span class="absolute top-1 left-1 size-5 rounded-full bg-white shadow transition-transform delay-700 duration-300 group-[.in]:translate-x-5"></span></span>
++						<span class="relative h-7 w-12 rounded-full bg-black/10 transition-colors delay-700 duration-300 group-[.in]:bg-accent"><span class="absolute top-1 left-1 size-5 rounded-full bg-white shadow transition-transform delay-700 duration-300 group-[.in]:translate-x-5"></span></span>
+ 						<span class="text-xs font-medium opacity-0 transition-opacity delay-1000 duration-300 group-[.in]:opacity-100">Live on the site ✓</span>
+ 					</div>
+ 				</div>
+ 			</article>
+ 			<article class="card flex flex-col gap-5 p-7 md:col-span-3" data-stagger>
+-				<div><span class="label">Apps too</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Crashes, reviews, paywall.</h3></div>
++				<div><span class="tag">Apps too</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Crashes, reviews, paywall.</h3></div>
+ 				<div class="mt-auto grid grid-cols-3 gap-2 text-center">
+-					{#each [['99.7%', 'crash-free'], ['4.6★', 'App Store'], ['3.1%', 'paywall conv.']] as [v, l] (l)}<div class="rounded-[16px] bg-tile p-3"><p class="text-xl font-medium">{v}</p><p class="text-[11px] text-muted">{l}</p></div>{/each}
++					{#each [['99.7%', 'crash-free'], ['4.6★', 'app store'], ['3.1%', 'paywall']] as [v, l] (l)}<div class="rounded-[16px] bg-black/[.04] p-3"><p class="text-xl font-medium">{v}</p><p class="font-mono text-[10px] text-muted uppercase">{l}</p></div>{/each}
+ 				</div>
+ 			</article>
+ 			<article class="card flex flex-col gap-5 p-7 md:col-span-3" data-stagger>
+-				<div><span class="label">Reports</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Monday reports with your logo.</h3></div>
+-				<div class="mt-auto flex items-center gap-4 rounded-[18px] bg-tile p-4">
+-					<span class="grid size-11 shrink-0 place-items-center rounded-xl border border-dashed border-ink/20 text-[10px] text-muted">logo</span>
+-					<div class="min-w-0 flex-1"><p class="text-sm font-medium">October for Maison Lou</p><p class="truncate text-xs text-muted">38 leads (+12) · 4 fixes done</p></div>
++				<div><span class="tag">Reports</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Monday reports with your logo.</h3></div>
++				<div class="mt-auto flex items-center gap-4 rounded-[18px] bg-black/[.04] p-4">
++					<span class="grid size-11 shrink-0 place-items-center rounded-xl border border-dashed border-ink/20 font-mono text-[10px] text-muted">logo</span>
++					<div class="min-w-0 flex-1"><p class="text-sm font-medium">October for Maison Lou</p><p class="truncate font-mono text-[11px] text-muted">38 leads (+12) · 4 fixes done</p></div>
+ 				</div>
+ 			</article>
+ 		</div>
+ 	</section>
+ 
+ 	<!-- ================= PRICING ================= -->
+-	<section id="pricing" class="mx-auto max-w-[1200px] scroll-mt-24 px-4 pb-28 sm:px-6 sm:pb-36">
++	<section id="pricing" class="relative mx-auto max-w-[1240px] scroll-mt-24 px-4 pb-28 sm:px-8 sm:pb-36">
+ 		<div class="text-center">
+-			<SplitText text={'One new client\n*pays for the year.*'} class="text-[clamp(40px,6vw,80px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/45" />
++			<p class="tag" use:reveal>Pricing</p>
++			<SplitText text={'One new client\n*pays for the year.*'} class="mt-4 text-[clamp(38px,5.6vw,76px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
+ 			<p class="mt-5 text-ink-2" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-ink">The first 30 agencies keep −50% for life.</b></p>
+ 		</div>
+ 		<div class="mt-14 grid gap-3 md:grid-cols-3" use:reveal>
+ 			{#each ['freelance', 'agency', 'studio'] as const as id (id)}
+ 				{@const p = PLANS[id]}
+-				<div class="flex flex-col gap-4 rounded-[28px] p-8 {id === 'agency' ? 'card-dark' : 'card'}" data-stagger>
+-					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink">Most popular</span>{/if}</div>
++				<div class="flex flex-col gap-4 p-8 {id === 'agency' ? 'card-dark' : 'card'}" data-stagger>
++					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-accent px-2.5 py-0.5 font-mono text-[10px] font-medium text-accent-ink uppercase">Popular</span>{/if}</div>
+ 					<p><span class="big text-[60px]">€{Math.round(p.price / 2)}</span><span class="text-sm opacity-60"> / month for life</span></p>
+-					<p class="-mt-2 text-sm opacity-60"><s>€{p.price}</s> after the first 30 agencies</p>
++					<p class="-mt-2 font-mono text-xs opacity-60"><s>€{p.price}</s> after the first 30</p>
+ 					<ul class="space-y-1.5 text-sm opacity-80">
+ 						<li>✓ {p.prospects} prospects a month</li>
+ 						<li>✓ Up to {p.clients} clients (sites & apps)</li>
+ 						<li>✓ {id === 'freelance' ? 'Pipeline, agenda, goals' : id === 'agency' ? 'Team & client logins · white-label reports' : 'Own report domain · priority support'}</li>
+ 					</ul>
+-					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'bg-white text-ink hover:bg-white/90' : 'btn-primary'}">Start free</a>
++					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'btn-accent' : 'btn-primary'}">Start free</a>
+ 				</div>
+ 			{/each}
+ 		</div>
+ 	</section>
+ 
+ 	<!-- ================= FAQ ================= -->
+-	<section id="faq" class="mx-auto max-w-3xl scroll-mt-24 px-4 pb-28 sm:px-6 sm:pb-36">
+-		<SplitText text="Straight *answers.*" class="text-center text-[clamp(38px,5.4vw,64px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-ink/45" />
++	<section id="faq" class="relative mx-auto max-w-3xl scroll-mt-24 px-4 pb-28 sm:px-6 sm:pb-36">
++		<p class="tag text-center" use:reveal>FAQ</p>
++		<SplitText text="Straight *answers.*" class="mt-4 text-center text-[clamp(36px,5vw,60px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-ink/40" />
+ 		<ul class="mt-12 space-y-2" use:reveal>
+ 			{#each faqs as f, i (f.q)}
+ 				<li class="card overflow-hidden" data-stagger>
+ 					<button class="flex w-full items-center justify-between gap-4 p-5 text-left font-medium" onclick={() => (open = open === i ? null : i)} aria-expanded={open === i}>
+-						{f.q}<span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-ink text-white' : 'bg-tile'}">+</span>
++						{f.q}<span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-ink text-white' : 'bg-black/5'}">+</span>
+ 					</button>
+ 					{#if open === i}<p class="px-5 pb-5 text-sm text-ink-2" transition:slide={{ duration: 260 }}>{f.a}</p>{/if}
+ 				</li>
+@@ -299,65 +334,39 @@
+ 	</section>
+ 
+ 	<!-- ================= FINAL CTA ================= -->
+-	<section class="px-3 pb-3 sm:px-5">
+-		<div class="card-dark relative isolate mx-auto flex max-w-[1240px] flex-col items-center overflow-hidden rounded-[36px] px-6 py-24 text-center sm:py-32">
+-			<div class="dots-dark pointer-events-none absolute inset-0 -z-10" aria-hidden="true"></div>
+-			<h2 class="text-[clamp(40px,7vw,96px)] leading-[0.95] font-medium tracking-[-0.045em]">
++	<section class="relative px-3 pb-3 sm:px-5">
++		<div class="card-dark relative isolate mx-auto flex max-w-[1240px] flex-col items-center overflow-hidden rounded-[36px]! px-6 py-24 text-center sm:py-32">
++			<div class="pointer-events-none absolute -bottom-40 left-1/2 -z-10 w-[700px] -translate-x-1/2 opacity-60" aria-hidden="true"><DotGlobe size={700} points={900} hot={10} dark /></div>
++			<p class="tag text-white/50!">Free tool</p>
++			<h2 class="mt-4 text-[clamp(40px,7vw,96px)] leading-[0.95] font-medium tracking-[-0.045em]">
+ 				<SplitText as="span" class="block" text="Your next client" />
+-				<SplitText as="span" class="block" text="*is around the corner.*" emClass="font-serif font-normal text-white/50" delay={250} />
++				<SplitText as="span" class="block" text="*is around the corner.*" emClass="font-serif font-normal text-white/45" delay={250} />
+ 			</h2>
+ 			<div class="mt-10 flex w-full justify-center text-ink" use:reveal={{ delay: 300 }}>{@render urlForm('cta-url')}</div>
+-			<p class="mt-4 text-xs text-white/50">No card · −50% for life for the first 30 agencies · Data in the EU</p>
++			<p class="mt-4 font-mono text-[11px] text-white/50 uppercase">No card · −50% for life for the first 30 · Data in the EU</p>
+ 		</div>
+ 	</section>
+ 
+-	<footer class="px-4 py-10 sm:px-6">
++	<footer class="relative overflow-hidden px-4 pt-12 sm:px-8">
+ 		<div class="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-4 text-sm text-muted">
+ 			<Logo size={24} />
+ 			<nav class="flex gap-5"><a href="/prospects" class="hover:text-ink">Free tool</a><a href="#pricing" class="hover:text-ink">Pricing</a><a href="/login" class="hover:text-ink">Log in</a></nav>
+-			<p>Made in Brussels · Cookieless · Data in the EU</p>
++			<p class="font-mono text-[11px] uppercase">Made in Brussels · Cookieless · EU data</p>
+ 		</div>
++		<p class="wordmark mx-auto mt-6 max-w-[1240px] text-center text-[21vw] leading-[0.8] font-medium tracking-[-0.07em] select-none lg:text-[270px]" aria-hidden="true">undercut</p>
+ 	</footer>
+ </div>
+ 
+ <style>
+-	/* soft silver gradient behind the hero */
+-	.halo {
++	/* giant wordmark fading into a dot screen */
++	.wordmark {
+ 		background:
+-			radial-gradient(40% 50% at 30% 40%, rgba(180, 186, 200, 0.45), transparent 70%),
+-			radial-gradient(35% 45% at 70% 35%, rgba(214, 208, 198, 0.55), transparent 70%),
+-			radial-gradient(50% 60% at 50% 60%, rgba(255, 255, 255, 0.9), transparent 70%);
+-		filter: blur(40px);
+-		animation: drift 18s ease-in-out infinite alternate;
+-	}
+-	.dots {
+-		background-image: radial-gradient(rgba(13, 13, 13, 0.09) 1px, transparent 1px);
+-		background-size: 22px 22px;
+-		mask-image: radial-gradient(60% 70% at 50% 20%, black, transparent 75%);
+-		-webkit-mask-image: radial-gradient(60% 70% at 50% 20%, black, transparent 75%);
+-	}
+-	.dots-dark {
+-		background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+-		background-size: 22px 22px;
+-		mask-image: radial-gradient(70% 80% at 50% 100%, black, transparent 80%);
+-		-webkit-mask-image: radial-gradient(70% 80% at 50% 100%, black, transparent 80%);
+-	}
+-	.frame {
+-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.55));
+-		border: 1px solid var(--color-line);
+-		box-shadow:
+-			0 50px 120px -50px rgba(0, 0, 0, 0.28),
+-			0 0 0 6px rgba(255, 255, 255, 0.5);
+-		backdrop-filter: blur(12px);
+-	}
+-	@keyframes drift {
+-		to {
+-			transform: translateY(30px) scale(1.06);
+-		}
+-	}
+-	@media (prefers-reduced-motion: reduce) {
+-		.halo {
+-			animation: none;
+-		}
++			radial-gradient(rgb(13 13 13 / 0.55) 1.2px, transparent 1.4px) 0 0 / 6px 6px,
++			linear-gradient(180deg, rgb(13 13 13 / 0.12), transparent);
++		-webkit-background-clip: text;
++		background-clip: text;
++		color: transparent;
++		mask-image: linear-gradient(180deg, black 30%, transparent 95%);
++		-webkit-mask-image: linear-gradient(180deg, black 30%, transparent 95%);
+ 	}
+ </style>
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 2b5e71c..f532b9f 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -1,6 +1,7 @@
+ <script lang="ts">
+ 	import { page } from '$app/state';
+ 	import Logo from '#lib/components/Logo.svelte';
++	import SoundToggle from '#lib/components/SoundToggle.svelte';
+ 	import Assistant from '#lib/components/Assistant.svelte';
+ 	import Icon from '#lib/components/Icon.svelte';
+ 	let { data, children } = $props();
+@@ -78,7 +79,7 @@
+ 
+ <div class="min-h-dvh lg:grid lg:grid-cols-[264px_1fr]" style={data.theme}>
+ 	<!-- mobile top bar -->
+-	<header class="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-paper/90 px-4 py-3 backdrop-blur lg:hidden">
++	<header class="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/60 bg-white/50 px-4 py-3 backdrop-blur-xl lg:hidden">
+ 		<button class="icon-btn" onclick={() => (drawer = true)} aria-label="Open menu"><Icon name="menu" /></button>
+ 		<a href="/app"><Logo size={26} /></a>
+ 		<a href="/app/alerts" class="relative icon-btn" aria-label="Alerts"><Icon name="bell" />{#if data.unread}<span class="absolute -top-1 -right-1 grid min-w-4 place-items-center rounded-full bg-bad px-1 text-[9px] text-white">{data.unread}</span>{/if}</a>
+@@ -86,12 +87,12 @@
+ 
+ 	<!-- sidebar -->
+ 	<aside
+-		class="no-print fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col gap-1 overflow-y-auto border-r border-line bg-paper px-3 py-4 transition-transform lg:sticky lg:top-0 lg:z-40 lg:h-dvh lg:w-auto lg:translate-x-0"
++		class="no-print fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col gap-1 overflow-y-auto border-r border-white/60 bg-white/80 lg:bg-white/40 backdrop-blur-2xl px-3 py-4 transition-transform lg:sticky lg:top-0 lg:z-40 lg:h-dvh lg:w-auto lg:translate-x-0"
+ 		class:-translate-x-full={!drawer}
+ 	>
+ 		<div class="flex items-center justify-between px-2 pb-3">
+ 			<a href="/app"><Logo /></a>
+-			<button class="icon-btn size-9 lg:hidden" onclick={() => (drawer = false)} aria-label="Close menu"><Icon name="x" /></button>
++			<span class="flex items-center gap-2"><SoundToggle cls="size-9" /><button class="icon-btn size-9 lg:hidden" onclick={() => (drawer = false)} aria-label="Close menu"><Icon name="x" /></button></span>
+ 		</div>
+ 
+ 		<!-- client switcher -->
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index 3274f5d..08c2c8e 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { play } from '#lib/sound.svelte.ts';
+ 	import Delta from '#lib/components/Delta.svelte';
+ 	import Sparkline from '#lib/components/Sparkline.svelte';
+ 	import HealthRing from '#lib/components/HealthRing.svelte';
+@@ -7,7 +8,7 @@
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+ 	import AgencySetup from '#lib/components/AgencySetup.svelte';
+-	import { SWATCHES } from '#lib/theme.ts';
++	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
+ 	let { data, form } = $props();
+ 
+ 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+@@ -86,11 +87,12 @@
+ 		<div>
+ 			<p class="label">Colour</p>
+ 			<div class="mt-2 flex flex-wrap items-center gap-2">
+-				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="" /><button class="pill text-sm {!data.accent ? 'pill-active' : ''}"><span class="size-3.5 rounded-full border border-line bg-[linear-gradient(135deg,#fff_50%,#0d0d0d_50%)]"></span>Neutral</button></form>
++				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="" /><button class="pill text-sm {!data.accent ? 'pill-active' : ''}"><span class="size-3.5 rounded-full bg-[#C6F432]"></span>Undercut</button></form>
++				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value={NEUTRAL} /><button class="pill text-sm {data.accent === NEUTRAL ? 'pill-active' : ''}"><span class="size-3.5 rounded-full border border-line bg-[linear-gradient(135deg,#fff_50%,#0d0d0d_50%)]"></span>Black & white</button></form>
+ 				{#if data.siteColor}
+ 					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="site" /><button class="pill text-sm {data.accent === data.siteColor ? 'pill-active' : ''}"><span class="size-3.5 rounded-full" style="background:{data.siteColor}"></span>Your site’s colour</button></form>
+ 				{/if}
+-				{#each SWATCHES.slice(1) as c (c)}
++				{#each SWATCHES as c (c)}
+ 					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value={c} /><button class="grid size-9 place-items-center rounded-full ring-offset-2 {data.accent?.toLowerCase() === c.toLowerCase() ? 'ring-2 ring-ink' : ''}" style="background:{c}" aria-label="Use {c}"></button></form>
+ 				{/each}
+ 				<form method="POST" action={act('theme')} use:enhance={keep} class="flex items-center gap-2">
+@@ -117,7 +119,7 @@
+ 						<div class="pointer-events-none absolute -top-20 -right-20 size-72 rounded-full bg-accent/20 blur-3xl"></div>
+ 						<div class="relative flex flex-wrap items-start justify-between gap-3">
+ 							<div><p class="text-sm text-accent">New prospects</p><p class="mt-1 text-sm text-white/50">Around {data.os.profile.city} · {Math.max(0, data.quota - data.used)} of {data.quota} left this month</p></div>
+-							<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; }; }}>
++							<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update, result }) => { await update({ reset: false }); finding = false; play(result.type === 'success' ? 'found' : 'error'); }; }}>
+ 								<button class="btn btn-accent text-sm" disabled={finding || data.used >= data.quota}>{finding ? 'Looking…' : '+ Find 5'}</button>
+ 							</form>
+ 						</div>
+diff --git a/src/routes/app/prospects/+page.svelte b/src/routes/app/prospects/+page.svelte
+index 8c8da89..fd1778c 100644
+--- a/src/routes/app/prospects/+page.svelte
++++ b/src/routes/app/prospects/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { play } from '#lib/sound.svelte.ts';
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+ 	import AgencySetup from '#lib/components/AgencySetup.svelte';
+@@ -46,7 +47,7 @@
+ 			<p class="label">{data.profile.name} · {data.profile.services.map((s) => SERVICE[s] ?? s).join(', ')} · {data.profile.city} <button class="ml-1 underline" onclick={() => (editing = true)}>change</button></p>
+ 			<h1 class="display mt-2 text-[48px] sm:text-[72px]">Your <em>prospects</em></h1>
+ 		</div>
+-		<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; tab = 'new'; }; }} class="flex flex-col items-start gap-1 sm:items-end">
++		<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update, result }) => { await update({ reset: false }); finding = false; play(result.type === 'success' ? 'found' : 'error'); tab = 'new'; }; }} class="flex flex-col items-start gap-1 sm:items-end">
+ 			<button class="btn btn-primary" disabled={finding || !left}>{finding ? 'Looking around ' + data.profile.city + '…' : '+ Find 5 new prospects'}</button>
+ 			<span class="text-xs text-muted">{left} of {data.quota} left this month</span>
+ 		</form>
+diff --git a/src/routes/layout.css b/src/routes/layout.css
+index a1899ca..d4cb4df 100644
+--- a/src/routes/layout.css
++++ b/src/routes/layout.css
+@@ -3,17 +3,18 @@
+ @theme {
+ 	--font-sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+ 	--font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
++	--font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+ 
+-	/* Neutral by default. The agency's own colour (from its site, or picked) replaces --color-accent at runtime. */
+-	--color-paper: #f7f7f5;
++	/* Light greys + glass. Undercut lime is the default accent; the agency's own colour replaces it at runtime. */
++	--color-paper: #ececea;
+ 	--color-card: #ffffff;
+-	--color-tile: #f2f2ef;
++	--color-tile: rgb(0 0 0 / 0.04);
+ 	--color-ink: #0d0d0d;
+ 	--color-ink-2: #3b3c40;
+ 	--color-muted: #8a8b90;
+-	--color-line: #e8e8e4;
+-	--color-accent: #0d0d0d;
+-	--color-accent-ink: #ffffff;
++	--color-line: rgb(0 0 0 / 0.08);
++	--color-accent: #c6f432;
++	--color-accent-ink: #0d0d0d;
+ 	--color-accent-soft: color-mix(in oklab, var(--color-accent) 12%, white);
+ 	--color-good: #2f9e44;
+ 	--color-good-bg: #e8f7d4;
+@@ -25,8 +26,21 @@
+ 	--radius-card: 28px;
+ }
+ 
++:root {
++	--accent-dark: #c6f432;
++	--accent-dark-ink: #0d0d0d;
++}
++
+ html {
+-	background: var(--color-paper);
++	/* soft light, fixed: white glow top-left, warm grey right, fine dot grid */
++	background-color: var(--color-paper);
++	background-image:
++		radial-gradient(1100px 700px at 8% -10%, rgb(255 255 255 / 0.95), transparent 60%),
++		radial-gradient(900px 650px at 105% 10%, rgb(248 248 245 / 0.9), transparent 60%),
++		radial-gradient(800px 600px at 60% 110%, rgb(220 222 226 / 0.7), transparent 60%),
++		radial-gradient(rgb(0 0 0 / 0.07) 1px, transparent 1px);
++	background-size: auto, auto, auto, 22px 22px;
++	background-attachment: fixed;
+ 	color: var(--color-ink);
+ 	-webkit-font-smoothing: antialiased;
+ }
+@@ -56,25 +70,94 @@ body {
+ 	font-variant-numeric: tabular-nums;
+ }
+ 
++/* Liquid glass: frosted white, specular top edge, hairline border, soft drop */
+ .card {
+ 	min-width: 0;
+-	background: var(--color-card);
++	background:
++		radial-gradient(140% 80% at 0% 0%, rgb(255 255 255 / 0.65), transparent 55%),
++		linear-gradient(180deg, rgb(255 255 255 / 0.82), rgb(255 255 255 / 0.6));
++	backdrop-filter: blur(22px) saturate(170%);
++	-webkit-backdrop-filter: blur(22px) saturate(170%);
+ 	border-radius: var(--radius-card);
+ 	box-shadow:
+-		0 0 0 1px var(--color-line),
+-		0 1px 2px rgb(0 0 0 / 0.03);
++		inset 0 1px 0 rgb(255 255 255 / 0.95),
++		inset 0 0 0 1px rgb(255 255 255 / 0.55),
++		0 0 0 1px rgb(0 0 0 / 0.06),
++		0 18px 40px -26px rgb(0 0 0 / 0.35);
++}
++.glass-btn {
++	background: linear-gradient(180deg, rgb(255 255 255 / 0.75), rgb(255 255 255 / 0.45));
++	backdrop-filter: blur(14px) saturate(160%);
++	-webkit-backdrop-filter: blur(14px) saturate(160%);
++	box-shadow:
++		inset 0 1px 0 rgb(255 255 255 / 0.9),
++		0 0 0 1px rgb(0 0 0 / 0.07),
++		0 6px 18px -10px rgb(0 0 0 / 0.3);
++	transition: transform 0.15s ease;
++}
++.glass-btn:hover {
++	transform: translateY(-1px);
++}
++/* mono label in brackets: [ NEW PROSPECTS ] */
++.tag {
++	font-family: var(--font-mono);
++	font-size: 0.7rem;
++	letter-spacing: 0.06em;
++	text-transform: uppercase;
++	color: var(--color-muted);
++}
++.tag::before {
++	content: '[ ';
++	opacity: 0.5;
++}
++.tag::after {
++	content: ' ]';
++	opacity: 0.5;
++}
++/* little corner marks around a button */
++.corners {
++	position: relative;
++}
++.corners::before {
++	content: '';
++	position: absolute;
++	inset: -5px;
++	pointer-events: none;
++	--c: currentColor;
++	background:
++		linear-gradient(var(--c), var(--c)) top left / 8px 1px no-repeat,
++		linear-gradient(var(--c), var(--c)) top left / 1px 8px no-repeat,
++		linear-gradient(var(--c), var(--c)) top right / 8px 1px no-repeat,
++		linear-gradient(var(--c), var(--c)) top right / 1px 8px no-repeat,
++		linear-gradient(var(--c), var(--c)) bottom left / 8px 1px no-repeat,
++		linear-gradient(var(--c), var(--c)) bottom left / 1px 8px no-repeat,
++		linear-gradient(var(--c), var(--c)) bottom right / 8px 1px no-repeat,
++		linear-gradient(var(--c), var(--c)) bottom right / 1px 8px no-repeat;
++	opacity: 0.35;
++	transition: inset 0.25s var(--ease-out, ease), opacity 0.25s;
++}
++.corners:hover::before {
++	inset: -8px;
++	opacity: 0.7;
+ }
+ .tile {
+ 	min-width: 0;
+-	background: var(--color-tile);
++	background: rgb(255 255 255 / 0.5);
+ 	border-radius: 20px;
+ }
+ .card-dark {
+ 	min-width: 0;
+ 	/* soft graphite gradient; on dark surfaces the accent switches to its light variant */
+ 	background:
+-		radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--accent-dark, #fff) 14%, transparent), transparent 60%),
+-		linear-gradient(160deg, #1c1c1d, #0d0d0d);
++		radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--accent-dark, #fff) 16%, transparent), transparent 60%),
++		radial-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px) 0 0 / 18px 18px,
++		linear-gradient(160deg, rgb(32 32 34 / 0.96), rgb(10 10 11 / 0.97));
++	backdrop-filter: blur(20px);
++	-webkit-backdrop-filter: blur(20px);
++	box-shadow:
++		inset 0 1px 0 rgb(255 255 255 / 0.12),
++		inset 0 0 0 1px rgb(255 255 255 / 0.06),
++		0 24px 50px -28px rgb(0 0 0 / 0.6);
+ 	color: white;
+ 	border-radius: var(--radius-card);
+ 	--color-accent: var(--accent-dark, #ffffff);
+@@ -150,8 +233,11 @@ body {
+ 	align-items: center;
+ 	gap: 0.4rem;
+ 	border-radius: 999px;
+-	border: 1px solid var(--color-line);
+-	background: white;
++	border: 1px solid rgb(255 255 255 / 0.7);
++	background: rgb(255 255 255 / 0.6);
++	backdrop-filter: blur(12px);
++	-webkit-backdrop-filter: blur(12px);
++	box-shadow: 0 0 0 1px rgb(0 0 0 / 0.06);
+ 	padding: 0.45rem 1rem;
+ 	font-size: 0.875rem;
+ 	white-space: nowrap;
+@@ -168,8 +254,8 @@ body {
+ 
+ .input {
+ 	width: 100%;
+-	border: 1px solid var(--color-line);
+-	background: white;
++	border: 1px solid rgb(0 0 0 / 0.08);
++	background: rgb(255 255 255 / 0.7);
+ 	border-radius: 999px;
+ 	padding: 0.7rem 1.1rem;
+ 	font-size: 0.95rem;
+@@ -406,3 +492,23 @@ html {
+ 		animation: none !important;
+ 	}
+ }
++
++/* sound toggle equaliser */
++@keyframes eq {
++	0%,
++	100% {
++		transform: scaleY(0.4);
++	}
++	50% {
++		transform: scaleY(1);
++	}
++}
++.eq {
++	transform-origin: bottom;
++	animation: eq 0.9s ease-in-out infinite;
++}
++@media (prefers-reduced-motion: reduce) {
++	.eq {
++		animation: none;
++	}
++}
+-- 
+2.43.0
+

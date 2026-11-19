@@ -1,0 +1,349 @@
+From 2a4cc71de2d755735aac1c3897889b58a1ed6682 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 23:13:08 +0100
+Subject: [PATCH] Legal pages (privacy, terms, DPA), mobile menu scroll lock,
+ earlier dashboard notes
+
+- /privacy, /terms, /dpa with sticky table of contents; company details in src/lib/legal.ts
+- Footer and signup/beta forms link to the legal pages
+- Page behind the mobile menu (landing) and the app's mobile sidebar no longer scrolls
+- Dashboard preview finishes its tilt as soon as it's fully visible; annotations appear earlier
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/LegalPage.svelte | 54 +++++++++++++++++++++++++++++
+ src/lib/legal.ts                    | 25 +++++++++++++
+ src/routes/+page.svelte             | 11 ++++--
+ src/routes/app/+layout.svelte       |  5 +++
+ src/routes/beta/+page.svelte        |  1 +
+ src/routes/dpa/+page.svelte         | 41 ++++++++++++++++++++++
+ src/routes/privacy/+page.svelte     | 49 ++++++++++++++++++++++++++
+ src/routes/signup/+page.svelte      |  1 +
+ src/routes/terms/+page.svelte       | 34 ++++++++++++++++++
+ 9 files changed, 218 insertions(+), 3 deletions(-)
+ create mode 100644 src/lib/components/LegalPage.svelte
+ create mode 100644 src/lib/legal.ts
+ create mode 100644 src/routes/dpa/+page.svelte
+ create mode 100644 src/routes/privacy/+page.svelte
+ create mode 100644 src/routes/terms/+page.svelte
+
+diff --git a/src/lib/components/LegalPage.svelte b/src/lib/components/LegalPage.svelte
+new file mode 100644
+index 0000000..9ba4327
+--- /dev/null
++++ b/src/lib/components/LegalPage.svelte
+@@ -0,0 +1,54 @@
++<script lang="ts">
++	import Logo from '#lib/components/Logo.svelte';
++	import { COMPANY, type Section } from '#lib/legal.ts';
++	let { title, intro, sections, children }: { title: string; intro: string; sections: Section[]; children?: import('svelte').Snippet } = $props();
++	const docs = [
++		['/privacy', 'Privacy'],
++		['/terms', 'Terms'],
++		['/dpa', 'Data processing']
++	];
++</script>
++
++<svelte:head>
++	<title>{title} · Undercut</title>
++	<meta name="robots" content="index,follow" />
++</svelte:head>
++
++<div class="min-h-dvh text-ink">
++	<header class="mx-auto flex max-w-[1180px] items-center justify-between gap-4 px-5 pt-6 sm:px-10">
++		<a href="/" aria-label="Undercut home"><Logo size={28} /></a>
++		<nav class="flex gap-1 text-sm">
++			{#each docs as [h, l] (h)}<a href={h} class="rounded-full px-3 py-2 text-ink-2 hover:bg-white/70 hover:text-ink">{l}</a>{/each}
++		</nav>
++	</header>
++
++	<main class="mx-auto grid max-w-[1180px] gap-14 px-5 pt-20 pb-32 sm:px-10 lg:grid-cols-[220px_1fr] lg:gap-20">
++		<aside class="hidden lg:block">
++			<nav class="sticky top-10 grid gap-1 text-sm">
++				<p class="tag mb-3">On this page</p>
++				{#each sections as s (s.id)}<a href="#{s.id}" class="rounded-lg px-2 py-1.5 text-ink-2 hover:bg-white/70 hover:text-ink">{s.h}</a>{/each}
++			</nav>
++		</aside>
++		<article class="max-w-[720px]">
++			<p class="tag">Legal · last updated {COMPANY.updated}</p>
++			<h1 class="mt-6 text-[clamp(36px,5vw,64px)] leading-[1.05] font-medium tracking-[-0.04em]">{title}</h1>
++			<p class="mt-8 text-[19px] leading-[1.75] text-ink-2">{intro}</p>
++			{#each sections as s (s.id)}
++				<section id={s.id} class="scroll-mt-10 border-t border-black/[.08] pt-10 mt-12">
++					<h2 class="text-[24px] leading-tight font-medium tracking-[-0.025em]">{s.h}</h2>
++					{#each s.p as para, i (i)}
++						{#if Array.isArray(para)}
++							<ul class="mt-4 list-disc space-y-2 pl-5 text-[16px] leading-[1.75] text-ink-2">{#each para as li (li)}<li>{li}</li>{/each}</ul>
++						{:else}
++							<p class="mt-4 text-[16px] leading-[1.75] text-ink-2">{para}</p>
++						{/if}
++					{/each}
++				</section>
++			{/each}
++			{@render children?.()}
++			<p class="mt-16 rounded-[20px] bg-white/60 p-5 text-sm leading-[1.7] text-muted">
++				{COMPANY.product} is operated by {COMPANY.name}{COMPANY.form ? `, ${COMPANY.form}` : ''}{COMPANY.enterprise ? `, enterprise number ${COMPANY.enterprise}` : ''}{COMPANY.address ? `, ${COMPANY.address}` : ''}, {COMPANY.country}. Questions: <a class="text-ink underline" href="mailto:{COMPANY.email}">{COMPANY.email}</a>.
++			</p>
++		</article>
++	</main>
++</div>
+diff --git a/src/lib/legal.ts b/src/lib/legal.ts
+new file mode 100644
+index 0000000..ff433b4
+--- /dev/null
++++ b/src/lib/legal.ts
+@@ -0,0 +1,25 @@
++// Legal pages content. Fill in COMPANY once the studio's details are final (enterprise number, address).
++// Not legal advice: have a lawyer review before charging customers.
++export const COMPANY = {
++	name: 'Unix Creative Studio',
++	product: 'Undercut',
++	form: '', // e.g. 'sole proprietorship (entreprise individuelle)'
++	enterprise: '', // BCE/KBO number, e.g. 'BE 0123.456.789'
++	address: '', // registered address
++	country: 'Belgium',
++	email: 'hello@getundercut.app',
++	site: 'https://getundercut.app',
++	updated: '2026-11-19'
++};
++
++export type Section = { id: string; h: string; p: (string | string[])[] };
++
++export const SUBPROCESSORS = [
++	['Hetzner Online (Germany)', 'Server hosting for the app and its data', 'EU'],
++	['Supabase (EU region)', 'Database for accounts and workspaces', 'EU'],
++	['Resend', 'Sending emails (reports, alerts, invitations)', 'US — Standard Contractual Clauses'],
++	['Stripe', 'Payments and invoices', 'EU / US — Standard Contractual Clauses'],
++	['Google (APIs)', 'Reading Analytics, Search Console, Business Profile, Tag Manager and PageSpeed data you connect', 'EU / US — Standard Contractual Clauses'],
++	['Anthropic', 'AI features (summaries, suggested fixes, messages). No data used for training.', 'US — Standard Contractual Clauses'],
++	['OpenStreetMap services (Nominatim, Overpass)', 'Finding public business listings for prospects — only a city name and categories are sent', 'EU']
++] as const;
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 45a0bba..ea1b58d 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -24,6 +24,11 @@
+ 			lastY = y;
+ 		}
+ 	});
++	// lock the page behind the mobile menu
++	$effect(() => {
++		document.documentElement.style.overflow = menu ? 'hidden' : '';
++		return () => (document.documentElement.style.overflow = '');
++	});
+ 	// sliding highlight under the hovered link
+ 	let ind = $state({ x: 0, w: 0, on: false });
+ 	const over = (e: PointerEvent) => {
+@@ -337,7 +342,7 @@
+ 			<SplitText text={'One screen.\n*Everything that matters.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+ 			<p class="mx-auto mt-8 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>Prospects, pipeline, this week’s to-do and every client’s site and app. It builds itself from your URL — then you shape it.</p>
+ 		</div>
+-		<div class="relative mt-20 [perspective:2000px]" use:scrub={{ start: 1, end: 0.35 }}>
++		<div class="relative mt-20 [perspective:2000px]" use:scrub={{ start: 0.95, end: 0.92 }}>
+ 			<div class="relative origin-top transition-transform duration-150 ease-out" style="transform:rotateX(calc(22deg - var(--p,0) * 22deg)) scale(calc(.9 + var(--p,0) * .1));opacity:calc(.4 + var(--p,0) * .6)">
+ 				<div class="card rounded-[30px]! p-2 sm:p-2.5">
+ 					<div class="flex items-center gap-2 px-3 pt-1 pb-2.5">
+@@ -347,7 +352,7 @@
+ 					{@render mock(null, 'Your agency')}
+ 				</div>
+ 				{#each notes as n, i (n.t)}
+-					<div class="pointer-events-none absolute hidden lg:block" style="left:{n.x};top:{n.y};opacity:clamp(0, calc(var(--p,0) * 3 - {1.2 + i * 0.35}), 1);transform:translateY(calc((1 - clamp(0, var(--p,0) * 3 - {1.2 + i * 0.35}, 1)) * 12px))">
++					<div class="pointer-events-none absolute hidden lg:block" style="left:{n.x};top:{n.y};opacity:clamp(0, calc(var(--p,0) * 3.5 - {0.9 + i * 0.35}), 1);transform:translateY(calc((1 - clamp(0, var(--p,0) * 3.5 - {0.9 + i * 0.35}, 1)) * 12px))">
+ 						<span class="glass-btn flex items-center gap-2 rounded-full py-2 pr-4 pl-2 text-[13px] font-medium"><span class="grid size-6 place-items-center rounded-full bg-ink text-[10px] text-white">{i + 1}</span>{n.t}</span>
+ 					</div>
+ 				{/each}
+@@ -519,7 +524,7 @@
+ 	<footer class="relative overflow-hidden px-4 pt-14 sm:px-10">
+ 		<div class="mx-auto flex max-w-[1240px] flex-wrap items-center justify-between gap-4 text-sm text-muted">
+ 			<Logo size={24} />
+-			<nav class="flex gap-5 text-[11px] uppercase"><a href="/prospects" class="hover:text-ink">Free tool</a><a href="#pricing" class="hover:text-ink">Pricing</a><a href="/login" class="hover:text-ink">Log in</a></nav>
++			<nav class="flex flex-wrap gap-x-5 gap-y-2 text-[13px]"><a href="/prospects" class="hover:text-ink">Free tool</a><a href="#pricing" class="hover:text-ink">Pricing</a><a href="/privacy" class="hover:text-ink">Privacy</a><a href="/terms" class="hover:text-ink">Terms</a><a href="/dpa" class="hover:text-ink">DPA</a><a href="/login" class="hover:text-ink">Log in</a></nav>
+ 			<p class="text-[11px] uppercase">Designed & built by <a href="https://unixcreativestudio.com/" class="text-ink underline decoration-black/20 underline-offset-4 hover:decoration-ink" target="_blank" rel="noopener">Unix Creative Studio</a></p>
+ 		</div>
+ 		<div class="mx-auto mt-10 max-w-[1280px] overflow-hidden pb-4 text-center" use:scrub={{ start: 1, end: 0.6 }} aria-hidden="true">
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 71e225d..7ad1ef4 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -6,6 +6,11 @@
+ 	let { data, children } = $props();
+ 
+ 	let drawer = $state(false); // mobile sidebar
++	// lock the page behind the open mobile sidebar
++	$effect(() => {
++		document.documentElement.style.overflow = drawer ? 'hidden' : '';
++		return () => (document.documentElement.style.overflow = '');
++	});
+ 	let menu = $state<'clients' | 'account' | null>(null);
+ 
+ 	const path = $derived(page.url.pathname);
+diff --git a/src/routes/beta/+page.svelte b/src/routes/beta/+page.svelte
+index f27b2a6..20b1c51 100644
+--- a/src/routes/beta/+page.svelte
++++ b/src/routes/beta/+page.svelte
+@@ -63,6 +63,7 @@
+ 					<label class="block"><span class="label">Agency website</span><input class="input mt-1.5" name="website" value={form?.website ?? ''} placeholder="agency.be" inputmode="url" /></label>
+ 					<label class="block"><span class="label">What annoys you most in analytics today? (optional)</span><textarea class="input mt-1.5 rounded-[20px]" rows="3" name="note">{form?.note ?? ''}</textarea></label>
+ 					<button class="btn btn-accent w-full py-3 text-base">Request my invitation →</button>
++				<p class="mt-3 text-center text-xs text-white/50">By continuing you agree to the <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy policy</a>.</p>
+ 					<p class="text-center text-xs text-muted">Already invited? <a href="/login" class="underline">Log in</a></p>
+ 				</form>
+ 			{/if}
+diff --git a/src/routes/dpa/+page.svelte b/src/routes/dpa/+page.svelte
+new file mode 100644
+index 0000000..4b4bfa5
+--- /dev/null
++++ b/src/routes/dpa/+page.svelte
+@@ -0,0 +1,41 @@
++<script lang="ts">
++	import LegalPage from '#lib/components/LegalPage.svelte';
++	import { COMPANY, SUBPROCESSORS } from '#lib/legal.ts';
++	const sections = [
++		{ id: 'scope', h: 'Scope and roles', p: [`This Data processing agreement (DPA) is part of the Terms of service. When you use ${COMPANY.product} for your clients (snippet, connected Google accounts, app SDK), your agency — or your client — is the controller, and ${COMPANY.name} is the processor (article 28 GDPR). It applies automatically; no signature is needed.`] },
++		{ id: 'what', h: 'What we process', p: [
++			[
++				'Subject matter: measuring and improving your clients’ websites and apps.',
++				'Data: page views, clicks and scroll depth, leads (type of contact, page, source), country, device type, app events and crash reports, data from connected Google services.',
++				'People concerned: visitors of your clients’ websites and users of their apps.',
++				'Duration: as long as the client is in your workspace, then deletion within 30 days.'
++			],
++			'No IP addresses, no cookies, no form contents and no special categories of data are collected by the snippet.'
++		] },
++		{ id: 'commit', h: 'Our commitments', p: [
++			[
++				'Process the data only on your documented instructions (using the service as designed is that instruction).',
++				'Make sure everyone with access is bound by confidentiality.',
++				'Protect the data: encryption in transit (HTTPS), access control per workspace, hashed passwords, daily backups, EU hosting.',
++				'Help you answer people’s requests and with security or impact assessments when needed.',
++				'Tell you without undue delay, and within 48 hours, if a personal data breach affects your data.',
++				'Delete or return the data when the contract ends.',
++				'Give you the information needed to show compliance, and allow reasonable audits with notice.'
++			]
++		] },
++		{ id: 'sub', h: 'Sub-processors', p: ['You authorise the sub-processors below. We will announce any new one at least 30 days in advance; you can object, and if we can’t find a solution you can end the contract.'] },
++		{ id: 'transfers', h: 'International transfers', p: ['When a sub-processor is outside the EU, transfers rely on the European Commission’s Standard Contractual Clauses and additional measures where needed.'] },
++		{ id: 'contact', h: 'Contact', p: [`For anything about data protection: ${COMPANY.email}.`] }
++	];
++</script>
++
++<LegalPage title="Data processing agreement" intro="How we handle your clients’ visitors’ data when we process it on your behalf — written to be understood, compliant with article 28 GDPR." {sections}>
++	<div class="mt-12 overflow-hidden rounded-[20px] bg-white/60 shadow-[0_0_0_1px_rgba(0,0,0,.06)]">
++		<table class="w-full text-left text-sm">
++			<thead class="text-xs text-muted"><tr><th class="p-4 font-medium">Sub-processor</th><th class="p-4 font-medium">Purpose</th><th class="hidden p-4 font-medium sm:table-cell">Location</th></tr></thead>
++			<tbody>
++				{#each SUBPROCESSORS as [n, p, l] (n)}<tr class="border-t border-black/[.06] align-top"><td class="p-4 font-medium">{n}</td><td class="p-4 text-ink-2">{p}</td><td class="hidden p-4 text-ink-2 sm:table-cell">{l}</td></tr>{/each}
++			</tbody>
++		</table>
++	</div>
++</LegalPage>
+diff --git a/src/routes/privacy/+page.svelte b/src/routes/privacy/+page.svelte
+new file mode 100644
+index 0000000..b023816
+--- /dev/null
++++ b/src/routes/privacy/+page.svelte
+@@ -0,0 +1,49 @@
++<script lang="ts">
++	import LegalPage from '#lib/components/LegalPage.svelte';
++	import { COMPANY } from '#lib/legal.ts';
++	const sections = [
++		{ id: 'who', h: 'Who we are', p: [`${COMPANY.product} is a dashboard for agencies, made by ${COMPANY.name} (${COMPANY.country}). For the data of agencies that use ${COMPANY.product} (accounts, billing, your agency profile, your prospects list), we are the data controller. For the data collected on your clients’ websites and apps, your agency is the controller and we are your processor — see the Data processing agreement.`] },
++		{ id: 'collect', h: 'What we collect', p: [
++			[
++				'Account: name, email address, password (stored only as a hash), role, workspace.',
++				'Agency profile: the URL you paste, what we read on that public page (name, services, city, language, brand colour).',
++				'Prospects: public business listings from OpenStreetMap (name, category, address, website, phone when published) and what we observe on their public website (speed, mobile, https, last update).',
++				'Connected services: when you connect Google, we store access tokens to read the Analytics, Search Console, Business Profile and Tag Manager data you choose. We only request the scopes needed and never sell or share this data.',
++				'Billing: handled by Stripe. We keep the plan, status and invoice references, never your full card number.',
++				'Usage: basic logs (time, page, errors) to keep the service secure and working.'
++			]
++		] },
++		{ id: 'clients', h: 'Data on your clients’ websites and apps', p: [
++			'The Undercut snippet is cookieless. It records page views, clicks and scroll depth for heatmaps, leads (form submitted, phone, email or WhatsApp click), the traffic source and the visitor’s country. It does not store IP addresses, does not use cookies or fingerprinting, and never records what people type in forms.',
++			'A random session identifier lives only in the visitor’s browser tab (sessionStorage) and disappears when the tab closes.'
++		] },
++		{ id: 'why', h: 'Why we use it (legal bases)', p: [
++			[
++				'To provide the service you signed up for (contract).',
++				'To bill you and keep accounting records (legal obligation).',
++				'To keep the service secure, fix bugs and improve it (legitimate interest).',
++				'To find prospects from public business listings, so agencies can offer them a service (legitimate interest). Undercut never contacts businesses itself: you review and send each message.',
++				'To send product emails you can turn off at any time (consent or legitimate interest, depending on the email).'
++			]
++		] },
++		{ id: 'prospects', h: 'If you are a business listed as a prospect', p: [
++			`We only use information that you or your business made public (your OpenStreetMap listing and your public website). We keep it to show it to agencies looking for clients nearby. You can ask us at any time to remove your business so it never appears again: write to ${COMPANY.email} with your business name and address.`
++		] },
++		{ id: 'share', h: 'Who we share it with', p: ['Only the service providers listed in our Data processing agreement (hosting, database, email, payments, Google APIs, AI and map services), under contracts that protect your data. We never sell personal data and never use it for advertising.'] },
++		{ id: 'ai', h: 'AI features', p: ['Some features (summaries, suggested fixes, first messages) send the minimum needed text to an AI provider. That provider does not use it to train its models.'] },
++		{ id: 'where', h: 'Where it is stored', p: ['Our servers and database are in the European Union. When a provider is outside the EU, transfers are covered by the European Commission’s Standard Contractual Clauses.'] },
++		{ id: 'keep', h: 'How long we keep it', p: [
++			[
++				'Account and workspace data: while your account is active, then deleted within 30 days after you close it.',
++				'Website events from the snippet: 13 months, then deleted or aggregated.',
++				'Invoices: 7 years (Belgian accounting law).',
++				'Prospects you did not keep: removed from your list when you delete them; public listing caches are refreshed regularly.'
++			]
++		] },
++		{ id: 'rights', h: 'Your rights', p: [`You can ask to access, correct, delete or export your data, object to or restrict its use, and withdraw consent. Write to ${COMPANY.email} — we answer within 30 days. You can also complain to the Belgian Data Protection Authority (dataprotectionauthority.be).`] },
++		{ id: 'cookies', h: 'Cookies', p: ['On getundercut.app we only use one essential cookie to keep you signed in. No advertising or tracking cookies, so there is no cookie banner.'] },
++		{ id: 'changes', h: 'Changes', p: ['If we change this policy in a way that matters, we tell you by email or in the app before it applies.'] }
++	];
++</script>
++
++<LegalPage title="Privacy policy" intro="The short version: we collect as little as possible, we never sell data, the snippet on your clients’ sites uses no cookies, and you can delete everything at any time." {sections} />
+diff --git a/src/routes/signup/+page.svelte b/src/routes/signup/+page.svelte
+index 368e693..2faa665 100644
+--- a/src/routes/signup/+page.svelte
++++ b/src/routes/signup/+page.svelte
+@@ -33,6 +33,7 @@
+ 				<label class="block"><span class="label">Agency name</span><input class="input mt-1.5" name="agency" value={form?.agency ?? data.prefill?.agency ?? ''} placeholder="Unix Creative Studio" autocomplete="organization" required /></label>
+ 				{#if !data.beta}<label class="flex items-center gap-3 rounded-[16px] bg-white p-3 text-sm"><input type="checkbox" name="examples" class="size-4 accent-[#0D0D0D]" />Keep a few example clients to explore</label>{/if}
+ 				<button class="btn btn-primary w-full py-3 text-base">Create my workspace →</button>
++				<p class="mt-3 text-center text-xs text-muted">By continuing you agree to the <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy policy</a>.</p>
+ 				<p class="text-center text-xs text-muted">Already have one? <a href="/login" class="underline">Log in</a></p>
+ 			</form>
+ 		</div>
+diff --git a/src/routes/terms/+page.svelte b/src/routes/terms/+page.svelte
+new file mode 100644
+index 0000000..4148d27
+--- /dev/null
++++ b/src/routes/terms/+page.svelte
+@@ -0,0 +1,34 @@
++<script lang="ts">
++	import LegalPage from '#lib/components/LegalPage.svelte';
++	import { COMPANY } from '#lib/legal.ts';
++	const sections = [
++		{ id: 'agree', h: 'Agreement', p: [`These terms are a contract between you (the agency or freelancer using ${COMPANY.product}) and ${COMPANY.name}. By creating an account you accept them. ${COMPANY.product} is for professional use only.`] },
++		{ id: 'service', h: 'The service', p: [`${COMPANY.product} gives you a dashboard to find prospects, follow them in a pipeline and monitor your clients’ websites and apps (leads, traffic, search, speed, fixes, reports). We improve it continuously and may change features; if we remove something essential you pay for, we tell you in advance.`] },
++		{ id: 'account', h: 'Your account', p: ['Keep your password safe and tell us about any unauthorised use. You are responsible for what happens in your workspace, including what team members and client logins do.'] },
++		{ id: 'prospecting', h: 'Prospecting rules', p: [
++			'Undercut finds businesses from public listings and drafts a first message. You decide whether to contact them, and you send every message yourself. You agree to:',
++			[
++				'contact businesses in a professional, relevant way, and respect anti-spam and privacy laws where you and they are located (for example GDPR and ePrivacy in the EU);',
++				'stop contacting anyone who asks you to, and never resell or publish prospect lists;',
++				'not use Undercut for mass unsolicited email.'
++			]
++		] },
++		{ id: 'clients', h: 'Your clients’ websites and apps', p: ['You confirm you have your clients’ permission to install the snippet, connect their Google accounts and publish fixes on their sites. You are the controller of their visitors’ data; we process it for you under the Data processing agreement. Fixes published through the snippet are visible on the live site: review them before approving.'] },
++		{ id: 'pay', h: 'Plans, trial and payment', p: [
++			[
++				'A free trial lets you try Undercut; it ends automatically and nothing is charged unless you choose a plan.',
++				'Paid plans are billed monthly in advance through Stripe, prices excluding VAT. You can cancel any time; your plan stays active until the end of the paid month. No refunds for partial months, except where the law requires.',
++				'Founding offer: the first 30 agencies keep −50% for as long as their subscription stays active without interruption.',
++				'We can change prices with at least 30 days’ notice; the new price applies from your next billing period.'
++			]
++		] },
++		{ id: 'use', h: 'Fair use', p: ['Don’t break the law with Undercut, don’t try to access other workspaces, overload the service, reverse-engineer it or resell it. We may suspend an account that does, after warning you when possible.'] },
++		{ id: 'data', h: 'Your data', p: ['Your data stays yours. You can export it and delete your workspace at any time. After closing your account we delete your data within 30 days, except invoices we must keep by law.'] },
++		{ id: 'availability', h: 'Availability', p: ['We work hard to keep Undercut available and your data safe, with daily backups, but we can’t promise it will never be interrupted. Data from third parties (Google, OpenStreetMap, app stores) can be delayed or incomplete.'] },
++		{ id: 'liability', h: 'Liability', p: ['Undercut gives information and suggestions; business decisions stay yours. To the extent allowed by law, our total liability is limited to what you paid us in the 12 months before the claim, and we are not liable for indirect losses such as lost profit or lost clients. Nothing limits liability for fraud or gross negligence.'] },
++		{ id: 'end', h: 'Ending the contract', p: ['You can stop at any time from your account settings. We can end the contract with 30 days’ notice, or immediately if these terms are seriously breached.'] },
++		{ id: 'law', h: 'Law and disputes', p: [`Belgian law applies. We’ll first try to solve any problem together — write to ${COMPANY.email}. Otherwise, the courts of Brussels have jurisdiction.`] }
++	];
++</script>
++
++<LegalPage title="Terms of service" intro="Plain-language terms for agencies and freelancers using Undercut. The main ideas: you send your own messages, you own your data, you can cancel any time." {sections} />
+-- 
+2.43.0
+

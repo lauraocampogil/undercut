@@ -1,0 +1,1859 @@
+From 8f587f550e0cf63259a772daca6fdd67547313f7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 16:18:17 +0100
+Subject: [PATCH] Agency cockpit: prospects from your URL, pipeline, new
+ landing
+
+- Free public tool /prospects: paste agency URL -> 5 real local businesses (OSM) with site check and first message, IP rate limit
+- /app becomes the agency cockpit: prospects, pipeline, this week, agenda, clients, own site, goal, what to post; ask-to-change bar and block toggles
+- /app/prospects: pipeline stages, follow-up dates, value, notes, copy/mailto message, monthly quota per plan
+- Landing rewritten around 'Find clients. Keep them.' with URL input in hero, new pricing copy (-50% for life for the first 30)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/AgencySetup.svelte    |  56 +++++
+ src/lib/plans.ts                         |   9 +-
+ src/lib/server/agency-actions.ts         |  68 ++++++
+ src/lib/server/agency-os.ts              | 151 ++++++++++++
+ src/lib/server/agency-profile.ts         | 117 ++++++++++
+ src/lib/server/prospects.ts              | 201 ++++++++++++++++
+ src/routes/+page.svelte                  | 205 +++++++++--------
+ src/routes/app/+layout.svelte            |   3 +-
+ src/routes/app/+page.server.ts           |  40 +++-
+ src/routes/app/+page.svelte              | 280 +++++++++++++++++------
+ src/routes/app/clients/new/+page.svelte  |   5 +-
+ src/routes/app/prospects/+page.server.ts |   9 +
+ src/routes/app/prospects/+page.svelte    | 124 ++++++++++
+ src/routes/prospects/+page.server.ts     |  45 ++++
+ src/routes/prospects/+page.svelte        | 164 +++++++++++++
+ 15 files changed, 1299 insertions(+), 178 deletions(-)
+ create mode 100644 src/lib/components/AgencySetup.svelte
+ create mode 100644 src/lib/server/agency-actions.ts
+ create mode 100644 src/lib/server/agency-os.ts
+ create mode 100644 src/lib/server/agency-profile.ts
+ create mode 100644 src/lib/server/prospects.ts
+ create mode 100644 src/routes/app/prospects/+page.server.ts
+ create mode 100644 src/routes/app/prospects/+page.svelte
+ create mode 100644 src/routes/prospects/+page.server.ts
+ create mode 100644 src/routes/prospects/+page.svelte
+
+diff --git a/src/lib/components/AgencySetup.svelte b/src/lib/components/AgencySetup.svelte
+new file mode 100644
+index 0000000..e09154a
+--- /dev/null
++++ b/src/lib/components/AgencySetup.svelte
+@@ -0,0 +1,56 @@
++<script lang="ts">
++	// "Paste your agency's URL" — first step of the agency cockpit, and the place to correct what we detected.
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	type Profile = { url: string; name: string; services: string[]; city: string; needs?: string } | null;
++	let { profile, error = '', dark = true, onsaved }: { profile: Profile; error?: string; dark?: boolean; onsaved?: () => void } = $props();
++	let busy = $state(false);
++	const SERVICES = [
++		['web', 'Websites'],
++		['app', 'Apps'],
++		['social', 'Social media'],
++		['seo', 'SEO'],
++		['branding', 'Branding'],
++		['ads', 'Ads']
++	] as const;
++	const field = $derived(dark ? 'bg-white/10 text-white placeholder:text-white/35' : 'bg-tile text-ink placeholder:text-muted');
++</script>
++
++<form
++	method="POST"
++	action={act('setup')}
++	use:enhance={() => {
++		busy = true;
++		return async ({ update, result }) => {
++			await update({ reset: false });
++			busy = false;
++			if (result.type === 'success' && profile && !profile.needs) onsaved?.();
++		};
++	}}
++	class="grid gap-4"
++>
++	<label class="block text-sm">
++		<span class={dark ? 'text-white/60' : 'label'}>Your agency’s website or Instagram</span>
++		<input name="url" value={profile?.url ?? ''} required inputmode="url" placeholder="youragency.be" class="mt-1.5 w-full rounded-2xl px-4 py-3 text-base outline-none focus:ring-1 focus:ring-accent {field}" />
++	</label>
++	{#if profile}
++		<div class="grid gap-4 sm:grid-cols-2">
++			<label class="block text-sm"><span class={dark ? 'text-white/60' : 'label'}>Agency name</span><input name="name" value={profile.name} class="mt-1.5 w-full rounded-2xl px-4 py-3 outline-none focus:ring-1 focus:ring-accent {field}" /></label>
++			<label class="block text-sm"><span class={dark ? 'text-white/60' : 'label'}>City where you look for clients</span><input name="city" value={profile.city} required placeholder="Ixelles, Liège, Gent…" class="mt-1.5 w-full rounded-2xl px-4 py-3 outline-none focus:ring-1 focus:ring-accent {field}" /></label>
++		</div>
++		<input type="hidden" name="servicesSent" value="1" />
++		<div>
++			<p class="text-sm {dark ? 'text-white/60' : 'label'}">What you sell</p>
++			<div class="mt-2 flex flex-wrap gap-2">
++				{#each SERVICES as [k, l] (k)}
++					<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={profile.services.includes(k)} class="peer sr-only" /><span class="inline-block rounded-full px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink {dark ? 'bg-white/10' : 'bg-tile'}">{l}</span></label>
++				{/each}
++			</div>
++		</div>
++		{#if profile.needs}<p class="text-sm {dark ? 'text-accent' : 'text-warn'}">{profile.needs}</p>{/if}
++	{/if}
++	<div class="flex items-center gap-3">
++		<button class="btn btn-accent" disabled={busy}>{busy ? 'Reading your site…' : profile ? 'Save' : 'Build my dashboard →'}</button>
++		{#if error}<p class="text-sm text-bad">{error}</p>{/if}
++	</div>
++</form>
+diff --git a/src/lib/plans.ts b/src/lib/plans.ts
+index b16abe4..bdb121c 100644
+--- a/src/lib/plans.ts
++++ b/src/lib/plans.ts
+@@ -1,7 +1,8 @@
++// Plan ids are kept for compatibility (freelance / agency / studio); names and limits follow the current offer.
+ export const PLANS = {
+-	trial: { name: 'Free trial', price: 0, clients: 10, ai: 100 },
+-	freelance: { name: 'Freelance', price: 19, clients: 3, ai: 200 },
+-	agency: { name: 'Agency', price: 59, clients: 15, ai: 1000 },
+-	studio: { name: 'Studio', price: 149, clients: 50, ai: 5000 }
++	trial: { name: 'Free trial', price: 0, clients: 10, ai: 100, prospects: 100 },
++	freelance: { name: 'Solo', price: 19, clients: 5, ai: 200, prospects: 50 },
++	agency: { name: 'Pro', price: 49, clients: 20, ai: 1000, prospects: 300 },
++	studio: { name: 'Agency', price: 99, clients: 50, ai: 5000, prospects: 1000 }
+ } as const;
+ export type PlanId = keyof typeof PLANS;
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+new file mode 100644
+index 0000000..5cec07a
+--- /dev/null
++++ b/src/lib/server/agency-actions.ts
+@@ -0,0 +1,68 @@
++// Form actions shared by the cockpit (/app) and the prospects page (/app/prospects).
++import { fail, type RequestEvent } from '@sveltejs/kit';
++import { profileFromUrl, type Service } from './agency-profile.ts';
++import { applyAsk, findMore, getOS, removeItem, setGoal, setProfile, updateItem, type Stage } from './agency-os.ts';
++
++const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
++const STAGES: Stage[] = ['new', 'contacted', 'talking', 'won', 'lost'];
++type E = RequestEvent;
++
++export const agencyActions = {
++	setup: async ({ request }: E) => {
++		const f = await request.formData();
++		const raw = String(f.get('url') ?? '').trim();
++		const city = String(f.get('city') ?? '').trim().slice(0, 60);
++		const name = String(f.get('name') ?? '').trim().slice(0, 60);
++		const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
++		const current = getOS().profile;
++		let p;
++		if (raw && raw !== current?.url) {
++			try {
++				p = await profileFromUrl(raw);
++			} catch {
++				return fail(400, { setupError: 'That doesn’t look like a web address.' });
++			}
++		} else if (current) p = { ...current };
++		else return fail(400, { setupError: 'Paste your agency’s website or Instagram.' });
++		// what the user typed always wins over what we detected (only when the form sent those fields)
++		if (f.has('city')) p.city = city || p.city;
++		if (f.has('name') && name) p.name = name;
++		if (f.has('servicesSent')) p.services = picked.length ? picked : p.services;
++		p.needs = p.city ? undefined : p.needs || 'Which city do you work in?';
++		setProfile(p);
++		return { setupOk: true };
++	},
++	find: async () => {
++		const r = await findMore(5);
++		if (r.error) return fail(400, { findError: r.error });
++		return { found: r.added };
++	},
++	stage: async ({ request }: E) => {
++		const f = await request.formData();
++		const stage = String(f.get('stage')) as Stage;
++		if (STAGES.includes(stage)) updateItem(String(f.get('id')), { stage });
++		return { ok: true };
++	},
++	item: async ({ request }: E) => {
++		const f = await request.formData();
++		const id = String(f.get('id'));
++		const patch: Parameters<typeof updateItem>[1] = {};
++		if (f.has('note')) patch.note = String(f.get('note')).slice(0, 1000);
++		if (f.has('next')) patch.next = String(f.get('next')).slice(0, 10);
++		if (f.has('value')) patch.value = Math.max(0, Number(String(f.get('value')).replace(',', '.')) || 0) || undefined;
++		updateItem(id, patch);
++		return { saved: id };
++	},
++	remove: async ({ request }: E) => {
++		removeItem(String((await request.formData()).get('id')));
++		return { ok: true };
++	},
++	goal: async ({ request }: E) => {
++		setGoal(Number((await request.formData()).get('won')) || 2);
++		return { ok: true };
++	},
++	ask: async ({ request }: E) => {
++		const text = String((await request.formData()).get('q') ?? '').slice(0, 300);
++		return { asked: applyAsk(text) };
++	}
++};
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+new file mode 100644
+index 0000000..da608b1
+--- /dev/null
++++ b/src/lib/server/agency-os.ts
+@@ -0,0 +1,151 @@
++// The agency's own cockpit: its profile (from its URL), its prospects pipeline and which dashboard blocks it shows.
++import { readData, writeData, getBilling } from './store.ts';
++import { PLANS } from '#lib/plans.ts';
++import type { AgencyProfile } from './agency-profile.ts';
++import { findProspects, type Prospect } from './prospects.ts';
++
++export type Stage = 'new' | 'contacted' | 'talking' | 'won' | 'lost';
++export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */ };
++export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'calendar' | 'site' | 'goals' | 'todo' | 'content';
++export const BLOCKS: { id: BlockId; label: string; help: string }[] = [
++	{ id: 'prospects', label: 'New prospects', help: 'Local businesses that need what you sell' },
++	{ id: 'pipeline', label: 'Pipeline', help: 'Who you contacted, who is talking, who signed' },
++	{ id: 'clients', label: 'Clients', help: 'Your clients’ sites and apps: what needs you' },
++	{ id: 'todo', label: 'This week', help: 'The most important things to do' },
++	{ id: 'calendar', label: 'Agenda', help: 'Follow-ups and calls you planned' },
++	{ id: 'site', label: 'Your own site', help: 'Is your agency site fast and findable?' },
++	{ id: 'goals', label: 'Goals', help: 'Revenue and clients targets' },
++	{ id: 'content', label: 'What to post', help: 'Ideas for your socials this week' }
++];
++
++export type AgencyOS = {
++	profile: AgencyProfile | null;
++	pipeline: PipelineItem[];
++	blocks: Record<BlockId, boolean>;
++	order: BlockId[];
++	runs: { at: string; n: number }[]; // prospect searches, for the monthly quota
++	goal: { wonPerMonth: number };
++};
++
++const FILE = 'agency-os.json';
++const DEFAULT_BLOCKS = Object.fromEntries(BLOCKS.map((b) => [b.id, b.id !== 'content'])) as Record<BlockId, boolean>;
++
++export function getOS(): AgencyOS {
++	const s = readData<AgencyOS>(FILE, { profile: null, pipeline: [], blocks: DEFAULT_BLOCKS, order: BLOCKS.map((b) => b.id), runs: [], goal: { wonPerMonth: 2 } });
++	return { ...s, goal: s.goal ?? { wonPerMonth: 2 }, blocks: { ...DEFAULT_BLOCKS, ...s.blocks }, order: [...new Set([...(s.order ?? []), ...BLOCKS.map((b) => b.id)])] as BlockId[] };
++}
++export function saveOS(s: AgencyOS) {
++	writeData(FILE, s);
++}
++
++/** Prospects per month by plan (PLANS). */
++export function monthlyQuota() {
++	return PLANS[getBilling().plan]?.prospects ?? 50;
++}
++export function usedThisMonth(s: AgencyOS) {
++	const since = Date.now() - 30 * 864e5;
++	return s.runs.filter((r) => Date.parse(r.at) > since).reduce((t, r) => t + r.n, 0);
++}
++
++export function addProspects(list: Prospect[]) {
++	const s = getOS();
++	const now = new Date().toISOString();
++	const have = new Set(s.pipeline.map((p) => p.id));
++	const fresh = list.filter((p) => !have.has(p.id)).map((p) => ({ ...p, stage: 'new' as Stage, addedAt: now, updatedAt: now }));
++	s.pipeline = [...fresh, ...s.pipeline].slice(0, 2000);
++	s.runs = [...s.runs, { at: now, n: fresh.length }].slice(-200);
++	saveOS(s);
++	return fresh.length;
++}
++
++export function setStage(id: string, stage: Stage, note?: string) {
++	updateItem(id, { stage, ...(note !== undefined ? { note: note.slice(0, 1000) } : {}) });
++}
++
++/** Change a pipeline item (stage, note, follow-up date, value). Contacting someone sets a follow-up in 4 days by default. */
++export function updateItem(id: string, patch: Partial<Pick<PipelineItem, 'stage' | 'note' | 'next' | 'value'>>) {
++	const s = getOS();
++	const p = s.pipeline.find((x) => x.id === id);
++	if (!p) return;
++	if (patch.stage === 'contacted' && p.stage === 'new' && patch.next === undefined && !p.next) patch.next = new Date(Date.now() + 4 * 864e5).toISOString().slice(0, 10);
++	if (patch.stage === 'won' || patch.stage === 'lost') patch.next = patch.next ?? '';
++	Object.assign(p, patch, { updatedAt: new Date().toISOString() });
++	if (p.next === '') delete p.next;
++	saveOS(s);
++}
++
++export function removeItem(id: string) {
++	const s = getOS();
++	s.pipeline = s.pipeline.filter((x) => x.id !== id);
++	saveOS(s);
++}
++
++export function setProfile(profile: AgencyProfile) {
++	const s = getOS();
++	s.profile = profile;
++	saveOS(s);
++}
++
++export function setGoal(wonPerMonth: number) {
++	const s = getOS();
++	s.goal = { wonPerMonth: Math.max(1, Math.min(100, Math.round(wonPerMonth))) };
++	saveOS(s);
++}
++
++/** Pipeline numbers for the cockpit. */
++export function pipelineStats(s: AgencyOS) {
++	const month = new Date().toISOString().slice(0, 7);
++	const today = new Date().toISOString().slice(0, 10);
++	const by = (st: Stage) => s.pipeline.filter((p) => p.stage === st);
++	const wonMonth = by('won').filter((p) => p.updatedAt.startsWith(month));
++	const contacted = s.pipeline.filter((p) => p.stage !== 'new').length;
++	return {
++		counts: { new: by('new').length, contacted: by('contacted').length, talking: by('talking').length, won: by('won').length, lost: by('lost').length },
++		wonMonth: wonMonth.length,
++		wonValue: wonMonth.reduce((t, p) => t + (p.value ?? 0), 0),
++		due: s.pipeline.filter((p) => p.next && p.next <= today && p.stage !== 'won' && p.stage !== 'lost'),
++		upcoming: s.pipeline.filter((p) => p.next && p.stage !== 'won' && p.stage !== 'lost').sort((a, b) => (a.next! < b.next! ? -1 : 1)).slice(0, 8),
++		replyRate: contacted ? Math.round(((by('talking').length + by('won').length) / contacted) * 100) : null
++	};
++}
++
++/** "Ask to change": plain-language edits to the dashboard. Returns what was done. */
++export function applyAsk(text: string): string {
++	const s = getOS();
++	const t = text.toLowerCase();
++	const hide = /\b(hide|cache|masque|retire|enlève|enleve|supprime|verberg|remove)\b/.test(t);
++	const show = /\b(show|affiche|montre|ajoute|add|toon|voeg)\b/.test(t);
++	const first = /\b(first|en premier|en haut|top|bovenaan|eerst)\b/.test(t);
++	const match = BLOCKS.find((b) => {
++		const words: Record<BlockId, RegExp> = {
++			prospects: /prospect|lead|nouveaux clients|new clients|klanten zoeken/,
++			pipeline: /pipeline|crm|suivi|deals?/,
++			clients: /clients?\b|klanten|sites? clients/,
++			calendar: /calend|agenda|meeting|rendez-vous|rdv/,
++			site: /mon site|my site|own site|site de l.agence|eigen site/,
++			goals: /goal|objectif|doel|revenue|chiffre/,
++			todo: /to-?do|tâches|taches|cette semaine|this week/,
++			content: /post|contenu|content|social|réseaux|instagram/
++		};
++		return words[b.id].test(t);
++	});
++	if (!match) return 'I did not understand which block — try “hide calendar”, “show what to post” or “prospects first”.';
++	if (hide) s.blocks[match.id] = false;
++	else if (show || first) s.blocks[match.id] = true;
++	if (first) s.order = [match.id, ...s.order.filter((b) => b !== match.id)];
++	if (!hide && !show && !first) s.blocks[match.id] = !s.blocks[match.id];
++	saveOS(s);
++	return `${s.blocks[match.id] ? 'Showing' : 'Hiding'} “${match.label}”${first ? ' at the top' : ''}.`;
++}
++
++/** Find `n` new prospects (never ones already in the pipeline), within the monthly quota. */
++export async function findMore(n = 5): Promise<{ added: number; error?: string }> {
++	const s = getOS();
++	if (!s.profile) return { added: 0, error: 'Add your agency’s URL first.' };
++	const left = monthlyQuota() - usedThisMonth(s);
++	if (left <= 0) return { added: 0, error: `You used your ${monthlyQuota()} prospects this month. Upgrade for more.` };
++	const run = await findProspects(s.profile, Math.min(n, left), new Set(s.pipeline.map((p) => p.id)));
++	if (run.error) return { added: 0, error: run.error };
++	if (!run.prospects.length) return { added: 0, error: `No new businesses needing you around ${s.profile.city} right now — try a nearby city in your agency settings.` };
++	return { added: addProspects(run.prospects) };
++}
+diff --git a/src/lib/server/agency-profile.ts b/src/lib/server/agency-profile.ts
+new file mode 100644
+index 0000000..e2b9a43
+--- /dev/null
++++ b/src/lib/server/agency-profile.ts
+@@ -0,0 +1,117 @@
++// Understands an agency from its own URL: what it sells, where, in which language.
++// Static HTML read (title, headings, meta, schema.org, footer) + keyword dictionaries in FR / NL / EN.
++// Optional: Claude refines the result when ANTHROPIC_API_KEY is set.
++import * as env from '$app/env/private';
++
++export type Service = 'web' | 'app' | 'social' | 'seo' | 'branding' | 'ads';
++export type AgencyProfile = {
++	url: string;
++	name: string;
++	services: Service[];
++	city: string;
++	country: string;
++	lang: 'fr' | 'nl' | 'en';
++	summary: string;
++	source: 'site' | 'manual' | 'ai';
++	needs?: string; // what could not be detected
++};
++
++export const SERVICE_LABEL: Record<Service, string> = { web: 'Websites', app: 'Mobile apps', social: 'Social media', seo: 'SEO', branding: 'Branding & design', ads: 'Ads' };
++
++const DICT: Record<Service, RegExp> = {
++	web: /\b(site(s)? (web|internet|vitrine)|website|webdesign|web design|webdevelop|développement web|creation de site|création de site|wordpress|webflow|shopify|e-?commerce|webshop|landing page|websites?)\b/i,
++	app: /\b(application(s)? mobile|app(s)? mobile|mobile app|ios|android|react native|flutter|app development|applicatie|apps?\b)/i,
++	social: /\b(réseaux sociaux|reseaux sociaux|social media|community manag|instagram|tiktok|facebook|linkedin|sociale media|contenu|content creat|influen)/i,
++	seo: /\b(seo|référencement|referencement|zoekmachine|search engine|google ads|sea)\b/i,
++	branding: /\b(branding|identité visuelle|identite visuelle|logo|graphi|design graphique|huisstijl|brand identity)\b/i,
++	ads: /\b(publicité|publicite|ads|advertising|campagne(s)? (meta|google)|adverteren|paid media|meta ads|google ads)\b/i
++};
++
++// Belgian postal code + city in text ("1050 Ixelles", "B-1000 Bruxelles")
++const BE_CITY = /\b(?:B-?)?([1-9]\d{3})\s+([A-ZÀ-Ý][a-zà-ÿ'’-]+(?:[\s-][A-ZÀ-Ý][a-zà-ÿ'’-]+)?)/g;
++const KNOWN_CITIES = ['Bruxelles', 'Brussels', 'Brussel', 'Ixelles', 'Etterbeek', 'Uccle', 'Schaerbeek', 'Anderlecht', 'Saint-Gilles', 'Woluwe', 'Forest', 'Liège', 'Namur', 'Charleroi', 'Mons', 'Louvain-la-Neuve', 'Wavre', 'Waterloo', 'Gand', 'Gent', 'Antwerpen', 'Anvers', 'Leuven', 'Louvain', 'Brugge', 'Bruges', 'Hasselt', 'Mechelen', 'Malines', 'Tournai', 'Arlon', 'Paris', 'Lille', 'Lyon', 'Amsterdam', 'Rotterdam', 'Luxembourg'];
++
++const clean = (s: string) => s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, "'").replace(/\s+/g, ' ').trim();
++
++export function isSocialUrl(u: string) {
++	return /(instagram\.com|tiktok\.com|facebook\.com|linkedin\.com|behance\.net|x\.com|twitter\.com)/i.test(u);
++}
++
++export function normaliseUrl(input: string) {
++	let s = input.trim();
++	if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
++	const u = new URL(s);
++	if (!u.hostname.includes('.')) throw new Error('invalid');
++	return u.toString();
++}
++
++async function aiRefine(p: AgencyProfile, text: string): Promise<AgencyProfile | null> {
++	if (!env.ANTHROPIC_API_KEY) return null;
++	try {
++		const res = await fetch('https://api.anthropic.com/v1/messages', {
++			method: 'POST',
++			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
++			signal: AbortSignal.timeout(15000),
++			body: JSON.stringify({
++				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
++				max_tokens: 250,
++				messages: [{ role: 'user', content: `From this agency website text, answer JSON only: {"name":"","services":[subset of "web","app","social","seo","branding","ads"],"city":"main city or empty","country":"BE/FR/NL/LU or empty","lang":"fr|nl|en","summary":"one sentence: what they sell to whom"}.\n\n${text.slice(0, 5000)}` }]
++			})
++		});
++		if (!res.ok) return null;
++		const t = (await res.json()).content?.[0]?.text ?? '';
++		const j = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
++		const services = (j.services ?? []).filter((s: string) => s in DICT) as Service[];
++		return { ...p, name: j.name || p.name, services: services.length ? services : p.services, city: j.city || p.city, country: j.country || p.country, lang: ['fr', 'nl', 'en'].includes(j.lang) ? j.lang : p.lang, summary: j.summary || p.summary, source: 'ai' };
++	} catch {
++		return null;
++	}
++}
++
++export async function profileFromUrl(raw: string): Promise<AgencyProfile> {
++	const url = normaliseUrl(raw);
++	const host = new URL(url).hostname.replace(/^www\./, '');
++	const base: AgencyProfile = { url, name: host.split('.')[0].replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), services: [], city: '', country: host.endsWith('.be') ? 'BE' : host.endsWith('.fr') ? 'FR' : host.endsWith('.nl') ? 'NL' : host.endsWith('.lu') ? 'LU' : '', lang: 'fr', summary: '', source: 'site' };
++	if (isSocialUrl(url)) return { ...base, source: 'manual', needs: 'Social profiles cannot be read automatically — tell us what you sell and where.' };
++	let html = '';
++	try {
++		const r = await fetch(url, { signal: AbortSignal.timeout(9000), redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (compatible; UndercutBot/1.0; +https://getundercut.app)', 'accept-language': 'fr,nl;q=0.8,en;q=0.6' } });
++		html = (await r.text()).slice(0, 800_000);
++	} catch {
++		return { ...base, source: 'manual', needs: 'We could not open this site — tell us what you sell and where.' };
++	}
++	const pick = (re: RegExp) => clean(html.match(re)?.[1] ?? '');
++	const title = pick(/<title[^>]*>([\s\S]*?)<\/title>/i);
++	const desc = pick(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']*)/i) || pick(/<meta[^>]+property=["']og:description["'][^>]*content=["']([^"']*)/i);
++	const ogName = pick(/<meta[^>]+property=["']og:site_name["'][^>]*content=["']([^"']*)/i);
++	const headings = [...html.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi)].map((m) => clean(m[1])).filter(Boolean).slice(0, 40).join(' · ');
++	const body = clean(html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ')).slice(0, 20000);
++	const text = `${title} ${desc} ${headings} ${body}`;
++	const lang = (html.match(/<html[^>]+lang=["']([a-z]{2})/i)?.[1] ?? '').toLowerCase();
++
++	const services = (Object.keys(DICT) as Service[]).filter((s) => DICT[s].test(`${title} ${desc} ${headings}`) || (body.match(new RegExp(DICT[s].source, 'gi'))?.length ?? 0) >= 2);
++
++	// city: schema.org addressLocality, then "1050 Ixelles", then known city names
++	let city = pick(/"addressLocality"\s*:\s*"([^"]+)"/i);
++	if (!city) {
++		const m = [...body.matchAll(BE_CITY)].map((x) => x[2]).filter((c) => !/^(Copyright|Tous|All|Tel|Fax|Mail)/i.test(c));
++		city = m[0] ?? '';
++	}
++	if (!city) city = KNOWN_CITIES.find((c) => new RegExp(`\\b${c}\\b`, 'i').test(text)) ?? '';
++	const country = pick(/"addressCountry"\s*:\s*"([^"]+)"/i).slice(0, 2).toUpperCase() || base.country || (/\b\d{4}\s+(Bruxelles|Brussel|Ixelles|Liège|Gent|Namur)/i.test(body) ? 'BE' : '');
++
++	const name = (ogName || title.split(/[|–—·:-]/)[0] || base.name).trim().slice(0, 60);
++	let p: AgencyProfile = {
++		...base,
++		name,
++		services: services.length ? services : ['web'],
++		city,
++		country: country || 'BE',
++		lang: lang === 'nl' ? 'nl' : lang === 'en' ? 'en' : 'fr',
++		summary: (desc || headings.split(' · ')[0] || '').slice(0, 200)
++	};
++	const ai = await aiRefine(p, text);
++	if (ai) p = ai;
++	if (!p.city) p.needs = 'We could not find your city — pick it so we search the right area.';
++	return p;
++}
+diff --git a/src/lib/server/prospects.ts b/src/lib/server/prospects.ts
+new file mode 100644
+index 0000000..30c3534
+--- /dev/null
++++ b/src/lib/server/prospects.ts
+@@ -0,0 +1,201 @@
++// Prospect engine: real local businesses that need what the agency sells.
++// Data: OpenStreetMap (© OpenStreetMap contributors, ODbL) via Nominatim (geocoding) and Overpass (places).
++// Each candidate is checked by Undercut: website present? https, mobile, speed, title/description, last update,
++// Instagram presence… then scored and given a short audit + a message the agency reviews and sends itself.
++import type { AgencyProfile, Service } from './agency-profile.ts';
++
++const UA = 'UndercutBot/1.0 (+https://getundercut.app; prospects)';
++const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
++
++export type Issue = { key: string; label: string; weight: number };
++export type Prospect = {
++	id: string; // osm type/id
++	name: string;
++	category: string;
++	address: string;
++	city: string;
++	lat: number;
++	lon: number;
++	website?: string;
++	phone?: string;
++	email?: string;
++	instagram?: string;
++	facebook?: string;
++	score: number; // 0–100: how much they need the agency
++	issues: Issue[];
++	checked: { https?: boolean; mobile?: boolean; ms?: number; title?: string; year?: number; builder?: string; status?: number };
++	pitch: string; // one-line reason
++	message: string;
++	osmUrl: string;
++};
++
++// ---------- geocoding (Nominatim: 1 request/second, cached) ----------
++const geoCache = new Map<string, { lat: number; lon: number; label: string } | null>();
++let lastNominatim = 0;
++export async function geocode(city: string, country = 'BE') {
++	const key = `${city}|${country}`.toLowerCase();
++	if (geoCache.has(key)) return geoCache.get(key)!;
++	const wait = Math.max(0, lastNominatim + 1100 - Date.now());
++	if (wait) await new Promise((r) => setTimeout(r, wait));
++	lastNominatim = Date.now();
++	try {
++		const r = await fetch(`https://nominatim.openstreetmap.org/search?${new URLSearchParams({ q: city, countrycodes: country.toLowerCase(), format: 'json', limit: '1' })}`, { headers: { 'user-agent': UA, 'accept-language': 'fr' }, signal: AbortSignal.timeout(8000) });
++		const j = await r.json();
++		const v = j[0] ? { lat: +j[0].lat, lon: +j[0].lon, label: String(j[0].display_name).split(',').slice(0, 2).join(',') } : null;
++		geoCache.set(key, v);
++		return v;
++	} catch {
++		return null;
++	}
++}
++
++// ---------- which businesses fit which agency ----------
++const TARGETS: Record<Service, string[]> = {
++	web: ['amenity~"^(restaurant|cafe|dentist|doctors|clinic|veterinary|driving_school|language_school|childcare)$"', 'shop~"^(bakery|butcher|hairdresser|beauty|florist|clothes|shoes|optician|jewelry|furniture|bicycle|interior_decoration|deli|wine|chocolate|gift)$"', 'craft~"^(carpenter|electrician|plumber|painter|roofer|hvac|tiler|gardener|photographer)$"', 'office~"^(lawyer|accountant|estate_agent|architect|notary|insurance|therapist)$"', 'healthcare~"^(physiotherapist|psychotherapist|dentist|optometrist)$"', 'leisure~"^(fitness_centre|sports_centre|dance)$"'],
++	app: ['leisure~"^(fitness_centre|sports_centre|dance|yoga)$"', 'amenity~"^(restaurant|driving_school|language_school|clinic|dentist)$"', 'shop~"^(hairdresser|beauty|bakery)$"', 'tourism~"^(hotel|guest_house)$"'],
++	social: ['amenity~"^(restaurant|cafe|bar|pub|ice_cream)$"', 'shop~"^(beauty|hairdresser|clothes|florist|bakery|chocolate|jewelry|cosmetics|tattoo|boutique)$"', 'leisure~"^(fitness_centre|dance|yoga)$"', 'tourism~"^(hotel|guest_house)$"'],
++	seo: ['office~"^(lawyer|accountant|estate_agent|architect|notary|insurance|therapist)$"', 'craft~"^(carpenter|electrician|plumber|painter|roofer|hvac|tiler)$"', 'amenity~"^(dentist|doctors|clinic|veterinary|driving_school)$"', 'healthcare~"^(physiotherapist|psychotherapist|dentist)$"'],
++	branding: ['shop~"^(bakery|clothes|florist|chocolate|deli|wine|gift|cosmetics|boutique)$"', 'amenity~"^(restaurant|cafe|bar)$"'],
++	ads: ['shop~"^(furniture|bicycle|optician|jewelry|interior_decoration)$"', 'office~"^(estate_agent|insurance)$"', 'leisure~"^(fitness_centre)$"']
++};
++const CAT_FR: Record<string, string> = { restaurant: 'Restaurant', cafe: 'Café', bar: 'Bar', pub: 'Bar', dentist: 'Dentiste', doctors: 'Médecin', clinic: 'Clinique', veterinary: 'Vétérinaire', driving_school: 'Auto-école', language_school: 'École de langues', childcare: 'Crèche', bakery: 'Boulangerie', butcher: 'Boucherie', hairdresser: 'Coiffeur', beauty: 'Institut de beauté', florist: 'Fleuriste', clothes: 'Boutique de vêtements', shoes: 'Chaussures', optician: 'Opticien', jewelry: 'Bijouterie', furniture: 'Meubles', bicycle: 'Vélos', interior_decoration: 'Décoration', deli: 'Épicerie fine', wine: 'Caviste', chocolate: 'Chocolatier', gift: 'Cadeaux', carpenter: 'Menuisier', electrician: 'Électricien', plumber: 'Plombier', painter: 'Peintre', roofer: 'Couvreur', hvac: 'Chauffagiste', tiler: 'Carreleur', gardener: 'Jardinier', photographer: 'Photographe', lawyer: 'Avocat', accountant: 'Comptable', estate_agent: 'Agence immobilière', architect: 'Architecte', notary: 'Notaire', insurance: 'Assurances', therapist: 'Thérapeute', physiotherapist: 'Kiné', psychotherapist: 'Psychologue', optometrist: 'Optométriste', fitness_centre: 'Salle de sport', sports_centre: 'Centre sportif', dance: 'École de danse', yoga: 'Yoga', hotel: 'Hôtel', guest_house: "Maison d'hôtes", ice_cream: 'Glacier', cosmetics: 'Cosmétiques', tattoo: 'Tatoueur', boutique: 'Boutique' };
++
++async function overpass(query: string) {
++	let lastErr: unknown;
++	for (const ep of OVERPASS) {
++		try {
++			const r = await fetch(ep, { method: 'POST', headers: { 'user-agent': UA, 'content-type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(query), signal: AbortSignal.timeout(30000) });
++			if (r.ok) return (await r.json()).elements as any[];
++			lastErr = new Error(`Overpass ${r.status}`);
++		} catch (e) {
++			lastErr = e;
++		}
++	}
++	throw lastErr;
++}
++
++const placeCache = new Map<string, { at: number; v: any[] }>();
++async function placesAround(lat: number, lon: number, services: Service[], radius = 4000) {
++	const filters = [...new Set(services.flatMap((s) => TARGETS[s]))];
++	const key = `${lat.toFixed(3)}|${lon.toFixed(3)}|${radius}|${filters.join(',')}`;
++	const hit = placeCache.get(key);
++	if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.v;
++	const q = `[out:json][timeout:25];(${filters.map((f) => `nwr[${f}][name][!brand](around:${radius},${lat},${lon});`).join('')});out center tags 400;`;
++	const v = await overpass(q);
++	placeCache.set(key, { at: Date.now(), v });
++	return v;
++}
++
++// ---------- quick website check (no Chrome: a full Lighthouse audit is available on demand) ----------
++async function checkSite(url: string): Promise<Prospect['checked'] & { html?: string }> {
++	const t0 = Date.now();
++	try {
++		const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Mobile Safari/537.36' } });
++		const html = (await r.text()).slice(0, 400_000);
++		const ms = Date.now() - t0;
++		const years = [...html.matchAll(/(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–]\s*)?(20\d{2}|19\d{2})/gi)].map((m) => +m[1]);
++		const builder = /wix\.com|wixstatic/i.test(html) ? 'Wix' : /jimdo/i.test(html) ? 'Jimdo' : /squarespace/i.test(html) ? 'Squarespace' : /wp-content/i.test(html) ? 'WordPress' : /webflow/i.test(html) ? 'Webflow' : /shopify/i.test(html) ? 'Shopify' : undefined;
++		return { status: r.status, https: r.url.startsWith('https://'), mobile: /<meta[^>]+name=["']viewport["']/i.test(html), ms, title: (html.match(/<title[^>]*>([^<]*)/i)?.[1] ?? '').trim().slice(0, 90), year: years.length ? Math.max(...years) : undefined, builder, html };
++	} catch {
++		return { status: 0, ms: Date.now() - t0 };
++	}
++}
++
++const MSG: Record<'fr' | 'nl' | 'en', (p: { biz: string; agency: string; issues: string[] }) => string> = {
++	fr: ({ biz, agency, issues }) => `Bonjour ${biz},\n\nEn regardant votre présence en ligne, j'ai remarqué : ${issues.join(' ; ')}.\nCe sont des points qui font perdre des clients qui vous cherchent sur Google ou Instagram.\n\nJe peux vous montrer en 15 minutes ce que je changerais concrètement — sans engagement.\n\n— ${agency}`,
++	nl: ({ biz, agency, issues }) => `Hallo ${biz},\n\nBij het bekijken van jullie online aanwezigheid viel me op: ${issues.join('; ')}.\nDaardoor missen jullie klanten die jullie zoeken op Google of Instagram.\n\nIk toon graag in 15 minuten wat ik concreet zou verbeteren — vrijblijvend.\n\n— ${agency}`,
++	en: ({ biz, agency, issues }) => `Hi ${biz},\n\nLooking at your online presence I noticed: ${issues.join('; ')}.\nThat costs you customers who look for you on Google or Instagram.\n\nI can show you in 15 minutes what I would change — no strings attached.\n\n— ${agency}`
++};
++
++function hash(s: string) {
++	let h = 2166136261;
++	for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
++	return h >>> 0;
++}
++
++export type ProspectRun = { center: { lat: number; lon: number; label: string } | null; prospects: Prospect[]; scanned: number; error?: string };
++
++/** Find up to `limit` prospects for this agency. `exclude` = ids already seen (pipeline), so each run brings new ones. */
++export async function findProspects(profile: AgencyProfile, limit = 5, exclude: Set<string> = new Set()): Promise<ProspectRun> {
++	const center = profile.city ? await geocode(profile.city, profile.country || 'BE') : null;
++	if (!center) return { center: null, prospects: [], scanned: 0, error: profile.city ? `We could not find “${profile.city}” on the map.` : 'Pick your city first.' };
++	let els: any[];
++	try {
++		els = await placesAround(center.lat, center.lon, profile.services.length ? profile.services : ['web']);
++	} catch {
++		return { center, prospects: [], scanned: 0, error: 'The map service (OpenStreetMap) is busy — try again in a minute.' };
++	}
++	const sells = new Set(profile.services);
++	// candidates: deterministic shuffle per agency so two agencies don't get the same list
++	const cands = els
++		.filter((e) => e.tags?.name && !exclude.has(`${e.type}/${e.id}`))
++		.map((e) => ({ e, r: hash(profile.url + e.id) }))
++		.sort((a, b) => a.r - b.r)
++		.map((x) => x.e)
++		.slice(0, Math.max(limit * 5, 25));
++
++	const out: Prospect[] = [];
++	// check websites in small parallel batches
++	for (let i = 0; i < cands.length && out.length < limit * 3; i += 6) {
++		const batch = await Promise.all(
++			cands.slice(i, i + 6).map(async (e) => {
++				const t = e.tags;
++				const website = (t.website || t['contact:website'] || t.url || '').trim();
++				const lat = e.lat ?? e.center?.lat;
++				const lon = e.lon ?? e.center?.lon;
++				const kind = t.amenity || t.shop || t.craft || t.office || t.healthcare || t.leisure || t.tourism || 'business';
++				const insta = t['contact:instagram'] || (/(instagram\.com\/[^\s"'?]+)/i.exec(Object.values(t).join(' '))?.[1] ?? '');
++				const fb = t['contact:facebook'] || '';
++				const issues: Issue[] = [];
++				let checked: Prospect['checked'] = {};
++				if (!website) {
++					if (sells.has('web') || sells.has('seo')) issues.push({ key: 'no-site', label: 'pas de site web', weight: 45 });
++				} else {
++					const url = /^https?:/i.test(website) ? website : `https://${website}`;
++					const c = await checkSite(url);
++					checked = { https: c.https, mobile: c.mobile, ms: c.ms, title: c.title, year: c.year, builder: c.builder, status: c.status };
++					if (!c.status || c.status >= 400) issues.push({ key: 'down', label: 'le site ne répond pas', weight: 40 });
++					else {
++						if (c.https === false) issues.push({ key: 'http', label: 'site non sécurisé (pas de https)', weight: 20 });
++						if (c.mobile === false) issues.push({ key: 'mobile', label: 'site pas adapté au mobile', weight: 25 });
++						if ((c.ms ?? 0) > 3500) issues.push({ key: 'slow', label: `site lent (${((c.ms ?? 0) / 1000).toFixed(1)} s)`, weight: 15 });
++						if (c.year && c.year < new Date().getFullYear() - 3) issues.push({ key: 'old', label: `site pas mis à jour depuis ${c.year}`, weight: 15 });
++						if (c.title !== undefined && c.title.length < 8) issues.push({ key: 'title', label: 'pas de titre Google', weight: 10 });
++						if (c.builder && ['Wix', 'Jimdo'].includes(c.builder)) issues.push({ key: 'builder', label: `site fait avec ${c.builder}`, weight: 5 });
++						if (sells.has('social') && c.html && !/instagram\.com/i.test(c.html) && !insta) issues.push({ key: 'no-insta', label: 'pas de lien Instagram', weight: 20 });
++						if (sells.has('app') && c.html && !/(apps\.apple\.com|play\.google\.com)/i.test(c.html) && /fitness|sport|restaurant|clinic|school|hotel/.test(kind)) issues.push({ key: 'no-app', label: 'pas d’app ni de réservation mobile', weight: 10 });
++					}
++				}
++				if (sells.has('social') && !website && !insta && !fb) issues.push({ key: 'no-social', label: 'aucun réseau social trouvé', weight: 25 });
++				const score = Math.min(100, issues.reduce((s, x) => s + x.weight, 0));
++				if (!score) return null;
++				const addr = [t['addr:street'] && `${t['addr:street']} ${t['addr:housenumber'] ?? ''}`.trim(), t['addr:postcode'], t['addr:city']].filter(Boolean).join(', ');
++				const top = [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => x.label);
++				const p: Prospect = {
++					id: `${e.type}/${e.id}`,
++					name: t.name,
++					category: CAT_FR[kind] ?? kind,
++					address: addr,
++					city: t['addr:city'] ?? profile.city,
++					lat,
++					lon,
++					website: website || undefined,
++					phone: t.phone || t['contact:phone'] || undefined,
++					email: t.email || t['contact:email'] || undefined,
++					instagram: insta || undefined,
++					facebook: fb || undefined,
++					score,
++					issues,
++					checked,
++					pitch: top.join(' · '),
++					message: MSG[profile.lang]({ biz: t.name, agency: profile.name, issues: top }),
++					osmUrl: `https://www.openstreetmap.org/${e.type}/${e.id}`
++				};
++				return p;
++			})
++		);
++		out.push(...(batch.filter(Boolean) as Prospect[]));
++	}
++	out.sort((a, b) => b.score - a.score || (a.phone ? -1 : 1));
++	return { center, prospects: out.slice(0, limit), scanned: els.length };
++}
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 3c77eb3..c04aecf 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -23,19 +23,19 @@
+ 	const parallels = [-70, -50, -30, -10, 10, 30, 50, 70].map((lat) => ({ y: R * Math.sin((lat * Math.PI) / 180), rx: R * Math.cos((lat * Math.PI) / 180) }));
+ 
+ 	const ticker = [
++		'Coiffure Lila · site not mobile → new prospect',
++		'Boulangerie Dupont · no website → message ready',
+ 		'Kiné Schaerbeek · +12 leads from Google Maps',
+-		'Maison Lou · 3 descriptions live',
+-		'Atelier Brut · site down → back in 4 min',
++		'Resto Moderne · signed €150/month',
+ 		'Moove app · crash-free 99.7%',
+-		'Vélo Flandria · Instagram campaign → 9 forms',
+-		'Boulangerie Ixelles · climbing to #4 on Google'
++		'Atelier Brut · follow up today'
+ 	];
+ 
+ 	const loop = [
+-		{ t: 'Connect', d: 'One Google login. Every client matched.', a: -90 },
+-		{ t: 'Measure', d: 'Leads, visits, clicks. No cookies.', a: 0 },
+-		{ t: 'Fix', d: '⚡ One click, live on the site.', a: 90 },
+-		{ t: 'Report', d: 'Monday report, your logo.', a: 180 }
++		{ t: 'Paste', d: 'Your agency’s URL. We read what you sell and where.', a: -90 },
++		{ t: 'Find', d: 'Local businesses that need it — each website checked.', a: 0 },
++		{ t: 'Contact', d: 'The first message is written. You send it.', a: 90 },
++		{ t: 'Keep', d: 'Their site or app in your dashboard: fixes, leads, reports.', a: 180 }
+ 	];
+ 	let step = $state(0);
+ 	$effect(() => {
+@@ -45,7 +45,7 @@
+ 	});
+ 
+ 	const statement =
+-		'Analytics tools sell you more charts. We sell you fewer. Three questions, every client, every Monday: [where do leads come from], [what’s blocking them], [what did we fix]. That’s the job. The rest is noise.';
++		'Agencies don’t need another tool with forty tabs. They need three things, every Monday: [who to call next], [which client needs them], [what to fix]. One screen. Built from your own URL. The rest is noise.';
+ 	const lit = (() => {
+ 		let on = false;
+ 		return statement.split(' ').map((raw) => {
+@@ -56,7 +56,7 @@
+ 		});
+ 	})();
+ 
+-	const cuts = ['Vanity metrics', 'Cookie banners', 'Event setup', '400 reports', 'PDFs nobody reads'];
++	const cuts = ['Bought lead lists', 'Ten open tabs', 'CRM setup', 'Vanity metrics', 'PDFs nobody reads'];
+ 	const channels = [
+ 		['Google Search', 46],
+ 		['Google Maps', 24],
+@@ -65,6 +65,9 @@
+ 		['Ads', 6]
+ 	] as const;
+ 	const faqs = [
++		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut then visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
++		{ q: 'Do you send the messages for me?', a: 'No, on purpose. Undercut writes the first message from what it found; you read it, change it and send it yourself — from your email or by phone. No spam, no burnt domain.' },
++		{ q: 'What if my agency is only on Instagram?', a: 'Paste the Instagram link and tell us your city and what you sell. That’s enough to start.' },
+ 		{ q: 'Do I still need Google Analytics?', a: 'No. Undercut reads GA4 if your clients have it — but the snippet alone counts visits, sources, landing pages and leads. Cookieless. Many clients can drop the cookie banner too.' },
+ 		{ q: 'Is it GDPR-friendly?', a: 'No cookies, no IP addresses, nothing typed in forms is ever recorded. Data in the EU.' },
+ 		{ q: 'How do fixes go live without touching the CMS?', a: 'Approved fixes (titles, descriptions, image texts, structured data) are applied by the snippet on page load, and Google reads them. Each one also comes with the code for a permanent fix.' },
+@@ -73,8 +76,11 @@
+ 		{ q: 'Apps too?', a: 'Yes. Link Firebase and the App Store ID: users, retention, crashes and reviews next to the website.' }
+ 	];
+ 	const cta = { href: '/beta', label: 'Join the free beta' };
++	let heroUrl = $state('');
++	let going = $state(false);
+ 	const nav = [
+ 		['#loop', 'How it works'],
++		['/prospects', 'Free tool'],
+ 		['#features', 'Features'],
+ 		['#pricing', 'Pricing'],
+ 		['#faq', 'FAQ']
+@@ -83,8 +89,8 @@
+ 
+ <svelte:window bind:scrollY={y} />
+ <svelte:head>
+-	<title>Undercut — analytics without the noise, for agencies</title>
+-	<meta name="description" content="Analytics for web, mobile app and communication agencies. Where leads come from, what blocks them, what to fix — for every client, in plain words. Fixed in one click." />
++	<title>Undercut — find clients, keep them. The dashboard for agencies.</title>
++	<meta name="description" content="Paste your agency’s URL. Undercut finds local businesses that need what you sell, writes the first message, and keeps your clients’ sites and apps healthy — one dashboard, built for you." />
+ 	<meta name="theme-color" content="#070807" />
+ </svelte:head>
+ 
+@@ -175,11 +181,11 @@
+ 
+ 		<div class="mx-auto max-w-6xl px-5 text-center">
+ 			<p class="glass inline-flex items-center gap-2 rounded-full py-1 pr-3 pl-1 text-xs" use:reveal={{ delay: 50 }}>
+-				<span class="flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 font-semibold text-accent-ink">{@render mark(12)} Beta</span>Free for the first 30 agencies
++				<span class="flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 font-semibold text-accent-ink">{@render mark(12)} New</span>Your first 5 prospects, free — no account
+ 			</p>
+ 			<h1 class="mt-8 text-[clamp(46px,8.4vw,112px)] leading-[0.92] font-medium tracking-[-0.045em]">
+-				<SplitText as="span" class="block" text="Analytics," delay={150} />
+-				<SplitText as="span" class="grad-text block" text="*without the noise.*" emClass="font-serif font-normal tracking-[-0.02em]" delay={350} />
++				<SplitText as="span" class="block" text="Find clients." delay={150} />
++				<SplitText as="span" class="grad-text block" text="*Keep them.*" emClass="font-serif font-normal tracking-[-0.02em]" delay={350} />
+ 			</h1>
+ 			<p class="mt-6 text-[22px] text-white/70 sm:text-[30px]" use:reveal={{ delay: 650 }}>
+ 				Built for
+@@ -187,31 +193,35 @@
+ 					{#key wi}<em class="col-start-1 row-start-1 font-serif text-accent [animation:word-in_.6s_var(--ease-out)_both]">{audiences[wi]}</em>{/key}
+ 				</span>
+ 			</p>
+-			<p class="mx-auto mt-5 max-w-xl text-base text-white/55 sm:text-lg" use:reveal={{ delay: 800 }}>Where leads come from, what blocks them and what to fix — for every client, in plain words. Then fixed in one click.</p>
+-			<div class="mt-9 flex flex-wrap justify-center gap-3" use:reveal={{ delay: 950 }}>
+-				<a href={cta.href} class="btn btn-accent group px-6 py-3 text-base shadow-[0_0_60px_-10px_rgba(198,244,50,.8)]">{cta.label}<span class="transition-transform group-hover:translate-x-1">→</span></a>
+-				<a href="#product" class="btn glass px-6 py-3 text-base text-white hover:bg-white/10">See it in action</a>
+-			</div>
++			<p class="mx-auto mt-5 max-w-xl text-base text-white/55 sm:text-lg" use:reveal={{ delay: 800 }}>Paste your agency’s URL. Your dashboard builds itself: businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps — in one place.</p>
++			<form method="POST" action="/prospects" class="mx-auto mt-9 max-w-xl" use:reveal={{ delay: 950 }} onsubmit={() => (going = true)}>
++				<div class="glass flex flex-col gap-2 rounded-[28px] p-2 text-left focus-within:ring-1 focus-within:ring-accent/70 sm:flex-row">
++					<label class="sr-only" for="hero-url">Your agency’s website or Instagram</label>
++					<input id="hero-url" name="url" bind:value={heroUrl} required inputmode="url" autocomplete="url" placeholder="youragency.be" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-white/40" />
++					<button class="btn btn-accent group justify-center px-6 py-3 text-base shadow-[0_0_60px_-10px_rgba(198,244,50,.8)]" disabled={going}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-1">→</span></button>
++				</div>
++				<p class="mt-3 text-xs text-white/45">Free · no account · about 30 seconds · <a href="#product" class="underline hover:text-white">see the dashboard</a></p>
++			</form>
+ 		</div>
+ 
+ 		<!-- floating client chips on the globe -->
+ 		<div class="pointer-events-none relative mx-auto mt-16 hidden h-[260px] max-w-[1100px] sm:block" aria-hidden="true">
+ 			<div class="absolute top-6 left-[8%]" style="transform:translate(calc(var(--mx,0) * 16px), calc(var(--my,0) * 10px))">
+ 				<div class="glass floaty w-[220px] rounded-[20px] p-3.5">
+-					<p class="flex items-center gap-2 text-[11px] text-white/50"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-accent"></span><span class="relative size-2 rounded-full bg-accent"></span></span>New lead · 2 min ago</p>
+-					<p class="mt-1 text-sm font-medium">WhatsApp click</p>
+-					<p class="text-xs text-white/50">via Google Maps · /contact</p>
++					<p class="flex items-center gap-2 text-[11px] text-white/50"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-accent"></span><span class="relative size-2 rounded-full bg-accent"></span></span>New prospect · 400 m away</p>
++					<p class="mt-1 text-sm font-medium">Coiffure Lila</p>
++					<p class="text-xs text-white/50">site not mobile · no https</p>
+ 				</div>
+ 			</div>
+ 			<div class="absolute top-0 right-[6%]" style="transform:translate(calc(var(--mx,0) * -18px), calc(var(--my,0) * -12px))">
+ 				<div class="glass floaty w-[250px] rounded-[20px] p-4 [animation-delay:-3s]">
+-					<p class="text-[11px] font-medium text-accent">Why did leads go up?</p>
+-					<p class="mt-1 text-sm leading-snug text-white/85">68% comes from <b class="text-white">Google Maps</b> — calls after the new photos.</p>
++					<p class="text-[11px] font-medium text-accent">Message ready</p>
++					<p class="mt-1 text-sm leading-snug text-white/85">“Bonjour, en regardant votre site j’ai remarqué qu’il <b class="text-white">ne s’affiche pas bien sur mobile</b>…”</p>
+ 				</div>
+ 			</div>
+ 			<div class="absolute bottom-10 left-1/2 -translate-x-1/2">
+ 				<div class="floaty flex items-center gap-3 rounded-full bg-accent py-2 pr-4 pl-2 text-sm font-medium text-accent-ink shadow-[0_0_60px_-10px_rgba(198,244,50,.9)] [animation-delay:-2s]">
+-					<span class="grid size-8 place-items-center rounded-full bg-ink text-accent">✓</span>3 fixes live on maisonlou.be
++					<span class="grid size-8 place-items-center rounded-full bg-ink text-accent">✓</span>Resto Moderne signed · €150/month
+ 				</div>
+ 			</div>
+ 		</div>
+@@ -219,12 +229,12 @@
+ 		<!-- corner stats -->
+ 		<div class="relative mx-auto mt-10 flex max-w-[1280px] items-end justify-between px-5 pb-6 text-sm sm:mt-0">
+ 			<div class="hidden text-white/60 sm:block">
+-				<p><b class="mr-2 font-medium text-white">10 min</b>to connect a client</p>
+-				<p class="mt-1"><b class="mr-2 font-medium text-white">0</b>events to set up</p>
++				<p><b class="mr-2 font-medium text-white">30 s</b>to your first prospects</p>
++				<p class="mt-1"><b class="mr-2 font-medium text-white">1</b>URL to set it up</p>
+ 			</div>
+ 			<a href="#product" class="mx-auto grid size-11 place-items-center rounded-full border border-white/15 text-white/70 transition-colors hover:text-white sm:mx-0" aria-label="Scroll down"><span class="[animation:floaty_2.4s_ease-in-out_infinite]">↓</span></a>
+ 			<div class="hidden text-right text-white/60 sm:block">
+-				<p><b class="mr-2 font-medium text-white">1 click</b>to ship a fix</p>
++				<p><b class="mr-2 font-medium text-white">1</b>dashboard for everything</p>
+ 				<p class="mt-1"><b class="mr-2 font-medium text-white">EU</b>data, no cookies</p>
+ 			</div>
+ 		</div>
+@@ -246,7 +256,7 @@
+ 		<div class="pointer-events-none absolute top-1/3 left-1/2 -z-0 size-[900px] -translate-x-1/2 rounded-full bg-accent/15 blur-[160px]" aria-hidden="true"></div>
+ 		<div class="relative mx-auto max-w-[1240px] text-center">
+ 			<p class="label text-accent!" use:reveal>The product</p>
+-			<SplitText text={'One screen per client.\n*The ones that need you on top.*'} class="mt-4 text-[clamp(36px,5.6vw,76px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-white/60" />
++			<SplitText text={'Your dashboard,\n*built from your URL.*'} class="mt-4 text-[clamp(36px,5.6vw,76px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-white/60" />
+ 		</div>
+ 
+ 		<div class="relative mx-auto mt-14 max-w-[1120px] [perspective:1800px]" use:reveal={{ delay: 150 }}>
+@@ -255,51 +265,47 @@
+ 					<div class="overflow-hidden rounded-[25px] bg-[#111]">
+ 						<div class="flex items-center gap-2 px-4 py-3">
+ 							<span class="size-2.5 rounded-full bg-white/20"></span><span class="size-2.5 rounded-full bg-white/20"></span><span class="size-2.5 rounded-full bg-white/20"></span>
+-							<span class="mx-auto rounded-full bg-white/[.07] px-4 py-1 text-[11px] text-white/50">app.getundercut.app/kine-schaerbeek</span>
++							<span class="mx-auto rounded-full bg-white/[.07] px-4 py-1 text-[11px] text-white/50">app.getundercut.app</span>
+ 						</div>
+-						<div class="grid bg-paper text-ink md:grid-cols-[200px_1fr]">
++						<div class="grid bg-paper text-ink md:grid-cols-[180px_1fr]">
+ 							<aside class="hidden flex-col gap-1 border-r border-line p-3 text-[12px] md:flex">
+ 								<div class="px-2 pb-3"><Logo size={22} /></div>
+-								<div class="flex items-center gap-2 rounded-xl bg-white p-2"><span class="grid size-7 place-items-center rounded-lg bg-[#3E8E63] text-[10px] font-semibold text-white">K</span><span class="font-medium">Kiné Schaerbeek</span></div>
+-								{#each [['Summary', true], ['Leads', false], ['Traffic', false], ['Search & Maps', false], ['SEO & fixes', false], ['Heatmaps', false], ['Campaigns', false]] as [l, a] (l)}
+-									<span class="mt-0.5 rounded-lg px-3 py-1.5 {a ? 'bg-ink text-white' : 'text-ink-2'}">{l}</span>
+-								{/each}
++								{#each [['Dashboard', true], ['Prospects', false], ['Alerts', false]] as [l, a] (l)}<span class="rounded-lg px-3 py-1.5 {a ? 'bg-ink text-white' : 'text-ink-2'}">{l}</span>{/each}
++								<p class="mt-3 px-3 text-[10px] text-muted uppercase">Clients</p>
++								{#each [['Kiné Schaerbeek', '#3E8E63'], ['Maison Lou', '#E0A458'], ['Moove app', '#4C7DD9']] as [c, col] (c)}<span class="flex items-center gap-2 px-3 py-1 text-ink-2"><span class="size-2 rounded-full" style="background:{col}"></span>{c}</span>{/each}
+ 							</aside>
+ 							<div class="p-4 text-left sm:p-6">
+-								<div class="flex items-end justify-between gap-4">
+-									<div><p class="text-[11px] text-muted">Summary · last 28 days</p><p class="display text-[30px] leading-none sm:text-[40px]">Kiné Schaerbeek</p></div>
+-									<span class="grid size-12 shrink-0 place-items-center rounded-full border-[5px] border-accent bg-white text-sm font-semibold">72</span>
++								<div class="flex flex-wrap items-end justify-between gap-4">
++									<div><p class="text-[11px] text-muted">Good morning · Studio Nova</p><p class="display text-[30px] leading-none sm:text-[40px]">Your week</p></div>
++									<div class="flex gap-5 text-right">{#each [['7', 'to contact'], ['3', 'talking'], ['1/2', 'won']] as [v, l] (l)}<div><p class="big text-[26px] leading-none">{v}</p><p class="text-[10px] text-muted">{l}</p></div>{/each}</div>
+ 								</div>
+-								<div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+-									{#each [['Leads', '46', '↑ 24%', true], ['Visits', '3,501', '↑ 8%', true], ['Google position', '#11.2', '↑ 3.1', true], ['Website health', '94', 'was 61', false]] as [l, v, d, up], i (l)}
+-										<div class="rounded-[16px] bg-white p-3 {i === 0 ? 'bg-ink! text-white' : ''}">
+-											<p class="text-[11px] {i === 0 ? 'text-white/50' : 'text-muted'}">{l}</p>
+-											<p class="mt-1 flex items-center gap-1.5"><span class="big text-[26px] leading-none">{v}</span><span class="rounded-full px-1.5 text-[10px] {up ? (i === 0 ? 'bg-accent text-accent-ink' : 'bg-good-bg text-good') : 'bg-tile text-muted'}">{d}</span></p>
+-										</div>
+-									{/each}
+-								</div>
+-								<div class="mt-2 grid gap-2 lg:grid-cols-[1.5fr_1fr]">
+-									<div class="rounded-[16px] bg-white p-4">
+-										<p class="flex justify-between text-[11px] text-muted"><span>Leads per day</span><span>Google · Maps · Social</span></p>
+-										<svg viewBox="0 0 400 120" class="mt-2 h-28 w-full sm:h-36" preserveAspectRatio="none">
+-											<defs><linearGradient id="hg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#C6F432" stop-opacity=".55" /><stop offset="1" stop-color="#C6F432" stop-opacity="0" /></linearGradient></defs>
+-											{#each [30, 60, 90] as gy (gy)}<line x1="0" x2="400" y1={gy} y2={gy} stroke="#E3E3DE" stroke-dasharray="3 4" />{/each}
+-											<path d="M0 95 C40 90 60 80 90 84 S150 60 180 66 S240 40 270 48 S330 20 360 24 S390 12 400 10 V120 H0Z" fill="url(#hg)" />
+-											<path d="M0 95 C40 90 60 80 90 84 S150 60 180 66 S240 40 270 48 S330 20 360 24 S390 12 400 10" fill="none" stroke="#0D0D0D" stroke-width="2.5" />
+-											<path d="M0 105 C50 104 80 98 120 100 S200 88 240 92 S320 80 400 78" fill="none" stroke="#9bb93a" stroke-width="2" stroke-dasharray="4 5" opacity=".8" />
+-										</svg>
+-									</div>
+-									<div class="rounded-[16px] bg-white p-4">
+-										<p class="text-[11px] text-muted">This week’s to-do</p>
+-										<ul class="mt-2 space-y-1.5">
+-											{#each [['3 pages without description', true], ['Images without alt text', true], ['Slow on mobile (/services)', false]] as [t, auto] (t)}
+-												<li class="flex items-center gap-2 rounded-xl bg-tile px-3 py-2 text-[12px]">
+-													<span class="size-1.5 shrink-0 rounded-full {auto ? 'bg-[#E3A21A]' : 'bg-bad'}"></span><span class="flex-1 truncate">{t}</span>
+-													<span class="rounded-full px-2 py-0.5 text-[10px] font-medium {auto ? 'bg-accent text-accent-ink' : 'border border-line bg-white'}">{auto ? '⚡ Fix' : 'How'}</span>
+-												</li>
++								<div class="mt-3 flex items-center gap-2 rounded-[14px] bg-white px-3 py-2 text-[11px] text-muted"><span class="text-accent-ink">✦</span>Change your dashboard: “hide agenda”, “clients first”…</div>
++								<div class="mt-2 grid gap-2 lg:grid-cols-[1.6fr_1fr]">
++									<div class="rounded-[16px] bg-ink p-4 text-white">
++										<p class="flex justify-between text-[11px]"><span class="text-accent">New prospects · Ixelles</span><span class="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-ink">+ Find 5</span></p>
++										<ul class="mt-3 space-y-1.5">
++											{#each [[90, 'Coiffure Lila', 'Hairdresser · not mobile · no https'], [70, 'Boulangerie Dupont', 'Bakery · no website'], [55, 'Cabinet Martin', 'Lawyer · site not updated since 2019']] as [sc, nm, why] (nm)}
++												<li class="flex items-center gap-2.5 rounded-xl bg-white/[.07] px-2.5 py-2"><span class="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[10px] font-semibold text-accent-ink">{sc}</span><span class="min-w-0"><b class="block truncate text-[12px] font-medium">{nm}</b><span class="block truncate text-[10px] text-white/50">{why}</span></span></li>
+ 											{/each}
+ 										</ul>
+ 									</div>
++									<div class="grid gap-2">
++										<div class="rounded-[16px] bg-white p-4">
++											<p class="text-[11px] text-muted">Pipeline</p>
++											{#each [['Contacted', 70], ['Talking', 40], ['Won', 20]] as [l, w] (l)}<p class="mt-2 grid grid-cols-[64px_1fr] items-center gap-2 text-[11px]"><span class="text-muted">{l}</span><span class="h-2 rounded-full bg-tile"><span class="block h-full rounded-full {l === 'Won' ? 'bg-accent' : 'bg-ink'}" style="width:{w}%"></span></span></p>{/each}
++										</div>
++										<div class="rounded-[16px] bg-white p-4">
++											<p class="text-[11px] text-muted">This week</p>
++											<ul class="mt-2 space-y-1.5">
++												{#each [['Follow up · Atelier Brut', true], ['Maison Lou: 3 pages without description', false]] as [t, u] (t)}<li class="flex items-center gap-2 rounded-xl bg-tile px-3 py-1.5 text-[11px]"><span class="size-1.5 shrink-0 rounded-full {u ? 'bg-bad' : 'bg-[#E3A21A]'}"></span><span class="truncate">{t}</span></li>{/each}
++											</ul>
++										</div>
++									</div>
++								</div>
++								<div class="mt-2 grid grid-cols-3 gap-2">
++									{#each [['Kiné Schaerbeek', '46 leads', 72], ['Maison Lou', '3,501 visits', 58], ['Moove app', '1,204 users', 91]] as [c, m, h] (c)}
++										<div class="rounded-[16px] bg-white p-3"><p class="truncate text-[11px] text-muted">{c}</p><p class="mt-1 flex items-center justify-between"><span class="text-[13px] font-medium">{m}</span><span class="grid size-7 place-items-center rounded-full border-[3px] text-[9px] font-semibold {Number(h) > 80 ? 'border-accent' : 'border-[#E3A21A]'}">{h}</span></p></div>
++									{/each}
+ 								</div>
+ 							</div>
+ 						</div>
+@@ -312,14 +318,14 @@
+ 	<!-- ================= WHO ================= -->
+ 	<section class="mx-auto max-w-[1240px] px-4 py-28 sm:px-6 sm:py-40">
+ 		<div class="flex flex-wrap items-end justify-between gap-6">
+-			<SplitText text={'Made for agencies.\n*Not for analysts.*'} class="text-[clamp(40px,6vw,80px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
+-			<p class="max-w-sm text-white/60" use:reveal={{ delay: 250 }}>You build and run things for clients. Undercut shows what each one brings in — and what to fix next.</p>
++			<SplitText text={'Made for agencies.\n*Not for salespeople.*'} class="text-[clamp(40px,6vw,80px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
++			<p class="max-w-sm text-white/60" use:reveal={{ delay: 250 }}>You build things for clients. Undercut finds the next ones and shows what the current ones need — without becoming a salesperson.</p>
+ 		</div>
+ 		<div class="mt-16 grid gap-3 md:grid-cols-3" use:reveal>
+ 			{#each [
+-				{ t: 'Web agencies', k: 'Sites & SEO', d: 'Leads per page and channel, speed, SEO and W3C checked daily — and fixes published without opening the CMS.', pts: ['Leads by channel', 'One-click SEO fixes', 'Heatmaps'] },
+-				{ t: 'App studios', k: 'iOS & Android', d: 'Users, retention, crashes and store reviews next to the app’s landing page. One place per client.', pts: ['Retention & crashes', 'Store reviews', 'Web + app together'] },
+-				{ t: 'Communication agencies', k: 'Campaigns & social', d: 'Did the campaign bring calls, forms and WhatsApps? See it per channel, explain it in one sentence, send the report.', pts: ['Campaign → leads', 'Why it changed', 'White-label reports'] }
++				{ t: 'Web agencies', k: 'Sites & SEO', d: 'Businesses near you with no site, a slow one or one that breaks on mobile. Then, once they sign: leads, SEO and one-click fixes.', pts: ['No site / slow site', 'One-click SEO fixes', 'Leads by channel'] },
++				{ t: 'App studios', k: 'iOS & Android', d: 'Gyms, restaurants, clinics without an app or mobile booking. Then users, crashes, paywall and store reviews per client.', pts: ['No app yet', 'Crashes & reviews', 'Paywall tracking'] },
++				{ t: 'Communication agencies', k: 'Campaigns & social', d: 'Shops with no Instagram linked or nothing posted. Then which post brought the calls — and what to post next.', pts: ['No socials', 'Campaign → leads', 'What to post'] }
+ 			] as a, i (a.t)}
+ 				<article class="group grad-border relative rounded-[32px] p-px transition-transform duration-500 hover:-translate-y-1.5" data-stagger>
+ 					<div class="relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[31px] p-8 {i === 1 ? 'bg-[linear-gradient(160deg,#C6F432,#7fb52a)] text-accent-ink' : 'bg-[linear-gradient(160deg,#151a10,#0b0c0a)]'}">
+@@ -342,7 +348,7 @@
+ 		<div class="relative mx-auto grid max-w-[1240px] items-center gap-14 lg:grid-cols-[1fr_1.1fr]">
+ 			<div>
+ 				<p class="label text-accent!" use:reveal>How it works</p>
+-				<SplitText text={'Live in *10 minutes.*\nNo consultant.'} class="mt-4 text-[clamp(40px,5.4vw,72px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
++				<SplitText text={'From URL to *first call.*\nIn a morning.'} class="mt-4 text-[clamp(40px,5.4vw,72px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
+ 				<ol class="mt-10 space-y-2">
+ 					{#each loop as s, i (s.t)}
+ 						<li>
+@@ -368,10 +374,10 @@
+ 				<div class="absolute inset-[26%] grid place-items-center text-center">
+ 					{#key step}
+ 						<p class="text-[clamp(18px,2.2vw,24px)] leading-snug [animation:fade-up_.5s_var(--ease-out)_both]">
+-							{#if step === 0}Undercut finds each client’s <em class="font-serif text-accent">Google</em> properties.
+-							{:else if step === 1}Every <em class="font-serif text-accent">form, call</em> and WhatsApp is counted.
+-							{:else if step === 2}Problems come with a <em class="font-serif text-accent">button</em>, not a ticket.
+-							{:else}Clients get a report they <em class="font-serif text-accent">actually read.</em>{/if}
++							{#if step === 0}One URL and Undercut knows <em class="font-serif text-accent">what you sell.</em>
++							{:else if step === 1}Real businesses <em class="font-serif text-accent">around you</em>, each site checked.
++							{:else if step === 2}A message that says <em class="font-serif text-accent">what you noticed.</em>
++							{:else}Then their site stays <em class="font-serif text-accent">fast and found.</em>{/if}
+ 						</p>
+ 					{/key}
+ 				</div>
+@@ -385,7 +391,7 @@
+ 			<div class="lg:sticky lg:top-32 lg:self-start">
+ 				<p class="label text-accent!" use:reveal>The manifesto</p>
+ 				<SplitText text={'We cut everything\nthat doesn’t\n*make you money.*'} class="mt-4 text-[clamp(40px,5.4vw,68px)] leading-[0.98] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
+-				<p class="mt-6 max-w-sm text-white/60" use:reveal={{ delay: 200 }}>Analytics became a hobby: hundreds of reports, events to plan, a consultant to read them. Agencies don’t need more data. They need to know what to do on Monday.</p>
++				<p class="mt-6 max-w-sm text-white/60" use:reveal={{ delay: 200 }}>Agencies juggle a CRM, a lead list, analytics, a to-do app and a calendar. Most give up and build nothing. You need one screen that tells you what to do on Monday.</p>
+ 			</div>
+ 			<ul class="flex flex-col">
+ 				{#each cuts as c, i (c)}
+@@ -425,8 +431,8 @@
+ 		<div class="mt-16 grid grid-cols-1 gap-3 md:grid-cols-6" use:reveal>
+ 			<article class="feat group flex flex-col justify-between gap-8 md:col-span-2 md:row-span-2" data-stagger use:inview>
+ 				<div>
+-					<span class="rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-accent-ink">Zero setup</span>
+-					<h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Leads, not pageviews.</h3>
++					<span class="rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-accent-ink">Keep clients</span>
++					<h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3>
+ 					<p class="mt-2 text-sm text-white/60">Forms, calls, emails, WhatsApp — counted automatically and credited to the channel that brought them.</p>
+ 				</div>
+ 				<div>
+@@ -445,14 +451,13 @@
+ 
+ 			<article class="feat feat-lime group flex flex-col gap-5 md:col-span-4" data-stagger use:inview>
+ 				<div class="flex flex-wrap items-start justify-between gap-3">
+-					<div><span class="rounded-full bg-ink/10 px-2.5 py-1 text-[11px] font-medium">No guessing</span><h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Why? In one sentence.</h3></div>
+-					<p class="max-w-xs text-sm opacity-70">Click any number that moved. Get the channel, page, device or country behind it.</p>
++					<div><span class="rounded-full bg-ink/10 px-2.5 py-1 text-[11px] font-medium">Find clients</span><h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
++					<p class="max-w-xs text-sm opacity-70">Real businesses around you. Each website checked — mobile, speed, https, last update — and a first message written from what we found.</p>
+ 				</div>
+ 				<div class="rounded-[20px] bg-white p-5 text-ink">
+-					<p class="text-lg leading-snug sm:text-xl"><span class="font-semibold text-bad">Leads ↓ 31%.</span> 71% of the drop comes from <span class="rounded-md bg-accent px-1">Google Search</span>, mostly on <span class="rounded-md bg-tile px-1">/services</span>, on <span class="rounded-md bg-tile px-1">mobile</span>.</p>
+-					<div class="mt-4 flex h-3 overflow-hidden rounded-full bg-tile">
+-						{#each [[71, 'bg-ink'], [18, 'bg-[#9bb93a]'], [11, 'bg-ink/20']] as [w, c], i (i)}<span class="h-full origin-left scale-x-0 transition-transform duration-1000 group-[.in]:scale-x-100 {c}" style="width:{w}%;transition-delay:{400 + i * 250}ms"></span>{/each}
+-					</div>
++					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Coiffure Lila</b><span class="text-sm text-muted">Hairdresser · Ixelles</span></span><span class="grid size-12 place-items-center rounded-full bg-accent font-semibold text-accent-ink">90</span></p>
++					<div class="mt-3 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full bg-tile px-3 py-1 text-xs opacity-0 transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
++					<p class="mt-3 rounded-[14px] bg-tile p-3 text-sm text-ink-2">“Bonjour, en regardant votre site j’ai remarqué qu’il ne s’affiche pas bien sur mobile…”</p>
+ 				</div>
+ 			</article>
+ 
+@@ -527,11 +532,11 @@
+ 		<div class="grad-border rounded-[36px] p-px">
+ 			<div class="relative grid gap-12 overflow-hidden rounded-[35px] bg-[radial-gradient(120%_120%_at_0%_100%,rgba(198,244,50,.22),transparent_55%),#0b0c0a] p-8 sm:p-14 lg:grid-cols-[1.2fr_1fr]">
+ 				<div class="relative">
+-					<SplitText text={'Built for agencies\nrunning *20 sites.*\nNot one.'} class="text-[clamp(36px,5vw,64px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
+-					<p class="mt-6 max-w-md text-white/60" use:reveal={{ delay: 300 }}>One screen for every client. The ones that need you are on top — with the reason, in one sentence.</p>
++					<SplitText text={'One screen.\n*Find, sign, keep.*\nEvery week.'} class="text-[clamp(36px,5vw,64px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
++					<p class="mt-6 max-w-md text-white/60" use:reveal={{ delay: 300 }}>New prospects every week, a pipeline you actually use, and every client’s site and app — with the next thing to do on top.</p>
+ 				</div>
+ 				<div class="relative grid grid-cols-2 gap-x-6 gap-y-10 self-center" use:reveal>
+-					{#each [[10, ' min', 'to connect a client'], [0, '', 'events to set up'], [1, ' click', 'to ship a fix'], [50, '', 'clients on one screen']] as [n, s, l], i (l)}
++					{#each [[30, ' s', 'to your first prospects'], [300, '', 'prospects a month (Pro)'], [1, ' click', 'to ship a fix'], [50, '', 'clients on one screen']] as [n, s, l], i (l)}
+ 						<div class="border-t border-white/15 pt-5" data-stagger>
+ 							<p class="big text-[44px] leading-none whitespace-nowrap sm:text-[60px]" use:countUp={{ to: n as number, suffix: s as string, ms: 1200 + i * 200 }}>{n}{s}</p>
+ 							<p class="mt-2 text-sm text-white/50">{l}</p>
+@@ -545,17 +550,22 @@
+ 	<!-- ================= PRICING ================= -->
+ 	<section id="pricing" class="mx-auto max-w-[1240px] scroll-mt-24 px-4 py-28 sm:px-6 sm:py-36">
+ 		<div class="text-center">
+-			<SplitText text={'Per client.\n*Not per pageview.*'} class="text-[clamp(44px,6.6vw,88px)] leading-none font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-accent" />
+-			<p class="mt-5 text-white/60" use:reveal={{ delay: 200 }}>Traffic is good news. It shouldn’t be a bill. <b class="font-medium text-white">Free for the first 30 agencies</b> during the beta.</p>
++			<SplitText text={'One new client\n*pays for a year.*'} class="text-[clamp(44px,6.6vw,88px)] leading-none font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-accent" />
++			<p class="mt-5 text-white/60" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-white">The first 30 agencies keep −50% for life.</b></p>
+ 		</div>
+ 		<div class="mt-16 grid gap-3 md:grid-cols-3" use:reveal>
+ 			{#each ['freelance', 'agency', 'studio'] as const as id (id)}
+ 				{@const p = PLANS[id]}
+ 				<div class="relative flex flex-col gap-4 overflow-hidden rounded-[28px] p-8 transition-transform duration-500 hover:-translate-y-1.5 {id === 'agency' ? 'bg-[linear-gradient(160deg,#C6F432,#86bd2c)] text-accent-ink' : 'glass'}" data-stagger>
+ 					<div class="relative flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-semibold text-accent">Most popular</span>{/if}</div>
+-					<p class="relative"><span class="big text-[64px]">€{p.price}</span><span class="text-sm opacity-60"> / month after the beta</span></p>
+-					<p class="relative text-sm opacity-70">Up to {p.clients} clients · all features{id === 'freelance' ? '' : id === 'agency' ? ' · team & client logins · white-label' : ' · own report domain · priority support'}</p>
+-					<a href="/beta" class="btn relative mt-auto {id === 'agency' ? 'btn-primary' : 'btn-accent'}">Free during the beta</a>
++					<p class="relative"><span class="big text-[64px]">€{p.price}</span><span class="text-sm opacity-60"> / month</span></p>
++					<p class="relative -mt-2 text-sm opacity-70">€{Math.round(p.price / 2)} for life for the first 30</p>
++					<ul class="relative space-y-1.5 text-sm opacity-80">
++						<li>✓ {p.prospects} prospects a month</li>
++						<li>✓ Up to {p.clients} clients (sites & apps)</li>
++						<li>✓ {id === 'freelance' ? 'Pipeline, agenda, goals' : id === 'agency' ? 'Team & client logins · white-label reports' : 'Own report domain · priority support'}</li>
++					</ul>
++					<a href="/beta" class="btn relative mt-auto {id === 'agency' ? 'btn-primary' : 'btn-accent'}">Start free</a>
+ 				</div>
+ 			{/each}
+ 		</div>
+@@ -583,15 +593,16 @@
+ 			<div class="grid-floor absolute inset-x-0 bottom-0 -z-10 h-full opacity-60"></div>
+ 			<h2 class="text-[clamp(40px,7.5vw,104px)] leading-[0.95] font-medium tracking-[-0.045em]">
+ 				<span class="relative inline-block" use:inview={{ delay: 200 }}>
+-					<SplitText as="span" class="block" text="Stop reporting." />
++					<SplitText as="span" class="block" text="Stop waiting." />
+ 					<span class="cut-bar absolute top-[55%] -right-[2%] -left-[2%] h-[0.09em] rounded-full bg-accent shadow-[0_0_30px_rgba(198,244,50,.8)]" aria-hidden="true"></span>
+ 				</span>
+-				<SplitText as="span" class="block" text="*Start fixing.*" emClass="font-serif font-normal" delay={300} />
++				<SplitText as="span" class="block" text="*Start finding.*" emClass="font-serif font-normal" delay={300} />
+ 			</h2>
+ 			<div class="mt-12 flex flex-wrap justify-center gap-3" use:reveal={{ delay: 300 }}>
+-				<a href={cta.href} class="btn btn-primary group px-7 py-3.5 text-base">{cta.label}<span class="transition-transform group-hover:translate-x-1">→</span></a>
++				<a href="/prospects" class="btn btn-primary group px-7 py-3.5 text-base">Find my 5 clients — free<span class="transition-transform group-hover:translate-x-1">→</span></a>
++				<a href={cta.href} class="btn glass px-7 py-3.5 text-base text-white hover:bg-white/10">{cta.label}</a>
+ 			</div>
+-			<p class="mt-5 text-xs text-white/70" use:reveal={{ delay: 400 }}>30 free seats · No card · Cookieless · Data in the EU</p>
++			<p class="mt-5 text-xs text-white/70" use:reveal={{ delay: 400 }}>No card · −50% for life for the first 30 agencies · Data in the EU</p>
+ 		</div>
+ 	</section>
+ 
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 848de3a..0debf8c 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -17,7 +17,8 @@
+ 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 	type Item = { href: string; label: string; icon: any; badge?: number };
+ 	const agencyNav = $derived([
+-		{ href: '/app', label: 'All clients', icon: 'grid' },
++		{ href: '/app', label: 'Dashboard', icon: 'grid' },
++		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
+ 		{ href: '/app/alerts', label: 'Alerts', icon: 'bell', badge: data.unread }
+ 	] as Item[]);
+ 	const clientNav = $derived.by(() => {
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index 977b5f0..1388602 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -1,5 +1,15 @@
+ import { getClientOverview } from '#lib/server/overview.ts';
+ import { getClient, listClients, toggleDone } from '#lib/server/store.ts';
++import { getOS, monthlyQuota, pipelineStats, usedThisMonth } from '#lib/server/agency-os.ts';
++import { agencyActions } from '#lib/server/agency-actions.ts';
++
++const host = (u: string) => {
++	try {
++		return new URL(/^https?:/.test(u) ? u : `https://${u}`).hostname.replace(/^www\./, '');
++	} catch {
++		return '';
++	}
++};
+ 
+ export const load = async () => {
+ 	const clients = listClients();
+@@ -21,10 +31,38 @@ export const load = async () => {
+ 		})
+ 	);
+ 	rows.sort((a, b) => a.health.score - b.health.score);
+-	return { rows };
++
++	const os = getOS();
++	const stats = pipelineStats(os);
++	const mine = os.profile ? host(os.profile.url) : '';
++	// "Your own site": the agency site, when it's tracked like a client
++	const own = mine ? rows.find((r) => host(r.client.domain) === mine) ?? null : null;
++
++	// "What to post": real material from this month — wins, fixes, client results
++	const content: { title: string; why: string }[] = [];
++	const won = os.pipeline.filter((p) => p.stage === 'won').slice(0, 2);
++	for (const w of won) content.push({ title: `Welcome post: “${w.name} joins us”`, why: 'New clients are the best social proof. Ask them for a photo.' });
++	const grower = rows.filter((r) => r.main && r.main.prev > 0 && r.main.value > r.main.prev * 1.15).sort((a, b) => b.main!.value / b.main!.prev - a.main!.value / a.main!.prev)[0];
++	if (grower) content.push({ title: `Result: ${grower.client.name} +${Math.round((grower.main!.value / grower.main!.prev - 1) * 100)}% ${grower.main!.label} in 28 days`, why: 'A real number from a real client — ask before naming them.' });
++	const common = new Map<string, number>();
++	for (const p of os.pipeline) for (const x of p.issues) common.set(x.label, (common.get(x.label) ?? 0) + 1);
++	const top = [...common.entries()].sort((a, b) => b[1] - a[1])[0];
++	if (top && top[1] >= 3) content.push({ title: `Tip: “${top[1]} local businesses we looked at have this problem: ${top[0]}”`, why: 'Turn what you found while prospecting into a useful post.' });
++	if (os.profile) content.push({ title: `Behind the scenes: a day at ${os.profile.name}`, why: 'People hire people. Show the team, the desk, the process.' });
++
++	return {
++		rows,
++		os: { profile: os.profile, blocks: os.blocks, order: os.order, goal: os.goal, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
++		stats: { ...stats, due: stats.due.slice(0, 6) },
++		quota: monthlyQuota(),
++		used: usedThisMonth(os),
++		own,
++		content: content.slice(0, 4)
++	};
+ };
+ 
+ export const actions = {
++	...agencyActions,
+ 	toggle: async ({ request }) => {
+ 		const f = await request.formData();
+ 		const clientId = String(f.get('client') ?? '');
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index 7e56b0f..bfd0901 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -4,7 +4,29 @@
+ 	import HealthRing from '#lib/components/HealthRing.svelte';
+ 	import ArrowLink from '#lib/components/ArrowLink.svelte';
+ 	import { n, pct } from '#lib/format.ts';
+-	let { data } = $props();
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	import AgencySetup from '#lib/components/AgencySetup.svelte';
++	let { data, form } = $props();
++
++	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
++	let finding = $state(false);
++	let customise = $state(false);
++	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', clients: 'Clients', todo: 'This week', calendar: 'Agenda', site: 'Your own site', goals: 'Goal', content: 'What to post' };
++	const SPAN: Record<string, string> = { prospects: 'lg:col-span-8', pipeline: 'lg:col-span-4', clients: 'lg:col-span-12', todo: 'lg:col-span-6', calendar: 'lg:col-span-6', site: 'lg:col-span-4', goals: 'lg:col-span-4', content: 'lg:col-span-4' };
++	const shown = $derived(data.os.order.filter((b) => data.os.blocks[b]));
++	const hour = new Date().getHours();
++	const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
++	const todo = $derived.by(() => {
++		const t: { title: string; why: string; href: string; urgent?: boolean }[] = [];
++		for (const p of data.stats.due) t.push({ title: `Follow up with ${p.name}`, why: p.note || `Contacted · ${p.pitch}`, href: '/app/prospects', urgent: true });
++		if (data.stats.counts.new) t.push({ title: `Contact ${Math.min(5, data.stats.counts.new)} new prospects`, why: 'The message is written — review it and send it yourself.', href: '/app/prospects' });
++		for (const r of data.rows) for (const k of r.tasks.filter((x) => x.level === 'bad').slice(0, 1)) t.push({ title: `${r.client.name}: ${k.title}`, why: 'Client site', href: `/app/clients/${r.client.id}`, urgent: true });
++		if (!data.rows.length) t.push({ title: 'Add your first client', why: 'Their site or app health, leads and fixes in one place.', href: '/app/clients/new' });
++		return t.slice(0, 6);
++	});
++	const STAGE_LABEL = { new: 'To contact', contacted: 'Contacted', talking: 'Talking', won: 'Won' } as const;
++	const fmtDay = (d: string) => new Date(d + 'T12:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+ 
+ 	type Row = (typeof data.rows)[number];
+ 	let filter = $state<'all' | 'attention' | 'healthy' | 'apps'>('all');
+@@ -28,86 +50,198 @@
+ 	] as const);
+ </script>
+ 
+-<svelte:head><title>Overview · Undercut</title></svelte:head>
++<svelte:head><title>Dashboard · Undercut</title></svelte:head>
+ 
+-<section class="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
+-	<div>
+-		<p class="label">Last 28 days · {data.rows.length} clients</p>
+-		<h1 class="display mt-2 text-[56px] sm:text-[84px]">Your <em>clients</em></h1>
+-	</div>
+-	<div class="flex flex-wrap gap-x-10 gap-y-4">
++{#if !data.os.profile}
++	<section class="card-dark relative overflow-hidden p-6 sm:p-10">
++		<div class="pointer-events-none absolute -right-24 -bottom-24 size-96 rounded-full bg-accent/30 blur-3xl"></div>
++		<p class="relative text-sm text-accent">Build your dashboard</p>
++		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">Paste your agency’s URL. Your dashboard builds itself.</h1>
++		<p class="relative mt-3 max-w-xl text-white/60">We read what you sell and where you work, then find local businesses that need you — next to your clients’ sites and apps.</p>
++		<div class="relative mt-6 max-w-2xl"><AgencySetup profile={null} error={form?.setupError ?? ''} /></div>
++	</section>
++{:else}
++	<section class="flex flex-wrap items-end justify-between gap-6">
+ 		<div>
+-			<p class="flex items-start gap-1.5"><span class="big text-5xl sm:text-6xl">{n(totals.visits)}</span><Delta value={pct(totals.visits, totals.prev)} /></p>
+-			<p class="mt-1 text-sm text-muted">visits, all sites</p>
++			<p class="label">{hello} · {data.os.profile.name}</p>
++			<h1 class="display mt-2 text-[48px] sm:text-[76px]">Your <em>week</em></h1>
+ 		</div>
+-		<div>
+-			<p class="big text-5xl sm:text-6xl {totals.urgent ? 'text-bad' : ''}">{totals.urgent}</p>
+-			<p class="mt-1 text-sm text-muted">urgent fixes</p>
++		<div class="flex flex-wrap gap-x-10 gap-y-4">
++			<div><p class="big text-5xl">{data.stats.counts.new}</p><p class="mt-1 text-sm text-muted">to contact</p></div>
++			<div><p class="big text-5xl">{data.stats.counts.talking}</p><p class="mt-1 text-sm text-muted">talking</p></div>
++			<div><p class="big text-5xl">{data.stats.wonMonth}<span class="text-2xl text-muted">/{data.os.goal.wonPerMonth}</span></p><p class="mt-1 text-sm text-muted">won this month</p></div>
+ 		</div>
+-		<div>
+-			<p class="big text-5xl sm:text-6xl">{totals.attention}<span class="text-2xl text-muted">/{data.rows.length}</span></p>
+-			<p class="mt-1 text-sm text-muted">need attention</p>
++	</section>
++
++	<!-- ask to change: plain-language edits to the dashboard -->
++	<form method="POST" action={act('ask')} use:enhance={keep} class="mt-6 flex flex-col gap-2 rounded-[24px] bg-white p-2 sm:flex-row sm:items-center">
++		<span class="hidden pl-3 text-accent-ink sm:block">✦</span>
++		<input name="q" placeholder="Change your dashboard: “hide agenda”, “show what to post”, “clients first”…" class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none" />
++		<div class="flex gap-2"><button class="btn btn-primary text-sm">Change</button><button type="button" class="pill text-sm" onclick={() => (customise = !customise)}>Blocks</button></div>
++	</form>
++	{#if form?.asked}<p class="mt-2 text-sm text-muted">{form.asked}</p>{/if}
++	{#if customise}
++		<div class="mt-3 flex flex-wrap gap-2">
++			{#each data.os.order as b (b)}
++				<form method="POST" action={act('ask')} use:enhance={keep}><input type="hidden" name="q" value="{data.os.blocks[b] ? 'hide' : 'show'} {b === 'site' ? 'my site' : b === 'calendar' ? 'agenda' : b === 'todo' ? 'this week' : b === 'content' ? 'post' : b}" /><button class="pill text-sm {data.os.blocks[b] ? 'pill-active' : 'opacity-60'}">{data.os.blocks[b] ? '✓' : '+'} {LABEL[b]}</button></form>
++			{/each}
+ 		</div>
+-	</div>
+-</section>
++	{/if}
+ 
+-<div class="scrollbar-none mt-8 -mx-3 flex gap-2 overflow-x-auto px-3">
+-	{#each filters as f (f.id)}
+-		<button class="pill {filter === f.id ? 'pill-active' : ''}" onclick={() => (filter = f.id)}>
+-			{f.label}<span class="text-xs opacity-60">{f.count}</span>
+-		</button>
+-	{/each}
+-	<a href="/app/clients/new" class="pill ml-auto border-ink bg-ink text-white">+ Add client</a>
+-</div>
++	<div class="mt-5 grid gap-4 lg:grid-cols-12">
++		{#each shown as b (b)}
++			<div class="min-w-0 {SPAN[b]}">
++				{#if b === 'prospects'}
++					<section class="card-dark relative h-full overflow-hidden p-5 sm:p-7">
++						<div class="pointer-events-none absolute -top-20 -right-20 size-72 rounded-full bg-accent/20 blur-3xl"></div>
++						<div class="relative flex flex-wrap items-start justify-between gap-3">
++							<div><p class="text-sm text-accent">New prospects</p><p class="mt-1 text-sm text-white/50">Around {data.os.profile.city} · {Math.max(0, data.quota - data.used)} of {data.quota} left this month</p></div>
++							<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; }; }}>
++								<button class="btn btn-accent text-sm" disabled={finding || data.used >= data.quota}>{finding ? 'Looking…' : '+ Find 5'}</button>
++							</form>
++						</div>
++						{#if form?.findError}<p class="relative mt-3 text-sm text-[#ffb4a8]">{form.findError}</p>{/if}
++						<ul class="relative mt-5 grid gap-2">
++							{#each data.os.fresh as p (p.id)}
++								<li><a href="/app/prospects" class="flex items-center gap-3 rounded-[18px] bg-white/[.06] p-3 hover:bg-white/10">
++									<span class="grid size-10 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold text-accent-ink">{p.score}</span>
++									<span class="min-w-0"><b class="block truncate text-sm font-medium">{p.name}</b><span class="block truncate text-xs text-white/50">{p.category} · {p.pitch}</span></span>
++								</a></li>
++							{:else}
++								<li class="rounded-[18px] bg-white/[.06] p-4 text-sm text-white/60">{finding ? 'Checking the websites of businesses around you…' : 'Click “Find 5” — we look around you and check each website.'}</li>
++							{/each}
++						</ul>
++						{#if data.os.fresh.length}<a href="/app/prospects" class="relative mt-4 inline-block text-sm text-accent hover:underline">See all and contact them →</a>{/if}
++					</section>
++				{:else if b === 'pipeline'}
++					<section class="card h-full p-5 sm:p-6">
++						<div class="flex items-center justify-between"><p class="font-medium">Pipeline</p><ArrowLink href="/app/prospects" label="Open pipeline" /></div>
++						<ul class="mt-4 grid gap-2">
++							{#each Object.entries(STAGE_LABEL) as [k, l] (k)}
++								{@const c = data.stats.counts[k as keyof typeof STAGE_LABEL]}
++								{@const max = Math.max(1, ...Object.keys(STAGE_LABEL).map((x) => data.stats.counts[x as keyof typeof STAGE_LABEL]))}
++								<li class="grid grid-cols-[88px_1fr_28px] items-center gap-3 text-sm"><span class="text-muted">{l}</span><span class="h-2.5 overflow-hidden rounded-full bg-tile"><span class="block h-full rounded-full {k === 'won' ? 'bg-accent' : 'bg-ink'}" style="width:{(c / max) * 100}%"></span></span><b class="text-right font-medium">{c}</b></li>
++							{/each}
++						</ul>
++						<p class="mt-4 text-xs text-muted">{data.stats.replyRate != null ? `${data.stats.replyRate}% of contacted businesses answered` : 'Move prospects along as you contact them.'}</p>
++					</section>
++				{:else if b === 'todo'}
++					<section class="card h-full p-5 sm:p-6">
++						<p class="font-medium">This week</p>
++						<ol class="mt-4 grid gap-2">
++							{#each todo as t, i (t.title)}
++								<li><a href={t.href} class="flex gap-3 rounded-[16px] bg-tile p-3 hover:bg-[#e6e6e1]"><span class="grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold {t.urgent ? 'bg-ink text-white' : 'bg-white'}">{i + 1}</span><span class="min-w-0"><b class="block truncate text-sm font-medium">{t.title}</b><span class="block truncate text-xs text-muted">{t.why}</span></span></a></li>
++							{:else}
++								<li class="text-sm text-muted">Nothing urgent. Find new prospects or check a client.</li>
++							{/each}
++						</ol>
++					</section>
++				{:else if b === 'calendar'}
++					<section class="card h-full p-5 sm:p-6">
++						<p class="font-medium">Agenda</p>
++						<ul class="mt-4 grid gap-2">
++							{#each data.stats.upcoming as p (p.id)}
++								<li class="flex items-center gap-3 text-sm"><span class="w-28 shrink-0 text-muted">{fmtDay(p.next!)}</span><a href="/app/prospects" class="truncate hover:underline">Follow up · <b class="font-medium">{p.name}</b></a></li>
++							{:else}
++								<li class="text-sm text-muted">When you mark a prospect as contacted, a follow-up appears here 4 days later. You can change the date on each prospect.</li>
++							{/each}
++						</ul>
++					</section>
++				{:else if b === 'site'}
++					<section class="card h-full p-5 sm:p-6">
++						<p class="font-medium">Your own site</p>
++						{#if data.own}
++							<div class="mt-4 flex items-center justify-between gap-4">
++								<div>{#if data.own.main}<p class="big text-4xl">{n(data.own.main.value)}</p><p class="text-xs text-muted">{data.own.main.label}, 28 days</p>{/if}</div>
++								<HealthRing score={data.own.health.score} size={58} />
++							</div>
++							{#if data.own.tasks[0]}<a href="/app/clients/{data.own.client.id}" class="mt-4 block truncate text-sm text-ink-2 hover:underline">→ {data.own.tasks[0].title}</a>{/if}
++						{:else}
++							<p class="mt-3 text-sm text-ink-2">Prospects will look at your site before answering. Track it like a client: speed, Google, leads.</p>
++							<a href="/app/clients/new?domain={encodeURIComponent(data.os.profile.url)}&name={encodeURIComponent(data.os.profile.name)}" class="btn btn-primary mt-4 text-sm">Track my site</a>
++						{/if}
++					</section>
++				{:else if b === 'goals'}
++					<section class="card h-full p-5 sm:p-6">
++						<p class="font-medium">Goal this month</p>
++						<p class="mt-3 flex items-baseline gap-2"><span class="big text-5xl">{data.stats.wonMonth}</span><span class="text-muted">/ {data.os.goal.wonPerMonth} new clients</span></p>
++						<div class="mt-3 h-2.5 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full bg-accent" style="width:{Math.min(100, Math.max(3, (data.stats.wonMonth / data.os.goal.wonPerMonth) * 100))}%"></div></div>
++						<p class="mt-3 text-xs text-muted">{data.stats.wonValue ? `€${data.stats.wonValue}/month signed this month. ` : ''}{data.stats.replyRate ? `At ${data.stats.replyRate}% replies, contact about ${Math.ceil((data.os.goal.wonPerMonth - data.stats.wonMonth) / Math.max(0.05, data.stats.replyRate / 100 / 3))} more businesses.` : 'Contact ~15 businesses per new client to start with.'}</p>
++						<form method="POST" action={act('goal')} use:enhance={keep} class="mt-3 flex items-center gap-2 text-xs text-muted">Target <input name="won" type="number" min="1" max="100" value={data.os.goal.wonPerMonth} class="input w-16 py-1 text-sm" /> per month <button class="pill text-xs">Save</button></form>
++					</section>
++				{:else if b === 'content'}
++					<section class="card h-full p-5 sm:p-6">
++						<p class="font-medium">What to post</p>
++						<ul class="mt-4 grid gap-2">
++							{#each data.content as c (c.title)}<li class="rounded-[16px] bg-tile p-3"><b class="block text-sm font-medium">{c.title}</b><span class="text-xs text-muted">{c.why}</span></li>{/each}
++						</ul>
++					</section>
++				{:else if b === 'clients'}
++					<section>
++						<p class="mb-1 font-medium">Clients <span class="text-sm font-normal text-muted">· {data.rows.length} · {n(totals.visits)} visits · {totals.urgent} urgent fixes</span></p>
++						<div class="scrollbar-none mt-8 -mx-3 flex gap-2 overflow-x-auto px-3">
++							{#each filters as f (f.id)}
++								<button class="pill {filter === f.id ? 'pill-active' : ''}" onclick={() => (filter = f.id)}>
++									{f.label}<span class="text-xs opacity-60">{f.count}</span>
++								</button>
++							{/each}
++							<a href="/app/clients/new" class="pill ml-auto border-ink bg-ink text-white">+ Add client</a>
++						</div>
+ 
+-<section class="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+-	{#each rows as r, i (r.client.id)}
+-		{@const dark = i === 0 && r.health.level === 'bad' && filter !== 'healthy'}
+-		{@const top = r.tasks[0]}
+-		<article class="flex flex-col p-5 sm:p-6 {dark ? 'card-dark' : 'card'}">
+-			<div class="flex items-start justify-between gap-3">
+-				<div class="flex min-w-0 items-center gap-3">
+-					<span class="grid size-11 shrink-0 place-items-center rounded-full text-sm font-semibold text-white" style="background:{r.client.color}">{r.client.name.slice(0, 1)}</span>
+-					<div class="min-w-0">
+-						<h2 class="truncate font-medium">{r.client.name}</h2>
+-						<p class="truncate text-xs {dark ? 'text-white/50' : 'text-muted'}">{r.client.type === 'app' ? 'App' : r.client.domain.replace(/^https?:\/\//, '')}{r.client.type === 'both' ? ' + app' : ''}</p>
+-					</div>
+-				</div>
+-				<ArrowLink href="/app/clients/{r.client.id}" label="Open {r.client.name}" {dark} />
+-			</div>
++						<section class="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
++							{#each rows as r, i (r.client.id)}
++								{@const dark = i === 0 && r.health.level === 'bad' && filter !== 'healthy'}
++								{@const top = r.tasks[0]}
++								<article class="flex flex-col p-5 sm:p-6 {dark ? 'card-dark' : 'card'}">
++									<div class="flex items-start justify-between gap-3">
++										<div class="flex min-w-0 items-center gap-3">
++											<span class="grid size-11 shrink-0 place-items-center rounded-full text-sm font-semibold text-white" style="background:{r.client.color}">{r.client.name.slice(0, 1)}</span>
++											<div class="min-w-0">
++												<h2 class="truncate font-medium">{r.client.name}</h2>
++												<p class="truncate text-xs {dark ? 'text-white/50' : 'text-muted'}">{r.client.type === 'app' ? 'App' : r.client.domain.replace(/^https?:\/\//, '')}{r.client.type === 'both' ? ' + app' : ''}</p>
++											</div>
++										</div>
++										<ArrowLink href="/app/clients/{r.client.id}" label="Open {r.client.name}" {dark} />
++									</div>
+ 
+-			<div class="mt-8 flex items-end justify-between gap-4">
+-				{#if r.main}
+-					<div>
+-						<p class="flex items-start gap-1.5"><span class="big text-5xl">{n(r.main.value)}</span><Delta value={pct(r.main.value, r.main.prev)} {dark} /></p>
+-						<p class="mt-1 text-xs {dark ? 'text-white/50' : 'text-muted'}">{r.main.label}</p>
+-					</div>
+-				{/if}
+-				<HealthRing score={r.health.score} size={58} {dark} />
+-			</div>
++									<div class="mt-8 flex items-end justify-between gap-4">
++										{#if r.main}
++											<div>
++												<p class="flex items-start gap-1.5"><span class="big text-5xl">{n(r.main.value)}</span><Delta value={pct(r.main.value, r.main.prev)} {dark} /></p>
++												<p class="mt-1 text-xs {dark ? 'text-white/50' : 'text-muted'}">{r.main.label}</p>
++											</div>
++										{/if}
++										<HealthRing score={r.health.score} size={58} {dark} />
++									</div>
+ 
+-			{#if r.main}
+-				<div class="mt-5"><Sparkline data={r.main.daily} color={dark ? '#C6F432' : '#0D0D0D'} width={320} height={42} /></div>
+-			{/if}
++									{#if r.main}
++										<div class="mt-5"><Sparkline data={r.main.daily} color={dark ? '#C6F432' : '#0D0D0D'} width={320} height={42} /></div>
++									{/if}
+ 
+-			<!-- one dot per area: the whole status at a glance -->
+-			<div class="mt-5 flex flex-wrap gap-1.5 border-t pt-4 {dark ? 'border-white/10' : 'border-line'}">
+-				{#each r.areas as a (a.key)}
+-					<a href={a.href} class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs {dark ? 'bg-white/10 text-white/80 hover:bg-white/20' : 'bg-tile text-ink-2 hover:bg-[#e6e6e1]'}" title="{a.label}: {a.value} {a.sub}">
+-						<span class="size-1.5 rounded-full {dot[a.level]}"></span>{a.label.replace('Google ', '').replace(' health', '')}
+-					</a>
+-				{/each}
++									<!-- one dot per area: the whole status at a glance -->
++									<div class="mt-5 flex flex-wrap gap-1.5 border-t pt-4 {dark ? 'border-white/10' : 'border-line'}">
++										{#each r.areas as a (a.key)}
++											<a href={a.href} class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs {dark ? 'bg-white/10 text-white/80 hover:bg-white/20' : 'bg-tile text-ink-2 hover:bg-[#e6e6e1]'}" title="{a.label}: {a.value} {a.sub}">
++												<span class="size-1.5 rounded-full {dot[a.level]}"></span>{a.label.replace('Google ', '').replace(' health', '')}
++											</a>
++										{/each}
++									</div>
++									{#if top}
++										<a href="/app/clients/{r.client.id}" class="mt-3 truncate text-xs {dark ? 'text-accent' : 'text-ink-2'} hover:underline">→ {top.title}{r.tasks.length > 1 ? ` · +${r.tasks.length - 1}` : ''}</a>
++									{/if}
++								</article>
++							{/each}
++							<a href="/app/clients/new" class="grid min-h-[260px] place-items-center rounded-[28px] border-2 border-dashed border-[#d0d0ca] p-6 text-center transition-colors hover:border-ink">
++								<span>
++									<span class="mx-auto grid size-12 place-items-center rounded-full bg-ink text-2xl text-white">+</span>
++									<span class="display mt-4 block text-3xl">Add a client</span>
++									<span class="mt-1 block text-sm text-muted">Website, app or both.</span>
++								</span>
++							</a>
++						</section>
++					</section>
++				{/if}
+ 			</div>
+-			{#if top}
+-				<a href="/app/clients/{r.client.id}" class="mt-3 truncate text-xs {dark ? 'text-accent' : 'text-ink-2'} hover:underline">→ {top.title}{r.tasks.length > 1 ? ` · +${r.tasks.length - 1}` : ''}</a>
+-			{/if}
+-		</article>
+-	{/each}
+-	<a href="/app/clients/new" class="grid min-h-[260px] place-items-center rounded-[28px] border-2 border-dashed border-[#d0d0ca] p-6 text-center transition-colors hover:border-ink">
+-		<span>
+-			<span class="mx-auto grid size-12 place-items-center rounded-full bg-ink text-2xl text-white">+</span>
+-			<span class="display mt-4 block text-3xl">Add a client</span>
+-			<span class="mt-1 block text-sm text-muted">Website, app or both.</span>
+-		</span>
+-	</a>
+-</section>
++		{/each}
++	</div>
++{/if}
+diff --git a/src/routes/app/clients/new/+page.svelte b/src/routes/app/clients/new/+page.svelte
+index ab83eca..f24e6a8 100644
+--- a/src/routes/app/clients/new/+page.svelte
++++ b/src/routes/app/clients/new/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { page } from '$app/state';
+ 	let { form } = $props();
+ 	const COLORS = ['#E0A458', '#3E8E63', '#4C7DD9', '#D9534C', '#8B5CF6', '#0EA5A4', '#F97316'];
+ 	let color = $state(COLORS[2]);
+@@ -23,7 +24,7 @@
+ 
+ 	<form method="POST" class="card space-y-5 p-7">
+ 		{#if form?.error}<p class="rounded-[16px] bg-bad-bg p-3 text-sm text-bad">{form.error}</p>{/if}
+-		<label class="block"><span class="label">Client name</span><input class="input mt-1.5" name="name" placeholder="Boulangerie Ixelles" value={form?.name ?? ''} required /></label>
++		<label class="block"><span class="label">Client name</span><input class="input mt-1.5" name="name" placeholder="Boulangerie Ixelles" value={form?.name ?? page.url.searchParams.get('name') ?? ''} required /></label>
+ 		<fieldset>
+ 			<legend class="label">What do you manage for them?</legend>
+ 			<div class="mt-2 grid grid-cols-3 gap-2">
+@@ -37,7 +38,7 @@
+ 		</fieldset>
+ 		<label class="block">
+ 			<span class="label">Website {type === 'app' ? '(optional)' : ''}</span>
+-			<input class="input mt-1.5" name="domain" placeholder="boulangerie-ixelles.be" value={form?.domain ?? ''} required={type !== 'app'} />
++			<input class="input mt-1.5" name="domain" placeholder="boulangerie-ixelles.be" value={form?.domain ?? page.url.searchParams.get('domain')?.replace(/^https?:\/\//, '').replace(/\/$/, '') ?? ''} required={type !== 'app'} />
+ 		</label>
+ 		<fieldset>
+ 			<legend class="label">Colour on reports</legend>
+diff --git a/src/routes/app/prospects/+page.server.ts b/src/routes/app/prospects/+page.server.ts
+new file mode 100644
+index 0000000..c50c9d0
+--- /dev/null
++++ b/src/routes/app/prospects/+page.server.ts
+@@ -0,0 +1,9 @@
++import { getOS, monthlyQuota, pipelineStats, usedThisMonth } from '#lib/server/agency-os.ts';
++import { agencyActions } from '#lib/server/agency-actions.ts';
++
++export const load = () => {
++	const s = getOS();
++	return { profile: s.profile, pipeline: s.pipeline, stats: pipelineStats(s), quota: monthlyQuota(), used: usedThisMonth(s) };
++};
++
++export const actions = agencyActions;
+diff --git a/src/routes/app/prospects/+page.svelte b/src/routes/app/prospects/+page.svelte
+new file mode 100644
+index 0000000..cc924ed
+--- /dev/null
++++ b/src/routes/app/prospects/+page.svelte
+@@ -0,0 +1,124 @@
++<script lang="ts">
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	import AgencySetup from '#lib/components/AgencySetup.svelte';
++	let { data, form } = $props();
++
++	type Stage = 'new' | 'contacted' | 'talking' | 'won' | 'lost';
++	const STAGES: { id: Stage; label: string; help: string }[] = [
++		{ id: 'new', label: 'To contact', help: 'Found for you, not contacted yet' },
++		{ id: 'contacted', label: 'Contacted', help: 'Message sent, waiting for an answer' },
++		{ id: 'talking', label: 'Talking', help: 'They answered: call, quote, meeting' },
++		{ id: 'won', label: 'Won', help: 'Signed 🎉' },
++		{ id: 'lost', label: 'Not now', help: 'Said no or never answered' }
++	];
++	let tab = $state<Stage>('new');
++	let open = $state<string | null>(null);
++	let editing = $state(false);
++	let finding = $state(false);
++	let copied = $state('');
++	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
++	const list = $derived(data.pipeline.filter((p) => p.stage === tab));
++	const left = $derived(Math.max(0, data.quota - data.used));
++	const today = new Date().toISOString().slice(0, 10);
++	const copy = async (id: string, t: string) => {
++		await navigator.clipboard.writeText(t);
++		copied = id;
++		setTimeout(() => (copied = ''), 1600);
++	};
++	const mailto = (p: (typeof data.pipeline)[number]) => `mailto:${p.email}?subject=${encodeURIComponent(p.name)}&body=${encodeURIComponent(p.message)}`;
++	const SERVICE: Record<string, string> = { web: 'websites', app: 'apps', social: 'social media', seo: 'SEO', branding: 'branding', ads: 'ads' };
++</script>
++
++<svelte:head><title>Prospects · Undercut</title></svelte:head>
++
++{#if !data.profile || editing}
++	<section class="card-dark relative overflow-hidden p-6 sm:p-10">
++		<div class="pointer-events-none absolute -right-24 -bottom-24 size-80 rounded-full bg-accent/30 blur-3xl"></div>
++		<p class="relative text-sm text-accent">{data.profile ? 'Your agency' : 'Step 1'}</p>
++		<h1 class="relative mt-2 max-w-2xl text-[32px] leading-tight font-medium sm:text-[44px]">{data.profile ? 'What we understood about your agency' : 'Paste your agency’s URL. We find the businesses that need you.'}</h1>
++		<div class="relative mt-6 max-w-2xl"><AgencySetup profile={data.profile} error={form?.setupError ?? ''} onsaved={() => (editing = false)} /></div>
++		{#if editing}<button class="relative mt-4 text-sm text-white/60 underline" onclick={() => (editing = false)}>Cancel</button>{/if}
++	</section>
++{:else}
++	<section class="flex flex-wrap items-end justify-between gap-6">
++		<div>
++			<p class="label">{data.profile.name} · {data.profile.services.map((s) => SERVICE[s] ?? s).join(', ')} · {data.profile.city} <button class="ml-1 underline" onclick={() => (editing = true)}>change</button></p>
++			<h1 class="display mt-2 text-[48px] sm:text-[72px]">Your <em>prospects</em></h1>
++		</div>
++		<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; tab = 'new'; }; }} class="flex flex-col items-start gap-1 sm:items-end">
++			<button class="btn btn-primary" disabled={finding || !left}>{finding ? 'Looking around ' + data.profile.city + '…' : '+ Find 5 new prospects'}</button>
++			<span class="text-xs text-muted">{left} of {data.quota} left this month</span>
++		</form>
++	</section>
++	{#if form?.findError}<p class="mt-4 rounded-[18px] bg-warn-bg p-4 text-sm text-warn">{form.findError}</p>{/if}
++	{#if form?.found}<p class="mt-4 rounded-[18px] bg-good-bg p-4 text-sm text-good">{form.found} new prospects added to “To contact”.</p>{/if}
++
++	<div class="mt-6 grid grid-cols-3 gap-3 sm:grid-cols-5">
++		{#each STAGES as s (s.id)}
++			<button class="rounded-[22px] p-4 text-left transition-colors {tab === s.id ? 'bg-ink text-white' : 'bg-white hover:bg-tile'}" onclick={() => (tab = s.id)} title={s.help}>
++				<span class="big block text-3xl">{data.stats.counts[s.id]}</span>
++				<span class="mt-1 block text-xs {tab === s.id ? 'text-white/60' : 'text-muted'}">{s.label}</span>
++			</button>
++		{/each}
++	</div>
++	{#if data.stats.replyRate != null}<p class="mt-3 text-sm text-muted">Reply rate: <b class="text-ink">{data.stats.replyRate}%</b> of contacted businesses answered.{#if data.stats.wonValue} Won this month: <b class="text-ink">€{data.stats.wonValue}/month</b>.{/if}</p>{/if}
++
++	<section class="mt-5 grid gap-3">
++		{#each list as p (p.id)}
++			{@const late = p.next && p.next <= today}
++			<article class="card overflow-hidden">
++				<button class="flex w-full items-center gap-4 p-4 text-left sm:p-5" onclick={() => (open = open === p.id ? null : p.id)} aria-expanded={open === p.id}>
++					<span class="grid size-12 shrink-0 place-items-center rounded-full text-sm font-semibold {p.score >= 60 ? 'bg-accent text-accent-ink' : 'bg-tile'}">{p.score}</span>
++					<span class="min-w-0 flex-1">
++						<b class="block truncate font-medium">{p.name}</b>
++						<span class="block truncate text-sm text-muted">{p.category} · {p.pitch}</span>
++					</span>
++					{#if p.next}<span class="hidden shrink-0 rounded-full px-3 py-1 text-xs sm:inline {late ? 'bg-bad-bg text-bad' : 'bg-tile text-ink-2'}">{late ? 'Follow up today' : `Follow up ${p.next}`}</span>{/if}
++					<span class="text-muted">{open === p.id ? '−' : '+'}</span>
++				</button>
++				{#if open === p.id}
++					<div class="grid gap-5 border-t border-line p-4 sm:p-5 lg:grid-cols-[1fr_1.2fr]">
++						<div>
++							<ul class="flex flex-wrap gap-1.5">{#each p.issues as x (x.key)}<li class="rounded-full bg-tile px-3 py-1 text-xs">{x.label}</li>{/each}</ul>
++							<dl class="mt-4 grid gap-1.5 text-sm">
++								{#if p.address}<div><dt class="inline text-muted">Address</dt> <dd class="inline">{p.address}</dd></div>{/if}
++								{#if p.website}<div><dt class="inline text-muted">Website</dt> <dd class="inline"><a class="underline" href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener nofollow">{p.website.replace(/^https?:\/\//, '')}</a>{#if (p.checked.ms ?? 0) > 50} · {(p.checked.ms / 1000).toFixed(1)} s{/if}</dd></div>{/if}
++								{#if p.phone}<div><dt class="inline text-muted">Phone</dt> <dd class="inline"><a class="underline" href="tel:{p.phone}">{p.phone}</a></dd></div>{/if}
++								{#if p.email}<div><dt class="inline text-muted">Email</dt> <dd class="inline">{p.email}</dd></div>{/if}
++								{#if p.instagram}<div><dt class="inline text-muted">Instagram</dt> <dd class="inline">{p.instagram}</dd></div>{/if}
++								<div><a class="text-xs text-muted underline" href={p.osmUrl} target="_blank" rel="noopener">See on the map</a></div>
++							</dl>
++							<div class="mt-4 flex flex-wrap gap-2">
++								{#each STAGES.filter((s) => s.id !== p.stage) as s (s.id)}
++									<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={p.id} /><input type="hidden" name="stage" value={s.id} /><button class="pill text-xs">→ {s.label}</button></form>
++								{/each}
++							</div>
++						</div>
++						<div class="grid gap-3">
++							<div class="rounded-[20px] bg-tile p-4">
++								<p class="text-xs text-muted">First message — review it, then send it yourself</p>
++								<p class="mt-2 text-sm whitespace-pre-line">{p.message}</p>
++								<div class="mt-3 flex flex-wrap gap-2">
++									<button class="btn btn-primary text-sm" onclick={() => copy(p.id, p.message)}>{copied === p.id ? 'Copied ✓' : 'Copy'}</button>
++									{#if p.email}<a class="pill text-sm" href={mailto(p)}>Open in my email</a>{/if}
++								</div>
++							</div>
++							<form method="POST" action={act('item')} use:enhance={keep} class="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
++								<input type="hidden" name="id" value={p.id} />
++								<label class="text-xs text-muted">Follow up on<input type="date" name="next" value={p.next ?? ''} class="input mt-1 text-sm" /></label>
++								<label class="text-xs text-muted">Worth (€/month)<input name="value" inputmode="decimal" value={p.value ?? ''} placeholder="e.g. 150" class="input mt-1 text-sm" /></label>
++								<button class="pill text-sm">{form?.saved === p.id ? 'Saved ✓' : 'Save'}</button>
++								<label class="text-xs text-muted sm:col-span-3">Notes<textarea name="note" rows="2" class="input mt-1 text-sm" placeholder="Called on Tuesday, wants a quote…">{p.note ?? ''}</textarea></label>
++							</form>
++							<form method="POST" action={act('remove')} use:enhance={keep}><input type="hidden" name="id" value={p.id} /><button class="text-xs text-muted underline">Remove from my list</button></form>
++						</div>
++					</div>
++				{/if}
++			</article>
++		{:else}
++			<p class="card p-6 text-sm text-muted">{tab === 'new' ? 'Nobody to contact right now — find 5 new prospects above.' : 'Nobody here yet.'}</p>
++		{/each}
++	</section>
++	<p class="mt-6 text-xs text-muted">Business data © <a href="https://www.openstreetmap.org/copyright" class="underline" target="_blank" rel="noopener">OpenStreetMap contributors</a>. Websites checked live by Undercut. You review and send every message yourself.</p>
++{/if}
+diff --git a/src/routes/prospects/+page.server.ts b/src/routes/prospects/+page.server.ts
+new file mode 100644
+index 0000000..5b49d0a
+--- /dev/null
++++ b/src/routes/prospects/+page.server.ts
+@@ -0,0 +1,45 @@
++// Free public tool: paste your agency URL → 5 real local businesses that need what you sell.
++// Rate-limited per IP (in memory) so the map services stay friendly.
++import { fail } from '@sveltejs/kit';
++import { profileFromUrl, type AgencyProfile, type Service } from '#lib/server/agency-profile.ts';
++import { findProspects } from '#lib/server/prospects.ts';
++
++const PER_DAY = 5;
++const hits = new Map<string, number[]>();
++function allow(ip: string) {
++	const now = Date.now();
++	const list = (hits.get(ip) ?? []).filter((t) => now - t < 864e5);
++	if (list.length >= PER_DAY) return false;
++	list.push(now);
++	hits.set(ip, list);
++	if (hits.size > 5000) hits.clear();
++	return true;
++}
++const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
++
++export const load = ({ url }) => ({ url: url.searchParams.get('url') ?? '' });
++
++export const actions = {
++	default: async ({ request, getClientAddress }) => {
++		const f = await request.formData();
++		const raw = String(f.get('url') ?? '').trim();
++		const city = String(f.get('city') ?? '').trim().slice(0, 60);
++		const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
++		if (!raw) return fail(400, { error: 'Paste your agency’s website or Instagram.', url: raw });
++		if (!allow(getClientAddress())) return fail(429, { error: `That’s ${PER_DAY} searches today. Create a free account to keep going.`, url: raw, limit: true });
++
++		let profile: AgencyProfile;
++		try {
++			profile = await profileFromUrl(raw);
++		} catch {
++			return fail(400, { error: 'That doesn’t look like a web address.', url: raw });
++		}
++		// the visitor corrected or completed what we found
++		if (city) profile = { ...profile, city, needs: undefined };
++		if (picked.length) profile = { ...profile, services: picked };
++		if (!profile.city) return { url: raw, profile, ask: profile.needs ?? 'Which city do you work in?' };
++
++		const run = await findProspects(profile, 5);
++		return { url: raw, profile, run };
++	}
++};
+diff --git a/src/routes/prospects/+page.svelte b/src/routes/prospects/+page.svelte
+new file mode 100644
+index 0000000..8d94892
+--- /dev/null
++++ b/src/routes/prospects/+page.svelte
+@@ -0,0 +1,164 @@
++<script lang="ts">
++	import { enhance } from '$app/forms';
++	import Logo from '#lib/components/Logo.svelte';
++	let { data, form } = $props();
++
++	let loading = $state(false);
++	let copied = $state('');
++	const SERVICES = [
++		['web', 'Websites'],
++		['app', 'Apps'],
++		['social', 'Social media'],
++		['seo', 'SEO'],
++		['branding', 'Branding'],
++		['ads', 'Ads']
++	] as const;
++	const steps = ['Reading your site…', 'Understanding what you sell…', 'Looking at businesses around you…', 'Checking their websites…', 'Writing the first messages…'];
++	let si = $state(0);
++	$effect(() => {
++		if (!loading) return;
++		si = 0;
++		const t = setInterval(() => (si = Math.min(steps.length - 1, si + 1)), 2600);
++		return () => clearInterval(t);
++	});
++	const copy = async (id: string, text: string) => {
++		await navigator.clipboard.writeText(text);
++		copied = id;
++		setTimeout(() => (copied = ''), 1600);
++	};
++	const url = $derived(form?.url ?? data.url);
++	const run = $derived(form && 'run' in form ? form.run : null);
++	const profile = $derived(form && 'profile' in form ? form.profile : null);
++	const services = $derived<string[]>(profile?.services ?? []);
++</script>
++
++<svelte:head>
++	<title>Find 5 clients for your agency — free · Undercut</title>
++	<meta name="description" content="Paste your agency’s URL. Undercut finds 5 real local businesses that need what you sell, checks their website and writes the first message. Free." />
++	<meta name="theme-color" content="#070807" />
++</svelte:head>
++
++<div class="landing min-h-dvh overflow-x-clip bg-[#070807] text-white">
++	<header class="mx-auto flex max-w-[1180px] items-center justify-between gap-4 px-4 pt-5 sm:px-6">
++		<a href="/" aria-label="Undercut home"><Logo light /></a>
++		<a href="/beta?from=prospects" class="btn btn-accent">Create free account →</a>
++	</header>
++
++	<section class="relative isolate mx-auto max-w-[1180px] px-4 pt-16 pb-10 sm:px-6 sm:pt-24">
++		<div class="pointer-events-none absolute top-0 left-1/2 -z-10 size-[700px] -translate-x-1/2 rounded-full bg-accent/15 blur-[140px]" aria-hidden="true"></div>
++		<p class="text-sm text-accent">Free tool · no account needed</p>
++		<h1 class="mt-3 max-w-3xl text-[40px] leading-[1.05] font-medium tracking-tight sm:text-[64px]">Your next 5 clients are <span class="text-accent">around the corner.</span></h1>
++		<p class="mt-4 max-w-xl text-lg text-white/60">Paste your agency’s website. We figure out what you sell, find local businesses that need it, check their site and write the first message.</p>
++
++		<form
++			method="POST"
++			class="mt-8 max-w-2xl"
++			use:enhance={() => {
++				loading = true;
++				return async ({ update }) => {
++					await update({ reset: false });
++					loading = false;
++				};
++			}}
++		>
++			<div class="flex flex-col gap-2 rounded-[28px] bg-white/[.06] p-2 ring-1 ring-white/10 focus-within:ring-accent/60 sm:flex-row">
++				<input name="url" value={url} required autocomplete="url" inputmode="url" placeholder="youragency.be or instagram.com/youragency" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-white/35" />
++				<button class="btn btn-accent justify-center px-6 py-3" disabled={loading}>{loading ? 'Searching…' : 'Find my 5 clients →'}</button>
++			</div>
++
++			{#if form && 'ask' in form && form.ask}
++				<div class="mt-4 rounded-[24px] bg-white/[.06] p-5 ring-1 ring-white/10">
++					<p class="text-sm text-white/80">{form.ask}</p>
++					<label class="mt-3 block text-xs text-white/50">City<input name="city" required value={profile?.city ?? ''} placeholder="Ixelles, Liège, Gent…" class="mt-1 w-full rounded-2xl bg-white/10 px-4 py-3 text-base text-white outline-none placeholder:text-white/35 focus:ring-1 focus:ring-accent" /></label>
++					<p class="mt-4 text-xs text-white/50">What do you sell?</p>
++					<div class="mt-2 flex flex-wrap gap-2">
++						{#each SERVICES as [k, l] (k)}
++							<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={services.includes(k)} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink">{l}</span></label>
++						{/each}
++					</div>
++				</div>
++			{:else if run && profile}
++				<!-- let them correct what we understood, then search again -->
++				<details class="mt-3 text-sm text-white/50">
++					<summary class="cursor-pointer">We understood: <b class="font-medium text-white/80">{profile.name}</b> · {profile.services.join(', ')} · {profile.city}. <u>Change</u></summary>
++					<div class="mt-3 rounded-[24px] bg-white/[.06] p-5">
++						<label class="block text-xs">City<input name="city" value={profile.city} class="mt-1 w-full rounded-2xl bg-white/10 px-4 py-3 text-base text-white outline-none focus:ring-1 focus:ring-accent" /></label>
++						<div class="mt-3 flex flex-wrap gap-2">
++							{#each SERVICES as [k, l] (k)}
++								<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={services.includes(k)} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm text-white peer-checked:bg-accent peer-checked:text-accent-ink">{l}</span></label>
++							{/each}
++						</div>
++						<button class="btn btn-ghost mt-4 text-white">Search again</button>
++					</div>
++				</details>
++			{/if}
++			{#if form?.error}
++				<p class="mt-3 text-sm text-[#ff8a7a]">{form.error}{#if 'limit' in form && form.limit} <a href="/beta?from=prospects" class="underline">Create a free account</a>{/if}</p>
++			{/if}
++		</form>
++
++		{#if loading}
++			<div class="mt-10 flex items-center gap-3 text-white/70" aria-live="polite">
++				<span class="size-2.5 animate-ping rounded-full bg-accent"></span>{steps[si]}
++			</div>
++		{/if}
++	</section>
++
++	{#if run && !loading}
++		<section class="mx-auto max-w-[1180px] px-4 pb-24 sm:px-6">
++			{#if run.error}
++				<p class="rounded-[24px] bg-white/[.06] p-5 text-white/80">{run.error}</p>
++			{:else if !run.prospects.length}
++				<p class="rounded-[24px] bg-white/[.06] p-5 text-white/80">We looked at {run.scanned} businesses around {profile?.city} and their online presence is already good. Try a nearby city or another service.</p>
++			{:else}
++				<p class="text-sm text-white/50">{run.scanned} businesses around {run.center?.label.split(',')[0]} looked at · the {run.prospects.length} that need you most</p>
++				<div class="mt-4 grid gap-4 lg:grid-cols-2">
++					{#each run.prospects as p, i (p.id)}
++						<article class="flex flex-col rounded-[28px] bg-white/[.05] p-5 ring-1 ring-white/10 sm:p-6">
++							<div class="flex items-start justify-between gap-4">
++								<div class="min-w-0">
++									<p class="text-xs text-white/50">{p.category}{p.address ? ` · ${p.address}` : ''}</p>
++									<h2 class="mt-1 truncate text-xl font-medium">{p.name}</h2>
++								</div>
++								<div class="shrink-0 text-right">
++									<p class="text-3xl font-medium text-accent">{p.score}</p>
++									<p class="text-[10px] tracking-wide text-white/40 uppercase">needs you</p>
++								</div>
++							</div>
++							<ul class="mt-4 flex flex-wrap gap-1.5">
++								{#each p.issues as x (x.key)}<li class="rounded-full bg-white/10 px-3 py-1 text-xs text-white/80">{x.label}</li>{/each}
++							</ul>
++							<div class="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/60">
++								{#if p.website}<a href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener nofollow" class="hover:text-white">↗ Website</a>{/if}
++								{#if p.phone}<a href="tel:{p.phone}" class="hover:text-white">☎ {p.phone}</a>{/if}
++								{#if p.instagram}<span>Instagram ✓</span>{/if}
++								<a href={p.osmUrl} target="_blank" rel="noopener" class="hover:text-white">Map</a>
++							</div>
++							{#if i === 0}
++								<div class="mt-5 rounded-[20px] bg-black/40 p-4">
++									<p class="text-xs text-accent">First message — review it, then send it yourself</p>
++									<p class="mt-2 text-sm whitespace-pre-line text-white/80">{p.message}</p>
++									<button type="button" class="btn btn-ghost mt-3 text-sm text-white" onclick={() => copy(p.id, p.message)}>{copied === p.id ? 'Copied ✓' : 'Copy message'}</button>
++								</div>
++							{:else}
++								<a href="/beta?from=prospects" class="mt-5 block rounded-[20px] bg-black/40 p-4 text-sm text-white/50 hover:text-white">
++									<span class="block blur-[3px] select-none" aria-hidden="true">Bonjour {p.name}, en regardant votre présence en ligne j’ai remarqué…</span>
++									<span class="mt-2 block text-accent">Create a free account to see this message →</span>
++								</a>
++							{/if}
++						</article>
++					{/each}
++				</div>
++
++				<div class="mt-8 flex flex-col items-start justify-between gap-5 rounded-[32px] bg-accent p-6 text-accent-ink sm:flex-row sm:items-center sm:p-8">
++					<div>
++						<p class="text-2xl font-medium">Want 50 like these every month?</p>
++						<p class="mt-1 opacity-70">Your own dashboard: new prospects every week, a simple pipeline, and your clients’ sites and apps in one place.</p>
++					</div>
++					<a href="/beta?from=prospects" class="btn shrink-0 bg-[#0D0D0D] text-white hover:bg-black">Build my dashboard →</a>
++				</div>
++			{/if}
++			<p class="mt-6 text-xs text-white/35">Business data © <a href="https://www.openstreetmap.org/copyright" class="underline" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Websites checked live by Undercut. You send every message yourself.</p>
++		</section>
++	{/if}
++</div>
+-- 
+2.43.0
+

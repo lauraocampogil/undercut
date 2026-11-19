@@ -1,0 +1,1973 @@
+From 34039b6db1d2c398864a57ee16f0e6952236ac4f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 16:41:42 +0100
+Subject: [PATCH] Sober neutral design with the agency's own colour
+
+- Light neutral base (off-white, black, soft silver gradients); no more lime by default
+- Dashboard colour comes from the agency's site (theme-color, CSS brand vars, most used colour), changeable in Customise or by typing 'make it blue'
+- Theme applied as CSS variables on the app; dark surfaces get a readable light variant
+- New light landing with live 'try it in your colour' dashboard demo; free tool page in the same style
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Assistant.svelte           |   6 +-
+ src/lib/components/BarChart.svelte            |   2 +-
+ src/lib/components/HealthRing.svelte          |   2 +-
+ src/lib/components/Logo.svelte                |   6 +-
+ src/lib/server/agency-actions.ts              |  32 +-
+ src/lib/server/agency-os.ts                   |  13 +-
+ src/lib/server/agency-profile.ts              |  44 +
+ src/lib/theme.ts                              |  30 +
+ src/routes/+page.svelte                       | 862 +++++-------------
+ src/routes/admin/+page.svelte                 |   2 +-
+ src/routes/app/+layout.server.ts              |   6 +
+ src/routes/app/+layout.svelte                 |   9 +-
+ src/routes/app/+page.svelte                   |  33 +-
+ src/routes/app/clients/[id]/+layout.svelte    |   2 +-
+ .../app/clients/[id]/campaigns/+page.svelte   |   6 +-
+ .../app/clients/[id]/goals/+page.svelte       |   2 +-
+ .../app/clients/[id]/keywords/+page.svelte    |   8 +-
+ .../app/clients/[id]/paywall/+page.svelte     |   2 +-
+ .../app/clients/[id]/search/+page.svelte      |   2 +-
+ src/routes/app/clients/[id]/seo/+page.svelte  |   6 +-
+ .../app/clients/[id]/store/+page.svelte       |   6 +-
+ src/routes/app/prospects/+page.svelte         |   2 +-
+ src/routes/app/settings/alerts/+page.svelte   |   2 +-
+ src/routes/app/settings/team/+page.svelte     |   2 +-
+ src/routes/layout.css                         |  42 +-
+ src/routes/onboarding/+page.svelte            |   4 +-
+ src/routes/prospects/+page.svelte             |  94 +-
+ 27 files changed, 493 insertions(+), 734 deletions(-)
+ create mode 100644 src/lib/theme.ts
+
+diff --git a/src/lib/components/Assistant.svelte b/src/lib/components/Assistant.svelte
+index 0ff6b47..a8638e7 100644
+--- a/src/lib/components/Assistant.svelte
++++ b/src/lib/components/Assistant.svelte
+@@ -92,7 +92,7 @@
+ </script>
+ 
+ {#if !open}
+-	<button class="group no-print fixed right-4 bottom-4 z-40 grid size-14 place-items-center rounded-full bg-ink text-accent shadow-[0_12px_40px_-12px_rgba(0,0,0,.6)] transition-transform hover:-translate-y-0.5 sm:right-6 sm:bottom-6" onclick={() => (open = true)} aria-label="Ask Undercut AI (⌘J)" title="Ask Undercut AI (⌘J)">
++	<button class="group no-print on-dark fixed right-4 bottom-4 z-40 grid size-14 place-items-center rounded-full bg-ink text-accent shadow-[0_12px_40px_-12px_rgba(0,0,0,.6)] transition-transform hover:-translate-y-0.5 sm:right-6 sm:bottom-6" onclick={() => (open = true)} aria-label="Ask Undercut AI (⌘J)" title="Ask Undercut AI (⌘J)">
+ 		<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+ 		<span class="pointer-events-none absolute right-full mr-3 hidden rounded-full bg-ink px-3 py-1.5 text-xs whitespace-nowrap text-white group-hover:block">Ask Undercut AI · ⌘J</span>
+ 	</button>
+@@ -100,7 +100,7 @@
+ 	<aside class="no-print fixed inset-0 z-50 flex flex-col bg-paper sm:inset-auto sm:top-3 sm:right-3 sm:bottom-3 sm:w-[420px] sm:rounded-[28px] sm:shadow-[0_30px_80px_-20px_rgba(0,0,0,.45)]" aria-label="Undercut AI">
+ 		<header class="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+ 			<div class="flex items-center gap-2.5">
+-				<span class="grid size-9 place-items-center rounded-full bg-ink text-accent">
++				<span class="on-dark grid size-9 place-items-center rounded-full bg-ink text-accent">
+ 					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+ 				</span>
+ 				<div>
+@@ -133,7 +133,7 @@
+ 							<div class="mt-2 flex flex-col gap-1.5">
+ 								{#each m.actions as a, ai (ai)}
+ 									{#if m.done?.[ai]}
+-										<p class="rounded-full bg-[#E4F5B8] px-4 py-2 text-xs text-accent-ink">{m.done[ai]}</p>
++										<p class="rounded-full bg-accent-soft px-4 py-2 text-xs text-ink">{m.done[ai]}</p>
+ 									{:else}
+ 										<button class="flex items-center gap-2 rounded-full px-4 py-2 text-left text-sm font-medium {a.type === 'open' || a.type === 'mark_done' ? 'border border-line bg-white hover:border-ink' : 'bg-accent text-accent-ink hover:bg-[#b8e81f]'}" onclick={() => run(mi, ai, a)}>
+ 											<span>{a.type === 'open' ? '→' : a.type === 'mark_done' ? '✓' : '⚡'}</span>{a.label}
+diff --git a/src/lib/components/BarChart.svelte b/src/lib/components/BarChart.svelte
+index 0b2098b..beb7634 100644
+--- a/src/lib/components/BarChart.svelte
++++ b/src/lib/components/BarChart.svelte
+@@ -26,7 +26,7 @@
+ 			width={bw}
+ 			height={bh}
+ 			rx={Math.min(bw / 2, 14)}
+-			fill={i === active ? '#C6F432' : dark ? 'rgba(255,255,255,.14)' : '#E7E7E2'}
++			fill={i === active ? 'var(--color-accent)' : dark ? 'rgba(255,255,255,.14)' : '#E7E7E2'}
+ 			class="transition-[fill] duration-150"
+ 			role="presentation"
+ 			onpointerenter={() => (hover = i)}
+diff --git a/src/lib/components/HealthRing.svelte b/src/lib/components/HealthRing.svelte
+index 0dd4280..a20bfab 100644
+--- a/src/lib/components/HealthRing.svelte
++++ b/src/lib/components/HealthRing.svelte
+@@ -4,7 +4,7 @@
+ 	const stroke = $derived(Math.max(5, size * 0.13));
+ 	const r = $derived(size / 2 - stroke / 2 - 1);
+ 	const c = $derived(2 * Math.PI * r);
+-	const color = $derived(score >= 75 ? (dark ? '#C6F432' : '#0D0D0D') : score >= 50 ? '#E3A21A' : '#E0473E');
++	const color = $derived(score >= 75 ? (dark ? 'var(--color-accent)' : '#0D0D0D') : score >= 50 ? '#E3A21A' : '#E0473E');
+ </script>
+ 
+ <svg width={size} height={size} viewBox="0 0 {size} {size}" role="img" aria-label="Health score {score} out of 100" class="shrink-0">
+diff --git a/src/lib/components/Logo.svelte b/src/lib/components/Logo.svelte
+index e770e81..2aa93f3 100644
+--- a/src/lib/components/Logo.svelte
++++ b/src/lib/components/Logo.svelte
+@@ -11,10 +11,10 @@
+ 			<clipPath id="t{uid}"><path d="M0 0H32V9L0 19Z" /></clipPath>
+ 			<clipPath id="b{uid}"><path d="M0 20.8L32 10.8V32H0Z" /></clipPath>
+ 		</defs>
+-		<rect width="32" height="32" rx="9" fill={light ? '#C6F432' : '#0D0D0D'} />
+-		<path d={U} fill={light ? '#0D0D0D' : '#C6F432'} clip-path="url(#t{uid})" />
++		<rect width="32" height="32" rx="9" fill={light ? '#FFFFFF' : '#0D0D0D'} />
++		<path d={U} fill={light ? '#0D0D0D' : '#FFFFFF'} clip-path="url(#t{uid})" />
+ 		<g class="transition-transform duration-300 group-hover/logo:translate-x-[1px]" transform="translate(1.6 0)">
+-			<path d={U} fill={light ? '#0D0D0D' : '#C6F432'} clip-path="url(#b{uid})" />
++			<path d={U} fill={light ? '#0D0D0D' : '#FFFFFF'} clip-path="url(#b{uid})" />
+ 		</g>
+ 	</svg>
+ 	{#if wordmark}<span class="text-[22px] leading-none font-semibold tracking-[-0.05em] {light ? 'text-white' : ''}">undercut</span>{/if}
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index 5cec07a..4d46136 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -1,7 +1,8 @@
+ // Form actions shared by the cockpit (/app) and the prospects page (/app/prospects).
+ import { fail, type RequestEvent } from '@sveltejs/kit';
+ import { profileFromUrl, type Service } from './agency-profile.ts';
+-import { applyAsk, findMore, getOS, removeItem, setGoal, setProfile, updateItem, type Stage } from './agency-os.ts';
++import { applyAsk, findMore, getOS, removeItem, setGoal, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
++import { isHex } from '#lib/theme.ts';
+ 
+ const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
+ const STAGES: Stage[] = ['new', 'contacted', 'talking', 'won', 'lost'];
+@@ -61,8 +62,37 @@ export const agencyActions = {
+ 		setGoal(Number((await request.formData()).get('won')) || 2);
+ 		return { ok: true };
+ 	},
++	theme: async ({ request }: E) => {
++		const f = await request.formData();
++		const v = String(f.get('accent') ?? '');
++		if (v === 'site') setTheme(getOS().profile?.color ?? null);
++		else setTheme(isHex(v) ? v : null);
++		return { ok: true };
++	},
+ 	ask: async ({ request }: E) => {
+ 		const text = String((await request.formData()).get('q') ?? '').slice(0, 300);
++		// colour requests: "make it blue", "en violet", "neutre", "couleur de mon site"
++		const t = text.toLowerCase();
++		const COLORS: [RegExp, string | null | 'site'][] = [
++			[/neutr|black|noir|zwart|sobre|no colou?r|sans couleur/, null],
++			[/(my|mon|de mon|mijn) site|site colou?r|couleur du site/, 'site'],
++			[/blue|bleu|blauw/, '#2F6BFF'],
++			[/purple|violet|paars/, '#7C5CFF'],
++			[/orange|oranje/, '#E8590C'],
++			[/pink|rose|roze/, '#E64980'],
++			[/lime|citron/, '#C6F432'],
++			[/green|vert|groen/, '#12B886'],
++			[/yellow|jaune|geel/, '#F2C94C'],
++			[/red|rouge|rood/, '#E03131']
++		];
++		if (/colou?r|couleur|kleur|make it|en |thème|theme/.test(t)) {
++			const hit = COLORS.find(([re]) => re.test(t));
++			if (hit) {
++				const v = hit[1] === 'site' ? getOS().profile?.color ?? null : hit[1];
++				setTheme(v);
++				return { asked: v ? 'Done — new colour applied.' : 'Back to neutral black & white.' };
++			}
++		}
+ 		return { asked: applyAsk(text) };
+ 	}
+ };
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index da608b1..1e5209a 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -25,14 +25,15 @@ export type AgencyOS = {
+ 	order: BlockId[];
+ 	runs: { at: string; n: number }[]; // prospect searches, for the monthly quota
+ 	goal: { wonPerMonth: number };
++	theme: { accent: string | null; picked?: boolean }; // null = neutral; picked = chosen by the user (not from the site)
+ };
+ 
+ const FILE = 'agency-os.json';
+ const DEFAULT_BLOCKS = Object.fromEntries(BLOCKS.map((b) => [b.id, b.id !== 'content'])) as Record<BlockId, boolean>;
+ 
+ export function getOS(): AgencyOS {
+-	const s = readData<AgencyOS>(FILE, { profile: null, pipeline: [], blocks: DEFAULT_BLOCKS, order: BLOCKS.map((b) => b.id), runs: [], goal: { wonPerMonth: 2 } });
+-	return { ...s, goal: s.goal ?? { wonPerMonth: 2 }, blocks: { ...DEFAULT_BLOCKS, ...s.blocks }, order: [...new Set([...(s.order ?? []), ...BLOCKS.map((b) => b.id)])] as BlockId[] };
++	const s = readData<AgencyOS>(FILE, { profile: null, pipeline: [], blocks: DEFAULT_BLOCKS, order: BLOCKS.map((b) => b.id), runs: [], goal: { wonPerMonth: 2 }, theme: { accent: null } });
++	return { ...s, goal: s.goal ?? { wonPerMonth: 2 }, theme: s.theme ?? { accent: null }, blocks: { ...DEFAULT_BLOCKS, ...s.blocks }, order: [...new Set([...(s.order ?? []), ...BLOCKS.map((b) => b.id)])] as BlockId[] };
+ }
+ export function saveOS(s: AgencyOS) {
+ 	writeData(FILE, s);
+@@ -83,6 +84,14 @@ export function removeItem(id: string) {
+ export function setProfile(profile: AgencyProfile) {
+ 	const s = getOS();
+ 	s.profile = profile;
++	// the dashboard takes the colour of the agency's site, unless the user picked one
++	if (profile.color && !s.theme.picked) s.theme = { accent: profile.color };
++	saveOS(s);
++}
++
++export function setTheme(accent: string | null) {
++	const s = getOS();
++	s.theme = accent ? { accent, picked: true } : { accent: null, picked: true };
+ 	saveOS(s);
+ }
+ 
+diff --git a/src/lib/server/agency-profile.ts b/src/lib/server/agency-profile.ts
+index e2b9a43..77dc534 100644
+--- a/src/lib/server/agency-profile.ts
++++ b/src/lib/server/agency-profile.ts
+@@ -14,6 +14,7 @@ export type AgencyProfile = {
+ 	summary: string;
+ 	source: 'site' | 'manual' | 'ai';
+ 	needs?: string; // what could not be detected
++	color?: string; // brand colour found on the site (#rrggbb)
+ };
+ 
+ export const SERVICE_LABEL: Record<Service, string> = { web: 'Websites', app: 'Mobile apps', social: 'Social media', seo: 'SEO', branding: 'Branding & design', ads: 'Ads' };
+@@ -45,6 +46,48 @@ export function normaliseUrl(input: string) {
+ 	return u.toString();
+ }
+ 
++// ---------- brand colour ----------
++const rgbOf = (h: string) => {
++	let x = h.replace('#', '');
++	if (x.length === 3) x = x.split('').map((c) => c + c).join('');
++	const n = parseInt(x, 16);
++	return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
++};
++const saturated = (h: string) => {
++	const [r, g, b] = rgbOf(h);
++	const max = Math.max(r, g, b), min = Math.min(r, g, b);
++	return max - min > 60 && max > 60; // not grey, not almost black
++};
++const norm = (h: string) => {
++	let x = h.replace('#', '').toLowerCase();
++	if (x.length === 3) x = x.split('').map((c) => c + c).join('');
++	return `#${x}`;
++};
++/** The agency's brand colour: theme-color meta, CSS brand variables, then the most used saturated colour in its CSS. */
++export async function brandColor(html: string, base: string): Promise<string | undefined> {
++	const meta = /<meta[^>]+name=["'](?:theme-color|msapplication-TileColor)["'][^>]*content=["'](#[0-9a-f]{3,6})["']/i.exec(html)?.[1];
++	if (meta && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(meta) && saturated(meta)) return norm(meta);
++	let css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]).join('\n') + ' ' + [...html.matchAll(/style=["']([^"']+)["']/gi)].map((m) => m[1]).join(';');
++	const sheets = [...html.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]*>/gi)].map((m) => /href=["']([^"']+)["']/i.exec(m[0])?.[1]).filter(Boolean).slice(0, 2) as string[];
++	for (const href of sheets) {
++		try {
++			const r = await fetch(new URL(href, base), { signal: AbortSignal.timeout(5000) });
++			if (r.ok) css += '\n' + (await r.text()).slice(0, 600_000);
++		} catch {
++			/* ignore */
++		}
++	}
++	const v = /--(?:wp--preset--color--)?(?:primary|brand|accent|main|theme)(?:-color)?\s*:\s*(#[0-9a-f]{6}|#[0-9a-f]{3})\b/i.exec(css)?.[1];
++	if (v && saturated(v)) return norm(v);
++	const count = new Map<string, number>();
++	for (const m of css.matchAll(/#([0-9a-f]{6}|[0-9a-f]{3})\b/gi)) {
++		const h = norm(m[0]);
++		if (saturated(h)) count.set(h, (count.get(h) ?? 0) + 1);
++	}
++	const top = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
++	return top && top[1] >= 2 ? top[0] : undefined;
++}
++
+ async function aiRefine(p: AgencyProfile, text: string): Promise<AgencyProfile | null> {
+ 	if (!env.ANTHROPIC_API_KEY) return null;
+ 	try {
+@@ -110,6 +153,7 @@ export async function profileFromUrl(raw: string): Promise<AgencyProfile> {
+ 		lang: lang === 'nl' ? 'nl' : lang === 'en' ? 'en' : 'fr',
+ 		summary: (desc || headings.split(' · ')[0] || '').slice(0, 200)
+ 	};
++	p.color = await brandColor(html, url).catch(() => undefined);
+ 	const ai = await aiRefine(p, text);
+ 	if (ai) p = ai;
+ 	if (!p.city) p.needs = 'We could not find your city — pick it so we search the right area.';
+diff --git a/src/lib/theme.ts b/src/lib/theme.ts
+new file mode 100644
+index 0000000..5811d87
+--- /dev/null
++++ b/src/lib/theme.ts
+@@ -0,0 +1,30 @@
++// The agency's colour → CSS variables. Neutral (black & white) when no colour is set.
++const hex = (h: string) => {
++	const m = /^#?([0-9a-f]{6})$/i.exec(h.trim());
++	if (!m) return null;
++	const n = parseInt(m[1], 16);
++	return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
++};
++const lum = ([r, g, b]: number[]) => {
++	const f = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
++	return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
++};
++const toHex = (c: number[]) => '#' + c.map((x) => Math.round(Math.max(0, Math.min(255, x))).toString(16).padStart(2, '0')).join('');
++const mix = (a: number[], b: number[], t: number) => a.map((x, i) => x + (b[i] - x) * t);
++
++export const isHex = (h: string) => Boolean(hex(h));
++
++/** Inline style for the app root. `accent` null → neutral. */
++export function themeStyle(accent: string | null | undefined) {
++	const c = accent ? hex(accent) : null;
++	if (!c) return '';
++	const L = lum(c);
++	const ink = L > 0.45 ? '#0d0d0d' : '#ffffff';
++	// on dark cards, a too-dark colour is lifted so it stays readable
++	let dark = c;
++	for (let i = 0; i < 6 && lum(dark) < 0.18; i++) dark = mix(dark, [255, 255, 255], 0.25);
++	const darkInk = lum(dark) > 0.45 ? '#0d0d0d' : '#ffffff';
++	return `--color-accent:${toHex(c)};--color-accent-soft:color-mix(in oklab, ${toHex(c)} 12%, white);--color-accent-ink:${ink};--accent-dark:${toHex(dark)};--accent-dark-ink:${darkInk}`;
++}
++
++export const SWATCHES = ['#0D0D0D', '#2F6BFF', '#7C5CFF', '#E8590C', '#E64980', '#12B886', '#C6F432', '#F2C94C'];
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index c04aecf..af12f31 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -2,84 +2,51 @@
+ 	import { slide } from 'svelte/transition';
+ 	import Logo from '#lib/components/Logo.svelte';
+ 	import SplitText from '#lib/components/SplitText.svelte';
+-	import { reveal, countUp, scrub, pointer, inview } from '#lib/motion.ts';
++	import { reveal, inview, pointer } from '#lib/motion.ts';
+ 	import { PLANS } from '#lib/plans.ts';
++	import { themeStyle } from '#lib/theme.ts';
+ 
+ 	let open = $state<number | null>(0);
+ 	let menu = $state(false);
+ 	let y = $state(0);
++	let going = $state(false);
+ 
+-	const audiences = ['web agencies.', 'app studios.', 'communication agencies.'];
+-	let wi = $state(0);
+-	$effect(() => {
+-		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+-		const t = setInterval(() => (wi = (wi + 1) % audiences.length), 2600);
+-		return () => clearInterval(t);
+-	});
+-
+-	// wireframe globe (deterministic → same on server and client)
+-	const R = 300;
+-	const meridians = Array.from({ length: 12 }, (_, i) => i);
+-	const parallels = [-70, -50, -30, -10, 10, 30, 50, 70].map((lat) => ({ y: R * Math.sin((lat * Math.PI) / 180), rx: R * Math.cos((lat * Math.PI) / 180) }));
+-
+-	const ticker = [
+-		'Coiffure Lila · site not mobile → new prospect',
+-		'Boulangerie Dupont · no website → message ready',
+-		'Kiné Schaerbeek · +12 leads from Google Maps',
+-		'Resto Moderne · signed €150/month',
+-		'Moove app · crash-free 99.7%',
+-		'Atelier Brut · follow up today'
+-	];
+-
+-	const loop = [
+-		{ t: 'Paste', d: 'Your agency’s URL. We read what you sell and where.', a: -90 },
+-		{ t: 'Find', d: 'Local businesses that need it — each website checked.', a: 0 },
+-		{ t: 'Contact', d: 'The first message is written. You send it.', a: 90 },
+-		{ t: 'Keep', d: 'Their site or app in your dashboard: fixes, leads, reports.', a: 180 }
++	// "Starts neutral, becomes yours": the demo dashboard takes the colour you pick
++	const demo = [
++		{ name: 'Neutral', c: null },
++		{ name: 'Studio Nova', c: '#2F6BFF' },
++		{ name: 'Atelier Brut', c: '#E8590C' },
++		{ name: 'Pixel & Co', c: '#7C5CFF' },
++		{ name: 'Maison Verte', c: '#12B886' }
+ 	];
+-	let step = $state(0);
++	let pick = $state(0);
++	let auto = $state(true);
+ 	$effect(() => {
+-		if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+-		const t = setInterval(() => (step = (step + 1) % loop.length), 2200);
++		if (!auto || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
++		const t = setInterval(() => (pick = (pick + 1) % demo.length), 2600);
+ 		return () => clearInterval(t);
+ 	});
+-
+-	const statement =
+-		'Agencies don’t need another tool with forty tabs. They need three things, every Monday: [who to call next], [which client needs them], [what to fix]. One screen. Built from your own URL. The rest is noise.';
+-	const lit = (() => {
+-		let on = false;
+-		return statement.split(' ').map((raw) => {
+-			if (raw.startsWith('[')) on = true;
+-			const w = { t: raw.replace(/[[\]]/g, ''), hi: on };
+-			if (raw.includes(']')) on = false;
+-			return w;
+-		});
+-	})();
+-
+-	const cuts = ['Bought lead lists', 'Ten open tabs', 'CRM setup', 'Vanity metrics', 'PDFs nobody reads'];
+-	const channels = [
+-		['Google Search', 46],
+-		['Google Maps', 24],
+-		['Instagram', 14],
+-		['Direct', 10],
+-		['Ads', 6]
+-	] as const;
++	const choose = (i: number) => {
++		auto = false;
++		pick = i;
++	};
++
++	const steps = [
++		{ n: '01', t: 'Paste your URL', d: 'Your site or your Instagram. We read what you sell, where you work — and your brand colour.' },
++		{ n: '02', t: 'Get prospects', d: 'Real businesses around you. Each website checked: mobile, speed, https, last update, socials.' },
++		{ n: '03', t: 'Send the message', d: 'The first message is written from what we found. You read it and send it yourself.' },
++		{ n: '04', t: 'Keep the client', d: 'Once they sign, their site or app lives in your dashboard: leads, fixes, reports.' }
++	];
+ 	const faqs = [
+-		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut then visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
+-		{ q: 'Do you send the messages for me?', a: 'No, on purpose. Undercut writes the first message from what it found; you read it, change it and send it yourself — from your email or by phone. No spam, no burnt domain.' },
++		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
++		{ q: 'Do you send the messages for me?', a: 'No, on purpose. Undercut writes the first message from what it found; you read it, change it and send it yourself. No spam, no burnt domain.' },
++		{ q: 'Can I make the dashboard mine?', a: 'Yes. It starts in black & white and takes your site’s colour. Change the colour, hide blocks or reorder them — or just type “hide agenda” or “make it blue”.' },
+ 		{ q: 'What if my agency is only on Instagram?', a: 'Paste the Instagram link and tell us your city and what you sell. That’s enough to start.' },
+-		{ q: 'Do I still need Google Analytics?', a: 'No. Undercut reads GA4 if your clients have it — but the snippet alone counts visits, sources, landing pages and leads. Cookieless. Many clients can drop the cookie banner too.' },
+-		{ q: 'Is it GDPR-friendly?', a: 'No cookies, no IP addresses, nothing typed in forms is ever recorded. Data in the EU.' },
+-		{ q: 'How do fixes go live without touching the CMS?', a: 'Approved fixes (titles, descriptions, image texts, structured data) are applied by the snippet on page load, and Google reads them. Each one also comes with the code for a permanent fix.' },
+-		{ q: 'Per website or per pageview?', a: 'Per client. A client with 500k pageviews costs the same as one with 5k. Traffic is good news — it shouldn’t be a bill.' },
+-		{ q: 'Can my clients log in?', a: 'Yes. They only see their own dashboard and report.' },
+-		{ q: 'Apps too?', a: 'Yes. Link Firebase and the App Store ID: users, retention, crashes and reviews next to the website.' }
++		{ q: 'What does it track for my clients?', a: 'Leads (forms, calls, WhatsApp), visits, Google Search and Maps, speed and SEO with one-click fixes, heatmaps — and for apps: users, crashes, store reviews and paywall.' },
++		{ q: 'Is it GDPR-friendly?', a: 'No cookies, no IP addresses, nothing typed in forms is recorded. Data in the EU.' }
+ 	];
+-	const cta = { href: '/beta', label: 'Join the free beta' };
+-	let heroUrl = $state('');
+-	let going = $state(false);
+ 	const nav = [
+-		['#loop', 'How it works'],
++		['#how', 'How it works'],
+ 		['/prospects', 'Free tool'],
+ 		['#features', 'Features'],
+ 		['#pricing', 'Pricing'],
+@@ -90,672 +57,307 @@
+ <svelte:window bind:scrollY={y} />
+ <svelte:head>
+ 	<title>Undercut — find clients, keep them. The dashboard for agencies.</title>
+-	<meta name="description" content="Paste your agency’s URL. Undercut finds local businesses that need what you sell, writes the first message, and keeps your clients’ sites and apps healthy — one dashboard, built for you." />
+-	<meta name="theme-color" content="#070807" />
++	<meta name="description" content="Paste your agency’s URL. Undercut finds local businesses that need what you sell, writes the first message, and keeps your clients’ sites and apps healthy — one dashboard, in your colours." />
++	<meta name="theme-color" content="#F7F7F5" />
+ </svelte:head>
+ 
+-{#snippet mark(size = 18, cls = '')}
+-	<svg width={size} height={size} viewBox="0 0 32 32" class="shrink-0 {cls}" aria-hidden="true"><path d="M7.5 6.5h5.5v10.5a3 3 0 0 0 6 0V6.5h5.5v10.5a8.5 8.5 0 0 1-17 0z" fill="currentColor" style="clip-path:polygon(0 0,100% 0,100% 25%,0 53%)" /><path d="M7.5 6.5h5.5v10.5a3 3 0 0 0 6 0V6.5h5.5v10.5a8.5 8.5 0 0 1-17 0z" fill="currentColor" transform="translate(1.6 0)" style="clip-path:polygon(0 63%,100% 35%,100% 100%,0 100%)" /></svg>
+-{/snippet}
+-
+-{#snippet diamond()}
+-	<svg width="16" height="10" viewBox="0 0 16 10" class="shrink-0 text-accent/70" aria-hidden="true"><path d="M0 5h4M12 5h4M8 1l3 4-3 4-3-4z" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
++{#snippet urlForm(id: string)}
++	<form method="POST" action="/prospects" class="w-full max-w-xl" onsubmit={() => (going = true)}>
++		<div class="flex flex-col gap-2 rounded-[22px] border border-line bg-white p-1.5 shadow-[0_8px_30px_-12px_rgba(0,0,0,.15)] focus-within:border-ink/40 sm:flex-row">
++			<label class="sr-only" for={id}>Your agency’s website or Instagram</label>
++			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.be" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-muted" />
++			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-0.5">→</span></button>
++		</div>
++	</form>
+ {/snippet}
+ 
+-{#snippet ring(v: number, label: string, i: number)}
+-	<div class="flex flex-col items-center gap-2">
+-		<div class="relative grid place-items-center">
+-			<svg viewBox="0 0 36 36" class="size-16 -rotate-90 sm:size-[72px]">
+-				<circle cx="18" cy="18" r="15.5" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="3" />
+-				<circle cx="18" cy="18" r="15.5" fill="none" stroke={v >= 90 ? '#C6F432' : '#E3A21A'} stroke-width="3" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" class="transition-[stroke-dashoffset] duration-[1400ms] ease-[cubic-bezier(.2,.75,.15,1)] group-[.in]:[stroke-dashoffset:var(--o)]" style="--o:{100 - v};transition-delay:{200 + i * 120}ms" />
+-			</svg>
+-			<p class="absolute text-sm font-semibold">{v}</p>
++<!-- A small, live dashboard: neutral, or in the agency's colour -->
++{#snippet mock(accent: string | null, name: string)}
++	<div class="overflow-hidden rounded-[22px] bg-paper text-left text-ink transition-colors duration-700" style={themeStyle(accent)}>
++		<div class="grid md:grid-cols-[170px_1fr]">
++			<aside class="hidden flex-col gap-1 border-r border-line p-3 text-[12px] md:flex">
++				<div class="flex items-center gap-2 px-2 pb-3"><span class="grid size-6 place-items-center rounded-md bg-accent text-[10px] font-semibold text-accent-ink transition-colors duration-700">{name.slice(0, 1)}</span><b class="truncate font-medium">{name}</b></div>
++				{#each [['Dashboard', true], ['Prospects', false], ['Alerts', false]] as [l, a] (l)}<span class="rounded-lg px-3 py-1.5 transition-colors duration-700 {a ? 'bg-accent text-accent-ink' : 'text-ink-2'}">{l}</span>{/each}
++				<p class="mt-3 px-3 text-[10px] text-muted uppercase">Clients</p>
++				{#each ['Kiné Schaerbeek', 'Maison Lou', 'Moove app'] as c (c)}<span class="px-3 py-1 text-ink-2">{c}</span>{/each}
++			</aside>
++			<div class="p-4 sm:p-5">
++				<div class="flex flex-wrap items-end justify-between gap-3">
++					<div><p class="text-[11px] text-muted">Good morning</p><p class="display text-[30px] leading-none sm:text-[36px]">Your week</p></div>
++					<div class="flex gap-5 text-right">{#each [['7', 'to contact'], ['3', 'talking'], ['1/2', 'won']] as [v, l] (l)}<div><p class="big text-[24px] leading-none">{v}</p><p class="text-[10px] text-muted">{l}</p></div>{/each}</div>
++				</div>
++				<div class="mt-3 grid gap-2 lg:grid-cols-[1.5fr_1fr]">
++					<div class="card-dark p-4">
++						<p class="flex justify-between text-[11px]"><span class="text-accent transition-colors duration-700">New prospects · Ixelles</span><span class="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-ink transition-colors duration-700">+ Find 5</span></p>
++						<ul class="mt-3 space-y-1.5">
++							{#each [[90, 'Coiffure Lila', 'not mobile · no https'], [70, 'Boulangerie Dupont', 'no website'], [55, 'Cabinet Martin', 'not updated since 2019']] as [sc, nm, why] (nm)}
++								<li class="flex items-center gap-2.5 rounded-xl bg-white/[.07] px-2.5 py-2"><span class="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[10px] font-semibold text-accent-ink transition-colors duration-700">{sc}</span><span class="min-w-0"><b class="block truncate text-[12px] font-medium">{nm}</b><span class="block truncate text-[10px] text-white/50">{why}</span></span></li>
++							{/each}
++						</ul>
++					</div>
++					<div class="grid gap-2">
++						<div class="card p-4">
++							<p class="text-[11px] text-muted">Pipeline</p>
++							{#each [['Contacted', 70], ['Talking', 40], ['Won', 20]] as [l, w] (l)}<p class="mt-2 grid grid-cols-[64px_1fr] items-center gap-2 text-[11px]"><span class="text-muted">{l}</span><span class="h-2 rounded-full bg-tile"><span class="block h-full rounded-full transition-colors duration-700 {l === 'Won' ? 'bg-accent' : 'bg-ink/80'}" style="width:{w}%"></span></span></p>{/each}
++						</div>
++						<div class="card p-4">
++							<p class="text-[11px] text-muted">This week</p>
++							<ul class="mt-2 space-y-1.5">
++								{#each ['Follow up · Atelier Brut', 'Maison Lou: 3 pages without description'] as t, i (t)}<li class="flex items-center gap-2 rounded-xl bg-tile px-3 py-1.5 text-[11px]"><span class="size-1.5 shrink-0 rounded-full {i ? 'bg-[#E3A21A]' : 'bg-bad'}"></span><span class="truncate">{t}</span></li>{/each}
++							</ul>
++						</div>
++					</div>
++				</div>
++				<div class="mt-2 grid grid-cols-3 gap-2">
++					{#each [['Kiné Schaerbeek', '46 leads', 72], ['Maison Lou', '3,501 visits', 58], ['Moove app', '1,204 users', 91]] as [c, m, h] (c)}
++						<div class="card p-3"><p class="truncate text-[11px] text-muted">{c}</p><p class="mt-1 flex items-center justify-between gap-1"><span class="truncate text-[13px] font-medium">{m}</span><span class="grid size-7 shrink-0 place-items-center rounded-full border-[3px] text-[9px] font-semibold transition-colors duration-700 {Number(h) > 80 ? 'border-accent' : 'border-line'}">{h}</span></p></div>
++					{/each}
++				</div>
++			</div>
+ 		</div>
+-		<p class="text-[11px] text-white/50">{label}</p>
+ 	</div>
+ {/snippet}
+ 
+-<div class="landing min-h-dvh overflow-x-clip bg-[#070807] text-white">
++<div class="min-h-dvh overflow-x-clip bg-paper text-ink">
+ 	<!-- ================= NAV ================= -->
+-	<header class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4">
+-		<div class="mx-auto flex max-w-[1280px] items-center justify-between gap-4">
+-			<a href="/" aria-label="Undercut home" class="rounded-full px-2 py-1.5 transition-colors {y > 40 ? 'bg-black/40 backdrop-blur-xl' : ''}"><Logo light /></a>
+-			<nav class="glass hidden items-center gap-1 rounded-full p-1 text-sm transition-colors md:flex {y > 40 ? 'bg-black/60!' : ''}">
+-				{#each nav as [h, l] (h)}<a href={h} class="rounded-full px-4 py-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white">{l}</a>{/each}
++	<header class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5">
++		<div class="mx-auto flex max-w-[1200px] items-center justify-between gap-4 rounded-full py-1.5 pr-1.5 pl-3 transition-all {y > 30 ? 'border border-line bg-white/80 shadow-[0_8px_30px_-16px_rgba(0,0,0,.25)] backdrop-blur-xl' : 'border border-transparent'}">
++			<a href="/" aria-label="Undercut home"><Logo size={28} /></a>
++			<nav class="hidden items-center gap-1 text-sm md:flex">
++				{#each nav as [h, l] (h)}<a href={h} class="rounded-full px-3.5 py-2 text-ink-2 transition-colors hover:bg-black/5 hover:text-ink">{l}</a>{/each}
+ 			</nav>
+-			<div class="flex items-center gap-2">
+-				<a href="/login" class="hidden px-3 text-sm text-white/70 hover:text-white sm:block">Log in</a>
+-				<a href={cta.href} class="btn btn-accent group shadow-[0_0_40px_-8px_rgba(198,244,50,.7)]">Join the beta<span class="transition-transform group-hover:translate-x-0.5">→</span></a>
+-				<button class="glass grid size-10 place-items-center rounded-full md:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
++			<div class="flex items-center gap-1.5">
++				<a href="/login" class="hidden px-3 text-sm text-ink-2 hover:text-ink sm:block">Log in</a>
++				<a href="/beta" class="btn btn-primary">Start free</a>
++				<button class="grid size-10 place-items-center rounded-full border border-line bg-white md:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
+ 			</div>
+ 		</div>
+ 		{#if menu}
+-			<nav class="glass mx-auto mt-2 grid max-w-[1280px] gap-1 rounded-[24px] p-2 text-sm md:hidden" transition:slide={{ duration: 250 }}>
+-				{#each [...nav, ['/login', 'Log in']] as [h, l] (h)}<a href={h} class="rounded-xl px-3 py-2.5 hover:bg-white/10" onclick={() => (menu = false)}>{l}</a>{/each}
++			<nav class="mx-auto mt-2 grid max-w-[1200px] gap-1 rounded-[24px] border border-line bg-white p-2 text-sm shadow-lg md:hidden" transition:slide={{ duration: 220 }}>
++				{#each [...nav, ['/login', 'Log in']] as [h, l] (h)}<a href={h} class="rounded-xl px-3 py-2.5 hover:bg-tile" onclick={() => (menu = false)}>{l}</a>{/each}
+ 			</nav>
+ 		{/if}
+ 	</header>
+ 
+ 	<!-- ================= HERO ================= -->
+-	<section class="relative isolate min-h-dvh overflow-hidden pt-32 sm:pt-40" use:pointer use:scrub={{ start: 0.1, end: 0 }}>
+-		<!-- gradient mesh -->
++	<section class="relative isolate px-4 pt-32 sm:px-6 sm:pt-40" use:pointer>
+ 		<div class="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+-			<div class="mesh absolute top-[-20%] left-1/2 size-[1100px] -translate-x-1/2 rounded-full"></div>
+-			<div class="absolute right-[-10%] bottom-[-30%] size-[700px] rounded-full bg-[#2f9e44]/25 blur-[140px]"></div>
+-			<div class="absolute bottom-[-20%] left-[-15%] size-[600px] rounded-full bg-accent/15 blur-[140px]"></div>
+-			<div class="grid-floor absolute inset-x-0 bottom-0 h-[55%]"></div>
+-			<div class="noise absolute inset-0 opacity-[.07]"></div>
++			<div class="halo absolute top-[-280px] left-1/2 h-[760px] w-[1200px] -translate-x-1/2"></div>
++			<div class="dots absolute inset-x-0 top-0 h-[720px]"></div>
+ 		</div>
+-
+-		<!-- globe -->
+-		<div class="pointer-events-none absolute top-[56%] left-1/2 -z-10 w-[min(1000px,150vw)] sm:top-[50%]" style="transform:translate(calc(-50% + var(--mx,0) * -12px), calc(var(--my,0) * -8px + var(--p,0) * 120px));opacity:calc(1 - var(--p,0) * .5)" aria-hidden="true">
+-			<svg viewBox="-340 -340 680 680" class="w-full">
+-				<defs>
+-					<radialGradient id="gfill" cx="35%" cy="30%" r="75%">
+-						<stop offset="0" stop-color="#1f2a10" />
+-						<stop offset=".55" stop-color="#0c100a" />
+-						<stop offset="1" stop-color="#070807" />
+-					</radialGradient>
+-					<linearGradient id="gline" x1="0" x2="1" y1="0" y2="1">
+-						<stop offset="0" stop-color="#C6F432" stop-opacity=".55" />
+-						<stop offset=".6" stop-color="#ffffff" stop-opacity=".12" />
+-						<stop offset="1" stop-color="#ffffff" stop-opacity=".04" />
+-					</linearGradient>
+-					<clipPath id="gclip"><circle r={R} /></clipPath>
+-				</defs>
+-				<circle r={R + 30} fill="none" stroke="rgba(198,244,50,.08)" stroke-width="1" />
+-				<circle r={R} fill="url(#gfill)" />
+-				<g clip-path="url(#gclip)" transform="rotate(-18)">
+-					{#each parallels as p (p.y)}<ellipse cx="0" cy={p.y} rx={p.rx} ry={p.rx * 0.18} fill="none" stroke="url(#gline)" stroke-width="1" />{/each}
+-					{#each meridians as m (m)}<ellipse class="meridian" cx="0" cy="0" rx={R} ry={R} fill="none" stroke="url(#gline)" stroke-width="1" style="animation-delay:{(-m * 24) / meridians.length}s" />{/each}
+-				</g>
+-				<circle r={R} fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1.2" />
+-				<!-- signal arc -->
+-				<path d="M -260 210 C -150 40, -40 -120, 90 -170 S 250 -150, 300 -60" fill="none" stroke="#C6F432" stroke-width="2" stroke-linecap="round" pathLength="100" class="arc" />
+-				{#each [[-152, 40], [90, -170], [262, -112]] as [px, py], i (i)}
+-					<circle cx={px} cy={py} r="5" fill="#C6F432" class="pin" style="animation-delay:{1.4 + i * 0.5}s" />
+-					<circle cx={px} cy={py} r="14" fill="none" stroke="#C6F432" stroke-opacity=".5" class="pin-ring" style="animation-delay:{1.6 + i * 0.5}s" />
+-				{/each}
+-			</svg>
+-		</div>
+-
+-		<div class="mx-auto max-w-6xl px-5 text-center">
+-			<p class="glass inline-flex items-center gap-2 rounded-full py-1 pr-3 pl-1 text-xs" use:reveal={{ delay: 50 }}>
+-				<span class="flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 font-semibold text-accent-ink">{@render mark(12)} New</span>Your first 5 prospects, free — no account
+-			</p>
+-			<h1 class="mt-8 text-[clamp(46px,8.4vw,112px)] leading-[0.92] font-medium tracking-[-0.045em]">
+-				<SplitText as="span" class="block" text="Find clients." delay={150} />
+-				<SplitText as="span" class="grad-text block" text="*Keep them.*" emClass="font-serif font-normal tracking-[-0.02em]" delay={350} />
++		<div class="mx-auto flex max-w-[1000px] flex-col items-center text-center">
++			<a href="/prospects" class="inline-flex items-center gap-2 rounded-full border border-line bg-white py-1 pr-3 pl-1 text-xs text-ink-2 shadow-sm hover:border-ink/30" use:reveal={{ delay: 50 }}>
++				<span class="rounded-full bg-ink px-2 py-0.5 font-medium text-white">Free</span>Your first 5 prospects — no account →
++			</a>
++			<h1 class="mt-8 text-[clamp(48px,8.6vw,116px)] leading-[0.92] font-medium tracking-[-0.05em]">
++				<SplitText as="span" class="block" text="Find clients." delay={120} />
++				<SplitText as="span" class="block text-muted" text="*Keep them.*" emClass="font-serif font-normal tracking-[-0.02em] text-ink/45" delay={320} />
+ 			</h1>
+-			<p class="mt-6 text-[22px] text-white/70 sm:text-[30px]" use:reveal={{ delay: 650 }}>
+-				Built for
+-				<span class="relative inline-grid overflow-hidden pb-[0.1em] align-bottom">
+-					{#key wi}<em class="col-start-1 row-start-1 font-serif text-accent [animation:word-in_.6s_var(--ease-out)_both]">{audiences[wi]}</em>{/key}
+-				</span>
+-			</p>
+-			<p class="mx-auto mt-5 max-w-xl text-base text-white/55 sm:text-lg" use:reveal={{ delay: 800 }}>Paste your agency’s URL. Your dashboard builds itself: businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps — in one place.</p>
+-			<form method="POST" action="/prospects" class="mx-auto mt-9 max-w-xl" use:reveal={{ delay: 950 }} onsubmit={() => (going = true)}>
+-				<div class="glass flex flex-col gap-2 rounded-[28px] p-2 text-left focus-within:ring-1 focus-within:ring-accent/70 sm:flex-row">
+-					<label class="sr-only" for="hero-url">Your agency’s website or Instagram</label>
+-					<input id="hero-url" name="url" bind:value={heroUrl} required inputmode="url" autocomplete="url" placeholder="youragency.be" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-white/40" />
+-					<button class="btn btn-accent group justify-center px-6 py-3 text-base shadow-[0_0_60px_-10px_rgba(198,244,50,.8)]" disabled={going}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-1">→</span></button>
+-				</div>
+-				<p class="mt-3 text-xs text-white/45">Free · no account · about 30 seconds · <a href="#product" class="underline hover:text-white">see the dashboard</a></p>
+-			</form>
+-		</div>
+-
+-		<!-- floating client chips on the globe -->
+-		<div class="pointer-events-none relative mx-auto mt-16 hidden h-[260px] max-w-[1100px] sm:block" aria-hidden="true">
+-			<div class="absolute top-6 left-[8%]" style="transform:translate(calc(var(--mx,0) * 16px), calc(var(--my,0) * 10px))">
+-				<div class="glass floaty w-[220px] rounded-[20px] p-3.5">
+-					<p class="flex items-center gap-2 text-[11px] text-white/50"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-accent"></span><span class="relative size-2 rounded-full bg-accent"></span></span>New prospect · 400 m away</p>
+-					<p class="mt-1 text-sm font-medium">Coiffure Lila</p>
+-					<p class="text-xs text-white/50">site not mobile · no https</p>
+-				</div>
+-			</div>
+-			<div class="absolute top-0 right-[6%]" style="transform:translate(calc(var(--mx,0) * -18px), calc(var(--my,0) * -12px))">
+-				<div class="glass floaty w-[250px] rounded-[20px] p-4 [animation-delay:-3s]">
+-					<p class="text-[11px] font-medium text-accent">Message ready</p>
+-					<p class="mt-1 text-sm leading-snug text-white/85">“Bonjour, en regardant votre site j’ai remarqué qu’il <b class="text-white">ne s’affiche pas bien sur mobile</b>…”</p>
+-				</div>
+-			</div>
+-			<div class="absolute bottom-10 left-1/2 -translate-x-1/2">
+-				<div class="floaty flex items-center gap-3 rounded-full bg-accent py-2 pr-4 pl-2 text-sm font-medium text-accent-ink shadow-[0_0_60px_-10px_rgba(198,244,50,.9)] [animation-delay:-2s]">
+-					<span class="grid size-8 place-items-center rounded-full bg-ink text-accent">✓</span>Resto Moderne signed · €150/month
+-				</div>
++			<p class="mt-7 max-w-xl text-[17px] leading-relaxed text-ink-2 sm:text-lg" use:reveal={{ delay: 600 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps. In your colours.</p>
++			<div class="mt-9 flex w-full flex-col items-center" use:reveal={{ delay: 750 }}>
++				{@render urlForm('hero-url')}
++				<p class="mt-3 text-xs text-muted">Free · no account · about 30 seconds</p>
+ 			</div>
+ 		</div>
+ 
+-		<!-- corner stats -->
+-		<div class="relative mx-auto mt-10 flex max-w-[1280px] items-end justify-between px-5 pb-6 text-sm sm:mt-0">
+-			<div class="hidden text-white/60 sm:block">
+-				<p><b class="mr-2 font-medium text-white">30 s</b>to your first prospects</p>
+-				<p class="mt-1"><b class="mr-2 font-medium text-white">1</b>URL to set it up</p>
+-			</div>
+-			<a href="#product" class="mx-auto grid size-11 place-items-center rounded-full border border-white/15 text-white/70 transition-colors hover:text-white sm:mx-0" aria-label="Scroll down"><span class="[animation:floaty_2.4s_ease-in-out_infinite]">↓</span></a>
+-			<div class="hidden text-right text-white/60 sm:block">
+-				<p><b class="mr-2 font-medium text-white">1</b>dashboard for everything</p>
+-				<p class="mt-1"><b class="mr-2 font-medium text-white">EU</b>data, no cookies</p>
++		<div class="relative mx-auto mt-16 max-w-[1100px] sm:mt-20" use:reveal={{ delay: 300 }}>
++			<div class="frame rounded-[28px] p-2 sm:p-2.5" style="transform:translate(calc(var(--mx,0) * -6px), calc(var(--my,0) * -4px))">
++				<div class="flex items-center gap-2 px-3 pt-1 pb-2.5">
++					<span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span>
++					<span class="mx-auto rounded-full bg-black/[.04] px-4 py-1 text-[11px] text-muted">app.getundercut.app</span>
++				</div>
++				{@render mock(demo[pick].c, demo[pick].name)}
+ 			</div>
+-		</div>
+-
+-		<!-- ticker -->
+-		<div class="relative overflow-hidden border-y border-white/10 bg-black/30 py-3 text-sm text-white/55 backdrop-blur" aria-hidden="true">
+-			<div class="flex w-max [animation:marquee_40s_linear_infinite]">
+-				{#each [0, 1] as k (k)}
+-					<div class="flex items-center gap-6 pr-6">
+-						{#each ticker as t (t)}<span class="whitespace-nowrap">{t}</span>{@render diamond()}{/each}
+-					</div>
++			<div class="mt-5 flex flex-wrap items-center justify-center gap-2 text-sm">
++				<span class="mr-1 text-muted">Try it in your colour</span>
++				{#each demo as d, i (d.name)}
++					<button class="grid size-8 place-items-center rounded-full ring-offset-2 ring-offset-paper transition {pick === i ? 'ring-2 ring-ink' : 'hover:scale-110'}" style="background:{d.c ?? 'linear-gradient(135deg,#fff 50%,#0d0d0d 50%)'};{d.c ? '' : 'border:1px solid var(--color-line)'}" onclick={() => choose(i)} aria-label={d.name} aria-pressed={pick === i}></button>
+ 				{/each}
+ 			</div>
+ 		</div>
+ 	</section>
+ 
+-	<!-- ================= PRODUCT ================= -->
+-	<section id="product" class="relative scroll-mt-10 px-4 pt-24 sm:px-6 sm:pt-36" use:scrub={{ start: 0.95, end: 0.2 }}>
+-		<div class="pointer-events-none absolute top-1/3 left-1/2 -z-0 size-[900px] -translate-x-1/2 rounded-full bg-accent/15 blur-[160px]" aria-hidden="true"></div>
+-		<div class="relative mx-auto max-w-[1240px] text-center">
+-			<p class="label text-accent!" use:reveal>The product</p>
+-			<SplitText text={'Your dashboard,\n*built from your URL.*'} class="mt-4 text-[clamp(36px,5.6vw,76px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-white/60" />
+-		</div>
+-
+-		<div class="relative mx-auto mt-14 max-w-[1120px] [perspective:1800px]" use:reveal={{ delay: 150 }}>
+-			<div class="origin-top transition-transform duration-200 ease-out" style="transform:rotateX(max(0deg, calc(18deg - var(--p,0) * 40deg))) scale(calc(.92 + var(--p,0) * .08))">
+-				<div class="grad-border rounded-[26px] p-px shadow-[0_40px_160px_-40px_rgba(198,244,50,.55)]">
+-					<div class="overflow-hidden rounded-[25px] bg-[#111]">
+-						<div class="flex items-center gap-2 px-4 py-3">
+-							<span class="size-2.5 rounded-full bg-white/20"></span><span class="size-2.5 rounded-full bg-white/20"></span><span class="size-2.5 rounded-full bg-white/20"></span>
+-							<span class="mx-auto rounded-full bg-white/[.07] px-4 py-1 text-[11px] text-white/50">app.getundercut.app</span>
+-						</div>
+-						<div class="grid bg-paper text-ink md:grid-cols-[180px_1fr]">
+-							<aside class="hidden flex-col gap-1 border-r border-line p-3 text-[12px] md:flex">
+-								<div class="px-2 pb-3"><Logo size={22} /></div>
+-								{#each [['Dashboard', true], ['Prospects', false], ['Alerts', false]] as [l, a] (l)}<span class="rounded-lg px-3 py-1.5 {a ? 'bg-ink text-white' : 'text-ink-2'}">{l}</span>{/each}
+-								<p class="mt-3 px-3 text-[10px] text-muted uppercase">Clients</p>
+-								{#each [['Kiné Schaerbeek', '#3E8E63'], ['Maison Lou', '#E0A458'], ['Moove app', '#4C7DD9']] as [c, col] (c)}<span class="flex items-center gap-2 px-3 py-1 text-ink-2"><span class="size-2 rounded-full" style="background:{col}"></span>{c}</span>{/each}
+-							</aside>
+-							<div class="p-4 text-left sm:p-6">
+-								<div class="flex flex-wrap items-end justify-between gap-4">
+-									<div><p class="text-[11px] text-muted">Good morning · Studio Nova</p><p class="display text-[30px] leading-none sm:text-[40px]">Your week</p></div>
+-									<div class="flex gap-5 text-right">{#each [['7', 'to contact'], ['3', 'talking'], ['1/2', 'won']] as [v, l] (l)}<div><p class="big text-[26px] leading-none">{v}</p><p class="text-[10px] text-muted">{l}</p></div>{/each}</div>
+-								</div>
+-								<div class="mt-3 flex items-center gap-2 rounded-[14px] bg-white px-3 py-2 text-[11px] text-muted"><span class="text-accent-ink">✦</span>Change your dashboard: “hide agenda”, “clients first”…</div>
+-								<div class="mt-2 grid gap-2 lg:grid-cols-[1.6fr_1fr]">
+-									<div class="rounded-[16px] bg-ink p-4 text-white">
+-										<p class="flex justify-between text-[11px]"><span class="text-accent">New prospects · Ixelles</span><span class="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-ink">+ Find 5</span></p>
+-										<ul class="mt-3 space-y-1.5">
+-											{#each [[90, 'Coiffure Lila', 'Hairdresser · not mobile · no https'], [70, 'Boulangerie Dupont', 'Bakery · no website'], [55, 'Cabinet Martin', 'Lawyer · site not updated since 2019']] as [sc, nm, why] (nm)}
+-												<li class="flex items-center gap-2.5 rounded-xl bg-white/[.07] px-2.5 py-2"><span class="grid size-7 shrink-0 place-items-center rounded-full bg-accent text-[10px] font-semibold text-accent-ink">{sc}</span><span class="min-w-0"><b class="block truncate text-[12px] font-medium">{nm}</b><span class="block truncate text-[10px] text-white/50">{why}</span></span></li>
+-											{/each}
+-										</ul>
+-									</div>
+-									<div class="grid gap-2">
+-										<div class="rounded-[16px] bg-white p-4">
+-											<p class="text-[11px] text-muted">Pipeline</p>
+-											{#each [['Contacted', 70], ['Talking', 40], ['Won', 20]] as [l, w] (l)}<p class="mt-2 grid grid-cols-[64px_1fr] items-center gap-2 text-[11px]"><span class="text-muted">{l}</span><span class="h-2 rounded-full bg-tile"><span class="block h-full rounded-full {l === 'Won' ? 'bg-accent' : 'bg-ink'}" style="width:{w}%"></span></span></p>{/each}
+-										</div>
+-										<div class="rounded-[16px] bg-white p-4">
+-											<p class="text-[11px] text-muted">This week</p>
+-											<ul class="mt-2 space-y-1.5">
+-												{#each [['Follow up · Atelier Brut', true], ['Maison Lou: 3 pages without description', false]] as [t, u] (t)}<li class="flex items-center gap-2 rounded-xl bg-tile px-3 py-1.5 text-[11px]"><span class="size-1.5 shrink-0 rounded-full {u ? 'bg-bad' : 'bg-[#E3A21A]'}"></span><span class="truncate">{t}</span></li>{/each}
+-											</ul>
+-										</div>
+-									</div>
+-								</div>
+-								<div class="mt-2 grid grid-cols-3 gap-2">
+-									{#each [['Kiné Schaerbeek', '46 leads', 72], ['Maison Lou', '3,501 visits', 58], ['Moove app', '1,204 users', 91]] as [c, m, h] (c)}
+-										<div class="rounded-[16px] bg-white p-3"><p class="truncate text-[11px] text-muted">{c}</p><p class="mt-1 flex items-center justify-between"><span class="text-[13px] font-medium">{m}</span><span class="grid size-7 place-items-center rounded-full border-[3px] text-[9px] font-semibold {Number(h) > 80 ? 'border-accent' : 'border-[#E3A21A]'}">{h}</span></p></div>
+-									{/each}
+-								</div>
+-							</div>
+-						</div>
+-					</div>
+-				</div>
+-			</div>
++	<!-- ================= AUDIENCE STRIP ================= -->
++	<section class="mx-auto mt-24 max-w-[1200px] px-4 sm:px-6">
++		<div class="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 border-y border-line py-6 text-sm text-muted">
++			<span>Built for</span><b class="font-medium text-ink">Web agencies</b><span aria-hidden="true">·</span><b class="font-medium text-ink">App studios</b><span aria-hidden="true">·</span><b class="font-medium text-ink">Communication agencies</b><span aria-hidden="true">·</span><b class="font-medium text-ink">Freelancers</b>
+ 		</div>
+ 	</section>
+ 
+-	<!-- ================= WHO ================= -->
+-	<section class="mx-auto max-w-[1240px] px-4 py-28 sm:px-6 sm:py-40">
++	<!-- ================= HOW ================= -->
++	<section id="how" class="mx-auto max-w-[1200px] scroll-mt-24 px-4 py-28 sm:px-6 sm:py-36">
+ 		<div class="flex flex-wrap items-end justify-between gap-6">
+-			<SplitText text={'Made for agencies.\n*Not for salespeople.*'} class="text-[clamp(40px,6vw,80px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
+-			<p class="max-w-sm text-white/60" use:reveal={{ delay: 250 }}>You build things for clients. Undercut finds the next ones and shows what the current ones need — without becoming a salesperson.</p>
+-		</div>
+-		<div class="mt-16 grid gap-3 md:grid-cols-3" use:reveal>
+-			{#each [
+-				{ t: 'Web agencies', k: 'Sites & SEO', d: 'Businesses near you with no site, a slow one or one that breaks on mobile. Then, once they sign: leads, SEO and one-click fixes.', pts: ['No site / slow site', 'One-click SEO fixes', 'Leads by channel'] },
+-				{ t: 'App studios', k: 'iOS & Android', d: 'Gyms, restaurants, clinics without an app or mobile booking. Then users, crashes, paywall and store reviews per client.', pts: ['No app yet', 'Crashes & reviews', 'Paywall tracking'] },
+-				{ t: 'Communication agencies', k: 'Campaigns & social', d: 'Shops with no Instagram linked or nothing posted. Then which post brought the calls — and what to post next.', pts: ['No socials', 'Campaign → leads', 'What to post'] }
+-			] as a, i (a.t)}
+-				<article class="group grad-border relative rounded-[32px] p-px transition-transform duration-500 hover:-translate-y-1.5" data-stagger>
+-					<div class="relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[31px] p-8 {i === 1 ? 'bg-[linear-gradient(160deg,#C6F432,#7fb52a)] text-accent-ink' : 'bg-[linear-gradient(160deg,#151a10,#0b0c0a)]'}">
+-						<div class="pointer-events-none absolute -right-10 -bottom-12 opacity-[.08] transition-transform duration-700 group-hover:-rotate-6">{@render mark(240)}</div>
+-						<p class="flex items-center justify-between text-xs font-medium opacity-60"><span>0{i + 1}</span><span>{a.k}</span></p>
+-						<h3 class="mt-10 text-[clamp(28px,2.8vw,38px)] leading-[1] font-medium tracking-[-0.03em]">{a.t}</h3>
+-						<p class="mt-4 text-sm opacity-70">{a.d}</p>
+-						<ul class="relative mt-auto flex flex-wrap gap-1.5 pt-8">
+-							{#each a.pts as pt (pt)}<li class="rounded-full px-3 py-1 text-xs {i === 1 ? 'bg-ink/10' : 'bg-white/[.08]'}">{pt}</li>{/each}
+-						</ul>
+-					</div>
+-				</article>
+-			{/each}
++			<SplitText text={'From one URL\n*to your first call.*'} class="text-[clamp(38px,5.6vw,72px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/45" />
++			<p class="max-w-sm text-ink-2" use:reveal={{ delay: 200 }}>No CRM to set up, no list to buy, no ten open tabs. One screen that tells you who to call and which client needs you.</p>
+ 		</div>
+-	</section>
+-
+-	<!-- ================= THE LOOP ================= -->
+-	<section id="loop" class="relative scroll-mt-24 overflow-hidden px-4 py-28 sm:px-6 sm:py-36">
+-		<div class="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_50%,rgba(47,158,68,.28),transparent_70%)]" aria-hidden="true"></div>
+-		<div class="relative mx-auto grid max-w-[1240px] items-center gap-14 lg:grid-cols-[1fr_1.1fr]">
+-			<div>
+-				<p class="label text-accent!" use:reveal>How it works</p>
+-				<SplitText text={'From URL to *first call.*\nIn a morning.'} class="mt-4 text-[clamp(40px,5.4vw,72px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
+-				<ol class="mt-10 space-y-2">
+-					{#each loop as s, i (s.t)}
+-						<li>
+-							<button class="flex w-full items-center gap-4 rounded-[20px] p-4 text-left transition-colors {step === i ? 'glass' : 'hover:bg-white/[.04]'}" onclick={() => (step = i)}>
+-								<span class="grid size-10 shrink-0 place-items-center rounded-full text-sm font-semibold transition-colors {step === i ? 'bg-accent text-accent-ink' : 'bg-white/10'}">{i + 1}</span>
+-								<span><b class="block font-medium">{s.t}</b><span class="text-sm text-white/55">{s.d}</span></span>
+-							</button>
+-						</li>
+-					{/each}
+-				</ol>
+-			</div>
+-
+-			<div class="relative mx-auto aspect-square w-[calc(100%-4.5rem)] max-w-[520px]" use:reveal={{ delay: 200 }}>
+-				<svg viewBox="0 0 400 400" class="absolute inset-0 size-full" aria-hidden="true">
+-					<circle cx="200" cy="200" r="160" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="1" />
+-					<circle cx="200" cy="200" r="160" fill="none" stroke="#C6F432" stroke-width="2" stroke-linecap="round" pathLength="100" stroke-dasharray="25 75" class="transition-[stroke-dashoffset] duration-700 ease-[cubic-bezier(.2,.75,.15,1)]" style="stroke-dashoffset:{12.5 - step * 25};transform:rotate(-90deg);transform-origin:200px 200px" />
+-					<circle cx="200" cy="200" r="110" fill="none" stroke="rgba(255,255,255,.06)" stroke-dasharray="2 6" />
+-				</svg>
+-				{#each loop as s, i (s.t)}
+-					{@const rad = (s.a * Math.PI) / 180}
+-					<button class="absolute -translate-x-1/2 -translate-y-1/2 rounded-full px-4 py-2 text-sm font-medium transition-all duration-500 {step === i ? 'scale-110 bg-accent text-accent-ink shadow-[0_0_40px_-6px_rgba(198,244,50,.9)]' : 'glass text-white/80'}" style="left:{50 + Math.cos(rad) * 40}%;top:{50 + Math.sin(rad) * 40}%" onclick={() => (step = i)}>{s.t}</button>
+-				{/each}
+-				<div class="absolute inset-[26%] grid place-items-center text-center">
+-					{#key step}
+-						<p class="text-[clamp(18px,2.2vw,24px)] leading-snug [animation:fade-up_.5s_var(--ease-out)_both]">
+-							{#if step === 0}One URL and Undercut knows <em class="font-serif text-accent">what you sell.</em>
+-							{:else if step === 1}Real businesses <em class="font-serif text-accent">around you</em>, each site checked.
+-							{:else if step === 2}A message that says <em class="font-serif text-accent">what you noticed.</em>
+-							{:else}Then their site stays <em class="font-serif text-accent">fast and found.</em>{/if}
+-						</p>
+-					{/key}
+-				</div>
+-			</div>
+-		</div>
+-	</section>
+-
+-	<!-- ================= MANIFESTO ================= -->
+-	<section id="manifesto" class="mx-auto max-w-[1240px] px-4 py-28 sm:px-6 sm:py-40">
+-		<div class="grid gap-14 lg:grid-cols-[1fr_1.4fr]">
+-			<div class="lg:sticky lg:top-32 lg:self-start">
+-				<p class="label text-accent!" use:reveal>The manifesto</p>
+-				<SplitText text={'We cut everything\nthat doesn’t\n*make you money.*'} class="mt-4 text-[clamp(40px,5.4vw,68px)] leading-[0.98] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
+-				<p class="mt-6 max-w-sm text-white/60" use:reveal={{ delay: 200 }}>Agencies juggle a CRM, a lead list, analytics, a to-do app and a calendar. Most give up and build nothing. You need one screen that tells you what to do on Monday.</p>
+-			</div>
+-			<ul class="flex flex-col">
+-				{#each cuts as c, i (c)}
+-					<li class="relative border-t border-white/10 py-4 sm:py-6" use:scrub={{ start: 0.85, end: 0.55 }}>
+-						<span class="flex items-baseline gap-4">
+-							<span class="w-8 text-xs text-white/40 tabular-nums">0{i + 1}</span>
+-							<span class="relative inline-block">
+-								<span class="shout text-[clamp(26px,6vw,60px)] whitespace-nowrap" style="opacity:calc(1 - var(--p,0) * .75)">{c}</span>
+-								<span class="absolute top-[52%] -right-[2%] -left-[2%] h-[0.16em] origin-left rounded-full bg-accent text-[clamp(26px,6vw,60px)] shadow-[0_0_24px_rgba(198,244,50,.7)]" style="transform:scaleX(var(--p,0)) rotate(-2deg)" aria-hidden="true"></span>
+-							</span>
+-						</span>
+-					</li>
+-				{/each}
+-				<li class="border-t border-white/10 pt-8" use:reveal>
+-					<p class="flex items-baseline gap-4"><span class="w-8 text-xs text-white/40">→</span><span class="text-[44px] leading-none font-medium tracking-[-0.04em] sm:text-[88px]">What’s left: <em class="grad-text font-serif font-normal">answers.</em></span></p>
++		<ol class="mt-14 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" use:reveal>
++			{#each steps as s, i (s.n)}
++				<li class="card relative flex min-h-[250px] flex-col overflow-hidden p-6" data-stagger>
++					<span class="text-sm text-muted tabular-nums">{s.n}</span>
++					<h3 class="mt-auto text-[24px] leading-tight font-medium tracking-[-0.03em]">{s.t}</h3>
++					<p class="mt-2 text-sm text-ink-2">{s.d}</p>
++					{#if i === 0}<span class="absolute top-5 right-5 rounded-full border border-line px-2.5 py-1 text-[11px] text-muted">youragency.be</span>{/if}
+ 				</li>
+-			</ul>
+-		</div>
+-	</section>
+-
+-	<!-- ================= STATEMENT ================= -->
+-	<section class="relative h-[200vh]" use:scrub={{ start: 0, end: 1 }}>
+-		<div class="sticky top-0 flex h-dvh items-center">
+-			<p class="lit mx-auto max-w-5xl px-5 text-center text-[clamp(30px,4.8vw,62px)] leading-[1.1] font-medium tracking-[-0.035em]" style="--n:{lit.length}">
+-				{#each lit as w, i (i)}<span style="--i:{i}" class={w.hi ? 'font-serif font-normal text-accent italic' : ''}>{w.t}</span>{' '}{/each}
+-			</p>
+-		</div>
++			{/each}
++		</ol>
+ 	</section>
+ 
+ 	<!-- ================= FEATURES ================= -->
+-	<section id="features" class="mx-auto max-w-[1240px] scroll-mt-24 px-4 py-28 sm:px-6 sm:py-40">
+-		<div class="flex flex-wrap items-end justify-between gap-6">
+-			<SplitText text={'Everything you need.\n*Nothing you don’t.*'} class="text-[clamp(40px,6vw,80px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-white/50" />
+-			<p class="max-w-xs text-white/60" use:reveal={{ delay: 300 }}>No setup per client. Every problem comes with a button.</p>
+-		</div>
+-
+-		<div class="mt-16 grid grid-cols-1 gap-3 md:grid-cols-6" use:reveal>
+-			<article class="feat group flex flex-col justify-between gap-8 md:col-span-2 md:row-span-2" data-stagger use:inview>
+-				<div>
+-					<span class="rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-accent-ink">Keep clients</span>
+-					<h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3>
+-					<p class="mt-2 text-sm text-white/60">Forms, calls, emails, WhatsApp — counted automatically and credited to the channel that brought them.</p>
+-				</div>
+-				<div>
+-					<p class="big grad-text text-[72px] leading-none" use:countUp={{ to: 46 }}>46</p>
+-					<p class="text-xs text-white/50">leads this month</p>
+-					<ul class="mt-5 space-y-2.5">
+-						{#each channels as [c, v], i (c)}
+-							<li class="text-xs">
+-								<p class="mb-1 flex justify-between text-white/70"><span>{c}</span><span>{v}%</span></p>
+-								<div class="h-2 overflow-hidden rounded-full bg-white/10"><div class="h-full origin-left scale-x-0 rounded-full transition-transform duration-[1200ms] ease-[cubic-bezier(.2,.75,.15,1)] group-[.in]:scale-x-100 {i === 0 ? 'bg-accent' : 'bg-white/40'}" style="width:{v * 2}%;transition-delay:{300 + i * 100}ms"></div></div>
+-							</li>
+-						{/each}
+-					</ul>
+-				</div>
+-			</article>
+-
+-			<article class="feat feat-lime group flex flex-col gap-5 md:col-span-4" data-stagger use:inview>
++	<section id="features" class="mx-auto max-w-[1200px] scroll-mt-24 px-4 pb-28 sm:px-6 sm:pb-36">
++		<SplitText text={'Find. Sign. Keep.\n*One dashboard.*'} class="text-[clamp(38px,5.6vw,72px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/45" />
++		<div class="mt-14 grid grid-cols-1 gap-3 md:grid-cols-6" use:reveal>
++			<article class="card group flex flex-col gap-6 p-7 md:col-span-4" data-stagger use:inview>
+ 				<div class="flex flex-wrap items-start justify-between gap-3">
+-					<div><span class="rounded-full bg-ink/10 px-2.5 py-1 text-[11px] font-medium">Find clients</span><h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
+-					<p class="max-w-xs text-sm opacity-70">Real businesses around you. Each website checked — mobile, speed, https, last update — and a first message written from what we found.</p>
++					<div><span class="label">Find clients</span><h3 class="mt-3 text-[30px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
++					<p class="max-w-xs text-sm text-ink-2">Real businesses around you, each website checked, a first message written from what we found.</p>
+ 				</div>
+-				<div class="rounded-[20px] bg-white p-5 text-ink">
+-					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Coiffure Lila</b><span class="text-sm text-muted">Hairdresser · Ixelles</span></span><span class="grid size-12 place-items-center rounded-full bg-accent font-semibold text-accent-ink">90</span></p>
+-					<div class="mt-3 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full bg-tile px-3 py-1 text-xs opacity-0 transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
+-					<p class="mt-3 rounded-[14px] bg-tile p-3 text-sm text-ink-2">“Bonjour, en regardant votre site j’ai remarqué qu’il ne s’affiche pas bien sur mobile…”</p>
++				<div class="rounded-[20px] bg-tile p-5">
++					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Coiffure Lila</b><span class="text-sm text-muted">Hairdresser · Ixelles · 400 m</span></span><span class="grid size-12 place-items-center rounded-full bg-ink font-semibold text-white">90</span></p>
++					<div class="mt-3 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full border border-line bg-white px-3 py-1 text-xs opacity-0 transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
++					<p class="mt-3 rounded-[14px] bg-white p-3 text-sm text-ink-2">“Bonjour, en regardant votre site j’ai remarqué qu’il ne s’affiche pas bien sur mobile…”</p>
+ 				</div>
+ 			</article>
+-
+-			<article class="feat group flex flex-col gap-5 md:col-span-2" data-stagger use:inview>
+-				<div><span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium">Auto-fix</span><h3 class="mt-4 text-[28px] leading-tight font-medium tracking-[-0.03em]">Fix it. Don’t ticket it.</h3></div>
+-				<div class="mt-auto rounded-[20px] bg-white/[.06] p-4">
+-					<p class="text-xs text-white/50">/services · description missing</p>
+-					<p class="mt-1 text-sm">“Kiné à Schaerbeek: rendez-vous en 48h, sport & dos…”</p>
+-					<div class="mt-3 flex items-center justify-between">
+-						<span class="relative h-7 w-12 rounded-full bg-white/15 transition-colors delay-700 duration-300 group-[.in]:bg-accent"><span class="absolute top-1 left-1 size-5 rounded-full bg-white transition-transform delay-700 duration-300 group-[.in]:translate-x-5 group-[.in]:bg-ink"></span></span>
+-						<span class="text-xs font-medium text-accent opacity-0 transition-opacity delay-1000 duration-300 group-[.in]:opacity-100">Live on the site ✓</span>
+-					</div>
+-				</div>
++			<article class="card flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
++				<div><span class="label">Pipeline</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">A CRM you’ll actually use.</h3></div>
++				<ul class="mt-auto space-y-2 text-sm">
++					{#each [['To contact', 7], ['Contacted', 5], ['Talking', 3], ['Won', 1]] as [l, n] (l)}<li class="flex items-center justify-between rounded-[14px] bg-tile px-4 py-2.5"><span>{l}</span><b class="font-medium">{n}</b></li>{/each}
++				</ul>
+ 			</article>
+-
+-			<article class="feat relative flex flex-col gap-5 overflow-hidden md:col-span-2" data-stagger>
+-				<div class="relative z-10"><span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium">Heatmaps</span><h3 class="mt-4 text-[28px] leading-tight font-medium tracking-[-0.03em]">See the rage.</h3><p class="mt-1 text-sm text-white/60">Clicks, scroll and rage clicks — on the real page.</p></div>
+-				<div class="relative mt-auto h-28 rounded-[18px] bg-white/[.06] p-3">
+-					<div class="h-2 w-1/2 rounded bg-white/15"></div>
+-					<div class="mt-2 h-2 w-3/4 rounded bg-white/10"></div>
+-					<div class="mt-4 h-8 w-24 rounded-full bg-white/15"></div>
+-					{#each [[30, 60, 70, 0], [70, 40, 50, 0.6], [55, 75, 36, 1.2]] as [x, yy, s, d], i (i)}
+-						<span class="absolute rounded-full bg-[radial-gradient(circle,#ff5a3c_0%,rgba(198,244,50,.6)_40%,transparent_70%)] [animation:floaty_3s_ease-in-out_infinite]" style="left:{x}%;top:{yy}%;width:{s}px;height:{s}px;translate:-50% -50%;animation-delay:{d}s"></span>
+-					{/each}
+-				</div>
++			<article class="card-dark flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
++				<div><span class="text-xs text-white/50">Make it yours</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Your colour. Your blocks.</h3></div>
++				<p class="text-sm text-white/60">Starts black & white, takes your site’s colour. Hide, reorder, or just type it.</p>
++				<p class="mt-auto rounded-[16px] bg-white/[.07] px-4 py-3 text-sm text-white/80">✦ “hide agenda, clients first”</p>
+ 			</article>
+-
+-			<article class="feat group flex flex-col gap-5 md:col-span-3" data-stagger use:inview>
+-				<div><span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium">Slack & email</span><h3 class="mt-4 text-[28px] leading-tight font-medium tracking-[-0.03em]">Wake up to problems, not charts.</h3></div>
+-				<ul class="space-y-2">
+-					{#each [['🔻', 'Leads dropped 40%', 'Maison Lou · this week'], ['⛔', 'Site is down', 'Kiné Schaerbeek · 2 min ago'], ['⭐', 'New 1★ review to answer', 'Atelier Brut · Google Maps']] as [ico, t, s], i (t)}
+-						<li class="flex translate-x-6 items-center gap-3 rounded-[18px] bg-white/[.06] p-3 opacity-0 transition-all duration-700 group-[.in]:translate-x-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 180}ms">
+-							<span class="grid size-9 place-items-center rounded-full bg-white/10">{ico}</span>
+-							<div class="min-w-0"><p class="text-sm font-medium">{t}</p><p class="truncate text-xs text-white/50">{s}</p></div>
+-						</li>
+-					{/each}
+-				</ul>
++			<article class="card flex flex-col gap-5 p-7 md:col-span-2" data-stagger>
++				<div><span class="label">Keep clients</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3></div>
++				<p class="text-sm text-ink-2">Forms, calls and WhatsApps counted per channel. No cookies, no setup.</p>
++				<p class="mt-auto"><span class="big text-[56px]">46</span><span class="ml-2 text-sm text-muted">leads this month · ↑ 24%</span></p>
+ 			</article>
+-
+-			<article class="feat group flex flex-col gap-5 md:col-span-3" data-stagger use:inview>
+-				<div><span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium">Checked daily</span><h3 class="mt-4 text-[28px] leading-tight font-medium tracking-[-0.03em]">Fast, findable, valid.</h3><p class="mt-1 text-sm text-white/60">Lighthouse mobile + desktop, SEO and W3C.</p></div>
+-				<div class="mt-auto grid grid-cols-4 gap-2">
+-					{@render ring(94, 'Speed', 0)}
+-					{@render ring(100, 'SEO', 1)}
+-					{@render ring(88, 'Access', 2)}
+-					{@render ring(97, 'W3C', 3)}
++			<article class="card group flex flex-col gap-5 p-7 md:col-span-2" data-stagger use:inview>
++				<div><span class="label">One-click fixes</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Fix it. Don’t ticket it.</h3></div>
++				<div class="mt-auto rounded-[18px] bg-tile p-4">
++					<p class="text-xs text-muted">/services · description missing</p>
++					<div class="mt-3 flex items-center justify-between">
++						<span class="relative h-7 w-12 rounded-full bg-black/10 transition-colors delay-700 duration-300 group-[.in]:bg-ink"><span class="absolute top-1 left-1 size-5 rounded-full bg-white shadow transition-transform delay-700 duration-300 group-[.in]:translate-x-5"></span></span>
++						<span class="text-xs font-medium opacity-0 transition-opacity delay-1000 duration-300 group-[.in]:opacity-100">Live on the site ✓</span>
++					</div>
+ 				</div>
+ 			</article>
+-
+-			<article class="feat flex flex-col gap-5 md:col-span-3" data-stagger>
+-				<div><span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium">Campaigns</span><h3 class="mt-4 text-[28px] leading-tight font-medium tracking-[-0.03em]">Which post brought the calls?</h3></div>
+-				<div class="mt-auto space-y-2">
+-					{#each [['Instagram · Black Friday', 9, 'forms'], ['Newsletter · November', 4, 'calls'], ['Meta Ads · Retargeting', 2, 'WhatsApps']] as [n, v, k] (n)}
+-						<div class="flex items-center justify-between rounded-[16px] bg-white/[.06] px-4 py-3 text-sm"><span>{n}</span><span class="text-white/60"><b class="text-accent">{v}</b> {k}</span></div>
+-					{/each}
++			<article class="card flex flex-col gap-5 p-7 md:col-span-3" data-stagger>
++				<div><span class="label">Apps too</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Crashes, reviews, paywall.</h3></div>
++				<div class="mt-auto grid grid-cols-3 gap-2 text-center">
++					{#each [['99.7%', 'crash-free'], ['4.6★', 'App Store'], ['3.1%', 'paywall conv.']] as [v, l] (l)}<div class="rounded-[16px] bg-tile p-3"><p class="text-xl font-medium">{v}</p><p class="text-[11px] text-muted">{l}</p></div>{/each}
+ 				</div>
+ 			</article>
+-
+-			<article class="feat flex flex-col gap-5 md:col-span-3" data-stagger>
+-				<div><span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium">White-label</span><h3 class="mt-4 text-[28px] leading-tight font-medium tracking-[-0.03em]">Reports clients actually read.</h3></div>
+-				<div class="mt-auto flex items-center gap-4 rounded-[20px] bg-white p-4 text-ink">
+-					<span class="grid size-12 shrink-0 place-items-center rounded-2xl border-2 border-dashed border-ink/20 text-[10px] text-muted">your logo</span>
+-					<div class="min-w-0 flex-1"><p class="text-sm font-medium">October for Maison Lou</p><p class="truncate text-xs text-muted">38 leads (+12) · fastest month yet · 4 fixes done</p></div>
+-					<span class="rounded-full bg-ink px-3 py-1.5 text-xs text-white">PDF</span>
++			<article class="card flex flex-col gap-5 p-7 md:col-span-3" data-stagger>
++				<div><span class="label">Reports</span><h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">Monday reports with your logo.</h3></div>
++				<div class="mt-auto flex items-center gap-4 rounded-[18px] bg-tile p-4">
++					<span class="grid size-11 shrink-0 place-items-center rounded-xl border border-dashed border-ink/20 text-[10px] text-muted">logo</span>
++					<div class="min-w-0 flex-1"><p class="text-sm font-medium">October for Maison Lou</p><p class="truncate text-xs text-muted">38 leads (+12) · 4 fixes done</p></div>
+ 				</div>
+ 			</article>
+ 		</div>
+ 	</section>
+ 
+-	<!-- ================= STATS ================= -->
+-	<section class="mx-auto max-w-[1240px] px-4 pb-28 sm:px-6 sm:pb-40">
+-		<div class="grad-border rounded-[36px] p-px">
+-			<div class="relative grid gap-12 overflow-hidden rounded-[35px] bg-[radial-gradient(120%_120%_at_0%_100%,rgba(198,244,50,.22),transparent_55%),#0b0c0a] p-8 sm:p-14 lg:grid-cols-[1.2fr_1fr]">
+-				<div class="relative">
+-					<SplitText text={'One screen.\n*Find, sign, keep.*\nEvery week.'} class="text-[clamp(36px,5vw,64px)] leading-[1] font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
+-					<p class="mt-6 max-w-md text-white/60" use:reveal={{ delay: 300 }}>New prospects every week, a pipeline you actually use, and every client’s site and app — with the next thing to do on top.</p>
+-				</div>
+-				<div class="relative grid grid-cols-2 gap-x-6 gap-y-10 self-center" use:reveal>
+-					{#each [[30, ' s', 'to your first prospects'], [300, '', 'prospects a month (Pro)'], [1, ' click', 'to ship a fix'], [50, '', 'clients on one screen']] as [n, s, l], i (l)}
+-						<div class="border-t border-white/15 pt-5" data-stagger>
+-							<p class="big text-[44px] leading-none whitespace-nowrap sm:text-[60px]" use:countUp={{ to: n as number, suffix: s as string, ms: 1200 + i * 200 }}>{n}{s}</p>
+-							<p class="mt-2 text-sm text-white/50">{l}</p>
+-						</div>
+-					{/each}
+-				</div>
+-			</div>
+-		</div>
+-	</section>
+-
+ 	<!-- ================= PRICING ================= -->
+-	<section id="pricing" class="mx-auto max-w-[1240px] scroll-mt-24 px-4 py-28 sm:px-6 sm:py-36">
++	<section id="pricing" class="mx-auto max-w-[1200px] scroll-mt-24 px-4 pb-28 sm:px-6 sm:pb-36">
+ 		<div class="text-center">
+-			<SplitText text={'One new client\n*pays for a year.*'} class="text-[clamp(44px,6.6vw,88px)] leading-none font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-accent" />
+-			<p class="mt-5 text-white/60" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-white">The first 30 agencies keep −50% for life.</b></p>
++			<SplitText text={'One new client\n*pays for the year.*'} class="text-[clamp(40px,6vw,80px)] leading-[0.98] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/45" />
++			<p class="mt-5 text-ink-2" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-ink">The first 30 agencies keep −50% for life.</b></p>
+ 		</div>
+-		<div class="mt-16 grid gap-3 md:grid-cols-3" use:reveal>
++		<div class="mt-14 grid gap-3 md:grid-cols-3" use:reveal>
+ 			{#each ['freelance', 'agency', 'studio'] as const as id (id)}
+ 				{@const p = PLANS[id]}
+-				<div class="relative flex flex-col gap-4 overflow-hidden rounded-[28px] p-8 transition-transform duration-500 hover:-translate-y-1.5 {id === 'agency' ? 'bg-[linear-gradient(160deg,#C6F432,#86bd2c)] text-accent-ink' : 'glass'}" data-stagger>
+-					<div class="relative flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-semibold text-accent">Most popular</span>{/if}</div>
+-					<p class="relative"><span class="big text-[64px]">€{p.price}</span><span class="text-sm opacity-60"> / month</span></p>
+-					<p class="relative -mt-2 text-sm opacity-70">€{Math.round(p.price / 2)} for life for the first 30</p>
+-					<ul class="relative space-y-1.5 text-sm opacity-80">
++				<div class="flex flex-col gap-4 rounded-[28px] p-8 {id === 'agency' ? 'card-dark' : 'card'}" data-stagger>
++					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink">Most popular</span>{/if}</div>
++					<p><span class="big text-[60px]">€{Math.round(p.price / 2)}</span><span class="text-sm opacity-60"> / month for life</span></p>
++					<p class="-mt-2 text-sm opacity-60"><s>€{p.price}</s> after the first 30 agencies</p>
++					<ul class="space-y-1.5 text-sm opacity-80">
+ 						<li>✓ {p.prospects} prospects a month</li>
+ 						<li>✓ Up to {p.clients} clients (sites & apps)</li>
+ 						<li>✓ {id === 'freelance' ? 'Pipeline, agenda, goals' : id === 'agency' ? 'Team & client logins · white-label reports' : 'Own report domain · priority support'}</li>
+ 					</ul>
+-					<a href="/beta" class="btn relative mt-auto {id === 'agency' ? 'btn-primary' : 'btn-accent'}">Start free</a>
++					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'bg-white text-ink hover:bg-white/90' : 'btn-primary'}">Start free</a>
+ 				</div>
+ 			{/each}
+ 		</div>
+ 	</section>
+ 
+ 	<!-- ================= FAQ ================= -->
+-	<section id="faq" class="mx-auto max-w-3xl scroll-mt-24 px-4 py-24 sm:px-6 sm:py-32">
+-		<SplitText text="Straight *answers.*" class="text-center text-[clamp(40px,5.6vw,68px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-accent" />
++	<section id="faq" class="mx-auto max-w-3xl scroll-mt-24 px-4 pb-28 sm:px-6 sm:pb-36">
++		<SplitText text="Straight *answers.*" class="text-center text-[clamp(38px,5.4vw,64px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-ink/45" />
+ 		<ul class="mt-12 space-y-2" use:reveal>
+ 			{#each faqs as f, i (f.q)}
+-				<li class="glass overflow-hidden rounded-[22px]" data-stagger>
++				<li class="card overflow-hidden" data-stagger>
+ 					<button class="flex w-full items-center justify-between gap-4 p-5 text-left font-medium" onclick={() => (open = open === i ? null : i)} aria-expanded={open === i}>
+-						{f.q}<span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-accent text-accent-ink' : 'bg-white/10'}">+</span>
++						{f.q}<span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-ink text-white' : 'bg-tile'}">+</span>
+ 					</button>
+-					{#if open === i}<p class="px-5 pb-5 text-sm text-white/60" transition:slide={{ duration: 300 }}>{f.a}</p>{/if}
++					{#if open === i}<p class="px-5 pb-5 text-sm text-ink-2" transition:slide={{ duration: 260 }}>{f.a}</p>{/if}
+ 				</li>
+ 			{/each}
+ 		</ul>
+ 	</section>
+ 
+ 	<!-- ================= FINAL CTA ================= -->
+-	<section class="px-3 pt-10 pb-3 sm:px-5">
+-		<div class="relative isolate overflow-hidden rounded-[36px] px-6 py-28 text-center sm:rounded-[44px] sm:py-44">
+-			<div class="absolute inset-0 -z-10 bg-[radial-gradient(70%_90%_at_50%_110%,#C6F432_0%,#5e8f1e_28%,#16210c_58%,#0b0c0a_80%)]"></div>
+-			<div class="grid-floor absolute inset-x-0 bottom-0 -z-10 h-full opacity-60"></div>
+-			<h2 class="text-[clamp(40px,7.5vw,104px)] leading-[0.95] font-medium tracking-[-0.045em]">
+-				<span class="relative inline-block" use:inview={{ delay: 200 }}>
+-					<SplitText as="span" class="block" text="Stop waiting." />
+-					<span class="cut-bar absolute top-[55%] -right-[2%] -left-[2%] h-[0.09em] rounded-full bg-accent shadow-[0_0_30px_rgba(198,244,50,.8)]" aria-hidden="true"></span>
+-				</span>
+-				<SplitText as="span" class="block" text="*Start finding.*" emClass="font-serif font-normal" delay={300} />
++	<section class="px-3 pb-3 sm:px-5">
++		<div class="card-dark relative isolate mx-auto flex max-w-[1240px] flex-col items-center overflow-hidden rounded-[36px] px-6 py-24 text-center sm:py-32">
++			<div class="dots-dark pointer-events-none absolute inset-0 -z-10" aria-hidden="true"></div>
++			<h2 class="text-[clamp(40px,7vw,96px)] leading-[0.95] font-medium tracking-[-0.045em]">
++				<SplitText as="span" class="block" text="Your next client" />
++				<SplitText as="span" class="block" text="*is around the corner.*" emClass="font-serif font-normal text-white/50" delay={250} />
+ 			</h2>
+-			<div class="mt-12 flex flex-wrap justify-center gap-3" use:reveal={{ delay: 300 }}>
+-				<a href="/prospects" class="btn btn-primary group px-7 py-3.5 text-base">Find my 5 clients — free<span class="transition-transform group-hover:translate-x-1">→</span></a>
+-				<a href={cta.href} class="btn glass px-7 py-3.5 text-base text-white hover:bg-white/10">{cta.label}</a>
+-			</div>
+-			<p class="mt-5 text-xs text-white/70" use:reveal={{ delay: 400 }}>No card · −50% for life for the first 30 agencies · Data in the EU</p>
++			<div class="mt-10 flex w-full justify-center text-ink" use:reveal={{ delay: 300 }}>{@render urlForm('cta-url')}</div>
++			<p class="mt-4 text-xs text-white/50">No card · −50% for life for the first 30 agencies · Data in the EU</p>
+ 		</div>
+ 	</section>
+ 
+-	<!-- footer -->
+-	<footer class="overflow-hidden px-4 pt-12 sm:px-6">
+-		<div class="mx-auto flex max-w-[1240px] flex-wrap items-center justify-between gap-4 text-sm text-white/50">
+-			<Logo size={26} light />
+-			<nav class="flex gap-5"><a href="#loop" class="hover:text-white">How it works</a><a href="#pricing" class="hover:text-white">Pricing</a><a href="/login" class="hover:text-white">Log in</a></nav>
++	<footer class="px-4 py-10 sm:px-6">
++		<div class="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-4 text-sm text-muted">
++			<Logo size={24} />
++			<nav class="flex gap-5"><a href="/prospects" class="hover:text-ink">Free tool</a><a href="#pricing" class="hover:text-ink">Pricing</a><a href="/login" class="hover:text-ink">Log in</a></nav>
+ 			<p>Made in Brussels · Cookieless · Data in the EU</p>
+ 		</div>
+-		<div use:scrub={{ start: 1, end: 1 }} class="mx-auto max-w-[1240px]">
+-			<p class="grad-text-soft mt-8 text-center text-[24vw] leading-[0.78] font-semibold tracking-[-0.07em] select-none lg:text-[300px]" style="transform:translateY(calc((1 - var(--p,0)) * 40%))" aria-hidden="true">undercut</p>
+-		</div>
+ 	</footer>
+ </div>
+ 
+ <style>
+-	.landing :global(.label) {
+-		color: rgba(255, 255, 255, 0.5);
+-	}
+-	.glass {
+-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03));
+-		border: 1px solid rgba(255, 255, 255, 0.1);
+-		backdrop-filter: blur(18px) saturate(140%);
+-		-webkit-backdrop-filter: blur(18px) saturate(140%);
+-	}
+-	.grad-border {
+-		background: linear-gradient(140deg, rgba(198, 244, 50, 0.65), rgba(255, 255, 255, 0.08) 35%, rgba(255, 255, 255, 0.04) 65%, rgba(198, 244, 50, 0.35));
+-	}
+-	.landing :global(.grad-text),
+-	.grad-text {
+-		background: linear-gradient(100deg, #ffffff 10%, #e9ffb0 45%, #c6f432 75%, #7fd14a);
+-		-webkit-background-clip: text;
+-		background-clip: text;
+-		color: transparent;
+-	}
+-	.landing :global(.grad-text em) {
+-		color: transparent;
+-	}
+-	.grad-text-soft {
+-		background: linear-gradient(180deg, rgba(198, 244, 50, 0.9), rgba(198, 244, 50, 0.05) 85%);
+-		-webkit-background-clip: text;
+-		background-clip: text;
+-		color: transparent;
+-	}
+-	.mesh {
++	/* soft silver gradient behind the hero */
++	.halo {
+ 		background:
+-			radial-gradient(closest-side, rgba(198, 244, 50, 0.35), transparent 70%),
+-			conic-gradient(from 200deg at 50% 50%, rgba(47, 158, 68, 0.35), rgba(198, 244, 50, 0.15), rgba(14, 165, 164, 0.18), rgba(47, 158, 68, 0.35));
+-		filter: blur(90px);
+-		opacity: 0.75;
+-		animation: mesh-spin 26s linear infinite;
+-	}
+-	.grid-floor {
+-		background-image:
+-			linear-gradient(rgba(198, 244, 50, 0.12) 1px, transparent 1px),
+-			linear-gradient(90deg, rgba(198, 244, 50, 0.12) 1px, transparent 1px);
+-		background-size: 64px 64px;
+-		mask-image: linear-gradient(to top, black, transparent 85%);
+-		-webkit-mask-image: linear-gradient(to top, black, transparent 85%);
+-		transform: perspective(600px) rotateX(55deg);
+-		transform-origin: bottom;
+-	}
+-	.noise {
+-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+-	}
+-	.meridian {
+-		transform-box: fill-box;
+-		transform-origin: center;
+-		animation: spin-globe 24s linear infinite;
++			radial-gradient(40% 50% at 30% 40%, rgba(180, 186, 200, 0.45), transparent 70%),
++			radial-gradient(35% 45% at 70% 35%, rgba(214, 208, 198, 0.55), transparent 70%),
++			radial-gradient(50% 60% at 50% 60%, rgba(255, 255, 255, 0.9), transparent 70%);
++		filter: blur(40px);
++		animation: drift 18s ease-in-out infinite alternate;
+ 	}
+-	.arc {
+-		stroke-dasharray: 100;
+-		stroke-dashoffset: 100;
+-		filter: drop-shadow(0 0 6px rgba(198, 244, 50, 0.8));
+-		animation: draw-arc 2.2s cubic-bezier(0.2, 0.75, 0.15, 1) 0.9s forwards;
++	.dots {
++		background-image: radial-gradient(rgba(13, 13, 13, 0.09) 1px, transparent 1px);
++		background-size: 22px 22px;
++		mask-image: radial-gradient(60% 70% at 50% 20%, black, transparent 75%);
++		-webkit-mask-image: radial-gradient(60% 70% at 50% 20%, black, transparent 75%);
+ 	}
+-	.pin {
+-		opacity: 0;
+-		animation: pop 0.5s ease-out forwards;
+-		filter: drop-shadow(0 0 8px #c6f432);
++	.dots-dark {
++		background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
++		background-size: 22px 22px;
++		mask-image: radial-gradient(70% 80% at 50% 100%, black, transparent 80%);
++		-webkit-mask-image: radial-gradient(70% 80% at 50% 100%, black, transparent 80%);
+ 	}
+-	.pin-ring {
+-		opacity: 0;
+-		transform-box: fill-box;
+-		transform-origin: center;
+-		animation: ring 2.4s ease-out infinite;
++	.frame {
++		background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.55));
++		border: 1px solid var(--color-line);
++		box-shadow:
++			0 50px 120px -50px rgba(0, 0, 0, 0.28),
++			0 0 0 6px rgba(255, 255, 255, 0.5);
++		backdrop-filter: blur(12px);
+ 	}
+-	.feat {
+-		min-width: 0;
+-		border-radius: 28px;
+-		padding: 1.75rem;
+-		background: linear-gradient(160deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+-		border: 1px solid rgba(255, 255, 255, 0.08);
+-	}
+-	.feat-lime {
+-		background: linear-gradient(150deg, #e4f5b8, #c6f432 60%, #9fd23a);
+-		color: var(--color-accent-ink);
+-		border-color: transparent;
+-	}
+-	@keyframes spin-globe {
+-		0% {
+-			transform: scaleX(1);
+-		}
+-		50% {
+-			transform: scaleX(-1);
+-		}
+-		100% {
+-			transform: scaleX(1);
+-		}
+-	}
+-	@keyframes mesh-spin {
+-		to {
+-			transform: rotate(360deg);
+-		}
+-	}
+-	@keyframes draw-arc {
+-		to {
+-			stroke-dashoffset: 0;
+-		}
+-	}
+-	@keyframes pop {
+-		from {
+-			opacity: 0;
+-			r: 0;
+-		}
++	@keyframes drift {
+ 		to {
+-			opacity: 1;
+-		}
+-	}
+-	@keyframes ring {
+-		0% {
+-			opacity: 0.8;
+-			transform: scale(0.4);
+-		}
+-		100% {
+-			opacity: 0;
+-			transform: scale(1.6);
++			transform: translateY(30px) scale(1.06);
+ 		}
+ 	}
+ 	@media (prefers-reduced-motion: reduce) {
+-		.meridian,
+-		.mesh,
+-		.pin-ring {
+-			animation: none;
+-		}
+-		.arc {
+-			animation: none;
+-			stroke-dashoffset: 0;
+-		}
+-		.pin {
++		.halo {
+ 			animation: none;
+-			opacity: 1;
+ 		}
+ 	}
+ </style>
+diff --git a/src/routes/admin/+page.svelte b/src/routes/admin/+page.svelte
+index fb33f94..419c32c 100644
+--- a/src/routes/admin/+page.svelte
++++ b/src/routes/admin/+page.svelte
+@@ -22,7 +22,7 @@
+ 			<div class="card-dark p-5"><p class="text-xs text-white/50">Joined</p><p class="big mt-2 text-[44px] leading-none text-accent">{data.joined}<span class="text-xl text-white/40">/{data.seats}</span></p></div>
+ 			<div class="card p-5"><p class="text-xs text-muted">Invited, not joined yet</p><p class="big mt-2 text-[44px] leading-none">{counts.invited}</p></div>
+ 			<div class="card p-5"><p class="text-xs text-muted">Waiting</p><p class="big mt-2 text-[44px] leading-none">{counts.waiting}</p></div>
+-			<div class="rounded-[28px] bg-[#E4F5B8] p-5"><p class="text-xs text-accent-ink/70">Seats left</p><p class="big mt-2 text-[44px] leading-none">{Math.max(0, data.seats - data.joined - counts.invited)}</p></div>
++			<div class="rounded-[28px] bg-accent-soft p-5"><p class="text-xs text-muted">Seats left</p><p class="big mt-2 text-[44px] leading-none">{Math.max(0, data.seats - data.joined - counts.invited)}</p></div>
+ 		</section>
+ 		{#if form?.invited}
+ 			<div class="mt-4 rounded-[20px] bg-accent p-4 text-sm text-accent-ink">
+diff --git a/src/routes/app/+layout.server.ts b/src/routes/app/+layout.server.ts
+index 1489dd9..2c4681d 100644
+--- a/src/routes/app/+layout.server.ts
++++ b/src/routes/app/+layout.server.ts
+@@ -3,11 +3,17 @@ import { googleConfigured } from '#lib/server/google.ts';
+ import { unreadCount } from '#lib/server/alerts.ts';
+ import { isAdmin } from '#lib/server/beta.ts';
+ import { dbOn } from '#lib/server/db.ts';
++import { getOS } from '#lib/server/agency-os.ts';
++import { themeStyle } from '#lib/theme.ts';
+ 
+ export const load = ({ locals }) => {
+ 	const t = getTokens();
+ 	const u = locals.user;
++	const os = getOS();
+ 	return {
++		theme: themeStyle(os.theme.accent),
++		accent: os.theme.accent,
++		siteColor: os.profile?.color ?? null,
+ 		agency: getAgency(),
+ 		// the person signed in (never the password hash)
+ 		account: { name: u?.name || 'Agency owner', email: u?.email ?? '', role: u?.role ?? 'owner' },
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 0debf8c..2b5e71c 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -76,7 +76,7 @@
+ 	</a>
+ {/snippet}
+ 
+-<div class="min-h-dvh lg:grid lg:grid-cols-[264px_1fr]">
++<div class="min-h-dvh lg:grid lg:grid-cols-[264px_1fr]" style={data.theme}>
+ 	<!-- mobile top bar -->
+ 	<header class="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-paper/90 px-4 py-3 backdrop-blur lg:hidden">
+ 		<button class="icon-btn" onclick={() => (drawer = true)} aria-label="Open menu"><Icon name="menu" /></button>
+@@ -134,7 +134,7 @@
+ 
+ 		<div class="mt-auto flex flex-col gap-2 pt-4">
+ 			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
+-				<svg width="16" height="16" viewBox="0 0 24 24" fill="#C6F432"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
++				<svg width="16" height="16" viewBox="0 0 24 24" fill="var(--accent-dark, #fff)"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+ 				<span class="flex-1 text-left">Ask Undercut AI</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
+ 			</button>
+ 
+@@ -161,7 +161,7 @@
+ 					</div>
+ 				{/if}
+ 				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
+-					<span class="relative grid size-9 shrink-0 place-items-center rounded-full bg-[#E4F5B8] text-xs font-semibold text-accent-ink">
++					<span class="relative grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-ink">
+ 						{initial(data.account.name)}
+ 						<span class="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-paper {data.google.connected ? 'bg-good' : 'bg-[#E3A21A]'}"></span>
+ 					</span>
+@@ -180,6 +180,5 @@
+ 			{@render children()}
+ 		</div>
+ 	</main>
++	<Assistant clients={data.clients} />
+ </div>
+-
+-<Assistant clients={data.clients} />
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index bfd0901..3274f5d 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -7,6 +7,7 @@
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+ 	import AgencySetup from '#lib/components/AgencySetup.svelte';
++	import { SWATCHES } from '#lib/theme.ts';
+ 	let { data, form } = $props();
+ 
+ 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+@@ -74,18 +75,38 @@
+ 	</section>
+ 
+ 	<!-- ask to change: plain-language edits to the dashboard -->
+-	<form method="POST" action={act('ask')} use:enhance={keep} class="mt-6 flex flex-col gap-2 rounded-[24px] bg-white p-2 sm:flex-row sm:items-center">
+-		<span class="hidden pl-3 text-accent-ink sm:block">✦</span>
+-		<input name="q" placeholder="Change your dashboard: “hide agenda”, “show what to post”, “clients first”…" class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none" />
+-		<div class="flex gap-2"><button class="btn btn-primary text-sm">Change</button><button type="button" class="pill text-sm" onclick={() => (customise = !customise)}>Blocks</button></div>
++	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
++		<span class="hidden pl-3 text-muted sm:block">✦</span>
++		<input name="q" placeholder="Change your dashboard: “hide agenda”, “clients first”, “make it blue”…" class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none" />
++		<div class="flex gap-2"><button class="btn btn-accent text-sm">Change</button><button type="button" class="pill text-sm {customise ? 'pill-active' : ''}" onclick={() => (customise = !customise)}>Customise</button></div>
+ 	</form>
+ 	{#if form?.asked}<p class="mt-2 text-sm text-muted">{form.asked}</p>{/if}
+ 	{#if customise}
+-		<div class="mt-3 flex flex-wrap gap-2">
++		<div class="card mt-3 grid gap-5 p-5">
++		<div>
++			<p class="label">Colour</p>
++			<div class="mt-2 flex flex-wrap items-center gap-2">
++				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="" /><button class="pill text-sm {!data.accent ? 'pill-active' : ''}"><span class="size-3.5 rounded-full border border-line bg-[linear-gradient(135deg,#fff_50%,#0d0d0d_50%)]"></span>Neutral</button></form>
++				{#if data.siteColor}
++					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="site" /><button class="pill text-sm {data.accent === data.siteColor ? 'pill-active' : ''}"><span class="size-3.5 rounded-full" style="background:{data.siteColor}"></span>Your site’s colour</button></form>
++				{/if}
++				{#each SWATCHES.slice(1) as c (c)}
++					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value={c} /><button class="grid size-9 place-items-center rounded-full ring-offset-2 {data.accent?.toLowerCase() === c.toLowerCase() ? 'ring-2 ring-ink' : ''}" style="background:{c}" aria-label="Use {c}"></button></form>
++				{/each}
++				<form method="POST" action={act('theme')} use:enhance={keep} class="flex items-center gap-2">
++					<label class="relative grid size-9 cursor-pointer place-items-center overflow-hidden rounded-full border border-line bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]" title="Any colour"><input type="color" name="accent" value={data.accent ?? '#2f6bff'} class="absolute inset-0 cursor-pointer opacity-0" onchange={(e) => e.currentTarget.form?.requestSubmit()} /></label>
++				</form>
++			</div>
++		</div>
++		<div>
++		<p class="label">Blocks</p>
++		<div class="mt-2 flex flex-wrap gap-2">
+ 			{#each data.os.order as b (b)}
+ 				<form method="POST" action={act('ask')} use:enhance={keep}><input type="hidden" name="q" value="{data.os.blocks[b] ? 'hide' : 'show'} {b === 'site' ? 'my site' : b === 'calendar' ? 'agenda' : b === 'todo' ? 'this week' : b === 'content' ? 'post' : b}" /><button class="pill text-sm {data.os.blocks[b] ? 'pill-active' : 'opacity-60'}">{data.os.blocks[b] ? '✓' : '+'} {LABEL[b]}</button></form>
+ 			{/each}
+ 		</div>
++		</div>
++		</div>
+ 	{/if}
+ 
+ 	<div class="mt-5 grid gap-4 lg:grid-cols-12">
+@@ -215,7 +236,7 @@
+ 									</div>
+ 
+ 									{#if r.main}
+-										<div class="mt-5"><Sparkline data={r.main.daily} color={dark ? '#C6F432' : '#0D0D0D'} width={320} height={42} /></div>
++										<div class="mt-5"><Sparkline data={r.main.daily} color={dark ? 'var(--color-accent)' : 'var(--color-ink)'} width={320} height={42} /></div>
+ 									{/if}
+ 
+ 									<!-- one dot per area: the whole status at a glance -->
+diff --git a/src/routes/app/clients/[id]/+layout.svelte b/src/routes/app/clients/[id]/+layout.svelte
+index ff1d8a5..93d453a 100644
+--- a/src/routes/app/clients/[id]/+layout.svelte
++++ b/src/routes/app/clients/[id]/+layout.svelte
+@@ -17,7 +17,7 @@
+ 		<div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
+ 			<span class="rounded-full bg-white px-3 py-1 text-xs font-medium">{kind}</span>
+ 			{#if data.web}<a href={c.domain} target="_blank" rel="noreferrer" class="text-muted hover:text-ink">{c.domain.replace(/^https?:\/\//, '')} ↗</a>{/if}
+-			{#if c.demo}<span class="rounded-full bg-[#E4F5B8] px-3 py-1 text-xs">Example client · demo data</span>{/if}
++			{#if c.demo}<span class="rounded-full bg-accent-soft px-3 py-1 text-xs">Example client · demo data</span>{/if}
+ 		</div>
+ 	</div>
+ 	<div class="flex flex-wrap items-center gap-2">
+diff --git a/src/routes/app/clients/[id]/campaigns/+page.svelte b/src/routes/app/clients/[id]/campaigns/+page.svelte
+index db27fdf..79314e9 100644
+--- a/src/routes/app/clients/[id]/campaigns/+page.svelte
++++ b/src/routes/app/clients/[id]/campaigns/+page.svelte
+@@ -52,7 +52,7 @@
+ 	<div class="card-dark p-5"><p class="text-xs text-white/50">Leads from campaigns</p><p class="big mt-2 text-[44px] leading-none text-accent">{totals.leads}</p></div>
+ 	<div class="card p-5"><p class="text-xs text-muted">Visits from campaigns</p><p class="big mt-2 text-[44px] leading-none">{totals.visits.toLocaleString('en-US')}</p></div>
+ 	<div class="card p-5"><p class="text-xs text-muted">Budget</p><p class="big mt-2 text-[44px] leading-none">{totals.spend ? eur(totals.spend) : '—'}</p></div>
+-	<div class="rounded-[28px] bg-[#E4F5B8] p-5"><p class="text-xs text-accent-ink/70">Cost per lead</p><p class="big mt-2 text-[44px] leading-none">{totals.cpl ? eur(totals.cpl) : '—'}</p></div>
++	<div class="rounded-[28px] bg-accent-soft p-5"><p class="text-xs text-muted">Cost per lead</p><p class="big mt-2 text-[44px] leading-none">{totals.cpl ? eur(totals.cpl) : '—'}</p></div>
+ </section>
+ 
+ <!-- How it works -->
+@@ -127,7 +127,7 @@
+ 					</div>
+ 					<svg viewBox="0 0 220 44" class="hidden h-11 w-[160px] sm:block" preserveAspectRatio="none" aria-hidden="true">
+ 						<path d={spark(s.daily, 'visits')} fill="none" stroke="#0D0D0D" stroke-width="2" />
+-						<path d={spark(s.daily, 'leads')} fill="none" stroke="#9bb93a" stroke-width="2" stroke-dasharray="3 3" />
++						<path d={spark(s.daily, 'leads')} fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-dasharray="3 3" />
+ 					</svg>
+ 				</div>
+ 
+@@ -170,7 +170,7 @@
+ 							<ul class="mt-2 space-y-1.5">
+ 								{#each s.posts as p, i (p.key)}
+ 									{@const pl = c.postLinks.find((x) => x.post === p.key)}
+-									<li class="flex items-center gap-2 rounded-xl px-3 py-2 text-sm {i === 0 && p.leads ? 'bg-[#E4F5B8]' : 'bg-tile'}">
++									<li class="flex items-center gap-2 rounded-xl px-3 py-2 text-sm {i === 0 && p.leads ? 'bg-accent-soft' : 'bg-tile'}">
+ 										<span class="min-w-0 flex-1 truncate">{i === 0 && p.leads ? '🏆 ' : ''}{p.key}</span><span class="text-xs text-muted">{p.visits} visits · <b class="text-ink">{p.leads} leads</b></span>
+ 										{#if pl}<button class="text-xs underline" onclick={() => copy(pl.link)}>{copied === pl.link ? '✓' : 'link'}</button>{/if}
+ 									</li>
+diff --git a/src/routes/app/clients/[id]/goals/+page.svelte b/src/routes/app/clients/[id]/goals/+page.svelte
+index fe0ecb5..dba7268 100644
+--- a/src/routes/app/clients/[id]/goals/+page.svelte
++++ b/src/routes/app/clients/[id]/goals/+page.svelte
+@@ -36,7 +36,7 @@
+ {/if}
+ 
+ {#if data.coach}
+-	<p class="mb-4 rounded-[24px] bg-[#E4F5B8] p-5 text-[17px] leading-relaxed">✦ {data.coach}</p>
++	<p class="mb-4 rounded-[24px] bg-accent-soft p-5 text-[17px] leading-relaxed">✦ {data.coach}</p>
+ {/if}
+ 
+ <section class="grid gap-4">
+diff --git a/src/routes/app/clients/[id]/keywords/+page.svelte b/src/routes/app/clients/[id]/keywords/+page.svelte
+index 5802487..7425561 100644
+--- a/src/routes/app/clients/[id]/keywords/+page.svelte
++++ b/src/routes/app/clients/[id]/keywords/+page.svelte
+@@ -56,7 +56,7 @@
+ 
+ {#snippet trackBtn(k: string, kind: 'web' | 'app', on: boolean)}
+ 	{#if on}
+-		<span class="rounded-full bg-[#E4F5B8] px-3 py-1 text-xs text-accent-ink">★ Tracked</span>
++		<span class="rounded-full bg-accent-soft px-3 py-1 text-xs text-ink">★ Tracked</span>
+ 	{:else}
+ 		<form method="POST" action={act('track')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })} class="inline">
+ 			<input type="hidden" name="keyword" value={k} /><input type="hidden" name="kind" value={kind} />
+@@ -84,7 +84,7 @@
+ </div>
+ 
+ {#if pushed}
+-	<section class="mt-4 rounded-[24px] bg-[#E4F5B8] p-5 sm:p-6">
++	<section class="mt-4 rounded-[24px] bg-accent-soft p-5 sm:p-6">
+ 		<div class="flex flex-wrap items-start justify-between gap-3">
+ 			<div><p class="text-sm font-medium">⚡ “{pushed.keyword}” pushed on <b>{pushed.path}</b></p><p class="text-xs text-ink-2">{pushed.why}</p></div>
+ 			<button class="icon-btn size-8 text-xs" onclick={() => (pushed = null)} aria-label="Close">✕</button>
+@@ -136,7 +136,7 @@
+ 			</div>
+ 		</div>
+ 
+-		<div class="rounded-[28px] bg-[#E4F5B8] p-6">
++		<div class="rounded-[28px] bg-accent-soft p-6">
+ 			<h2 class="text-lg font-medium">Quick wins</h2>
+ 			<p class="text-sm text-ink-2">Already seen on Google at position 4–20. A better title pushes them up.</p>
+ 			<ul class="mt-4 space-y-2">
+@@ -216,7 +216,7 @@
+ 				</div>
+ 				<div class="mt-6"><BarChart data={r.trend.points} unit="interest" height={160} dark /></div>
+ 			</div>
+-			<div class="rounded-[28px] bg-[#E4F5B8] p-6">
++			<div class="rounded-[28px] bg-accent-soft p-6">
+ 				<div class="flex items-center justify-between gap-3"><h2 class="text-lg font-medium">Rising searches</h2><SourceBadge state={r.trend.source} /></div>
+ 				<ul class="mt-4 space-y-1.5">
+ 					{#each r.rising as x (x.query)}
+diff --git a/src/routes/app/clients/[id]/paywall/+page.svelte b/src/routes/app/clients/[id]/paywall/+page.svelte
+index 2e09a2c..6519863 100644
+--- a/src/routes/app/clients/[id]/paywall/+page.svelte
++++ b/src/routes/app/clients/[id]/paywall/+page.svelte
+@@ -45,7 +45,7 @@
+ 			<p class="text-sm text-muted">Each line is one paywall (where it shows) and one variant (A/B test). Conversion = trials + purchases ÷ people who saw it.</p>
+ 		</div>
+ 		{#if r.winner}
+-			<p class="mx-2 mt-4 rounded-[16px] p-3 text-sm {r.winner.enough ? 'bg-[#E4F5B8]' : 'bg-tile'}">
++			<p class="mx-2 mt-4 rounded-[16px] p-3 text-sm {r.winner.enough ? 'bg-accent-soft' : 'bg-tile'}">
+ 				{#if r.winner.enough}🏆 On “{r.winner.paywall}”, <b>{r.winner.best}</b> converts <b>{r.winner.lift}%</b> better than {r.winner.worst}.
+ 				{:else}On “{r.winner.paywall}”, <b>{r.winner.best}</b> is ahead (+{r.winner.lift}%) — wait for 100 viewers per variant before deciding.{/if}
+ 			</p>
+diff --git a/src/routes/app/clients/[id]/search/+page.svelte b/src/routes/app/clients/[id]/search/+page.svelte
+index 43a2c8d..cfa1be2 100644
+--- a/src/routes/app/clients/[id]/search/+page.svelte
++++ b/src/routes/app/clients/[id]/search/+page.svelte
+@@ -119,7 +119,7 @@
+ 		<h2 class="display text-[40px] sm:text-[48px]">Google <em>Maps</em></h2>
+ 		<p class="text-sm text-muted">What people did on the Google Business profile.</p>
+ 		<div class="mt-5 grid gap-4 lg:grid-cols-[1fr_2fr]">
+-			<div class="flex flex-col rounded-[28px] bg-[#E4F5B8] p-6">
++			<div class="flex flex-col rounded-[28px] bg-accent-soft p-6">
+ 				<div class="flex items-start justify-between gap-3">
+ 					<p class="text-sm">{n(mp.views)} profile views</p>
+ 					<SourceBadge state={data.mapsSource} />
+diff --git a/src/routes/app/clients/[id]/seo/+page.svelte b/src/routes/app/clients/[id]/seo/+page.svelte
+index e9ca796..10a4491 100644
+--- a/src/routes/app/clients/[id]/seo/+page.svelte
++++ b/src/routes/app/clients/[id]/seo/+page.svelte
+@@ -163,7 +163,7 @@
+ 	<div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+ 		{#each groups as g (g.kind)}
+ 			{@const done = g.live === g.all.length}
+-			<button onclick={() => (group = g.kind)} class="flex flex-col gap-3 rounded-[24px] p-4 text-left transition-transform hover:-translate-y-0.5 {activeKind === g.kind ? 'bg-ink text-white' : done ? 'bg-[#E4F5B8]' : 'bg-white'}">
++			<button onclick={() => (group = g.kind)} class="flex flex-col gap-3 rounded-[24px] p-4 text-left transition-transform hover:-translate-y-0.5 {activeKind === g.kind ? 'bg-ink text-white' : done ? 'bg-accent-soft' : 'bg-white'}">
+ 				<span class="flex items-center justify-between text-xs {activeKind === g.kind ? 'text-white/60' : 'text-muted'}">{kindHelp[g.kind]}{#if done}<span class="font-semibold text-good">✓</span>{/if}</span>
+ 				<span class="big text-[40px]">{g.all.length}</span>
+ 				<span class="text-sm font-medium">{kindLabel[g.kind]}{g.all.length > 1 && g.kind !== 'schema' ? 's' : ''}</span>
+@@ -176,7 +176,7 @@
+ 	<ul class="mt-4 grid gap-3 {activeKind === 'alt' ? 'lg:grid-cols-2' : ''}">
+ 		{#each shown as f (f.id)}
+ 			{@const val = draft[f.id] ?? f.value}
+-			<li class="flex flex-col gap-4 p-5 sm:p-6 {f.status === 'live' ? 'rounded-[28px] bg-[#E4F5B8]' : 'card'}">
++			<li class="flex flex-col gap-4 p-5 sm:p-6 {f.status === 'live' ? 'rounded-[28px] bg-accent-soft' : 'card'}">
+ 				<div class="flex items-center justify-between gap-2">
+ 					<p class="text-sm"><span class="text-muted">Page</span> <a href="{data.client.domain.replace(/\/$/, '')}{f.path}" target="_blank" rel="noreferrer" class="font-medium underline-offset-4 hover:underline">{f.path} ↗</a></p>
+ 					{#if f.status === 'live'}
+@@ -262,7 +262,7 @@
+ 	<div class="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+ 		{#each a.issues as i (i.id)}
+ 			{@const done = fixedSet.has(i.id)}
+-			<div class="flex flex-col gap-3 rounded-[22px] p-4 {done ? 'bg-[#E4F5B8]' : 'bg-white'}">
++			<div class="flex flex-col gap-3 rounded-[22px] p-4 {done ? 'bg-accent-soft' : 'bg-white'}">
+ 				<p class="flex items-start gap-2 font-medium leading-snug"><span class="mt-1.5 size-2 shrink-0 rounded-full {done ? 'bg-good' : dot[i.level]}"></span>{i.title}</p>
+ 				<div class="mt-auto flex items-center justify-between gap-2">
+ 					<p class="truncate text-xs text-muted">{done ? 'Live on the site' : i.pages.slice(0, 2).join(', ')}</p>
+diff --git a/src/routes/app/clients/[id]/store/+page.svelte b/src/routes/app/clients/[id]/store/+page.svelte
+index ff887a6..d9b8a6f 100644
+--- a/src/routes/app/clients/[id]/store/+page.svelte
++++ b/src/routes/app/clients/[id]/store/+page.svelte
+@@ -47,7 +47,7 @@
+ 			<select name="cc" class="input w-auto py-1.5" onchange={(e) => e.currentTarget.form?.requestSubmit()}>{#each data.countries as c (c)}<option value={c} selected={t.cc === c}>{c.toUpperCase()}</option>{/each}</select>
+ 		</form>
+ 		{#if a.url && a.url !== '#'}<a href={a.url} target="_blank" rel="noreferrer" class="pill">Open in App Store ↗</a>{/if}
+-		{#if t.source === 'demo'}<span class="rounded-full bg-[#E4F5B8] px-2.5 py-1 text-[11px]">Example data</span>{/if}
++		{#if t.source === 'demo'}<span class="rounded-full bg-accent-soft px-2.5 py-1 text-[11px]">Example data</span>{/if}
+ 	</section>
+ 
+ 	<!-- numbers -->
+@@ -152,7 +152,7 @@
+ 					<li>
+ 						<form method="POST" action={act('add')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })}>
+ 							<input type="hidden" name="id" value={r.id} />
+-							<button class="flex items-center gap-2 rounded-full bg-tile py-1 pr-3 pl-1 text-sm hover:bg-[#E4F5B8]">{#if r.icon}<img src={r.icon} alt="" class="size-6 rounded-md" />{/if}{r.name} <span class="text-muted">+ Track</span></button>
++							<button class="flex items-center gap-2 rounded-full bg-tile py-1 pr-3 pl-1 text-sm hover:bg-accent-soft">{#if r.icon}<img src={r.icon} alt="" class="size-6 rounded-md" />{/if}{r.name} <span class="text-muted">+ Track</span></button>
+ 						</form>
+ 					</li>
+ 				{/each}
+@@ -162,7 +162,7 @@
+ 			<table class="w-full min-w-[620px] text-sm">
+ 				<thead><tr class="text-left text-xs text-muted"><th class="px-3 pb-2 font-medium">App</th><th class="px-3 pb-2 font-medium">Rank in category</th><th class="px-3 pb-2 font-medium">Rating</th><th class="px-3 pb-2 font-medium">Ratings</th><th class="px-3 pb-2 font-medium">Last update</th><th></th></tr></thead>
+ 				<tbody>
+-					<tr class="border-t border-line bg-[#E4F5B8]/50">
++					<tr class="border-t border-line bg-accent-soft/50">
+ 						<td class="px-3 py-2.5 font-medium">{a.name} <span class="text-xs text-muted">(you)</span></td>
+ 						<td class="px-3 py-2.5">{t.today?.rankCat ? `#${t.today.rankCat}` : '—'}</td>
+ 						<td class="px-3 py-2.5">{a.rating.toFixed(1)}★</td>
+diff --git a/src/routes/app/prospects/+page.svelte b/src/routes/app/prospects/+page.svelte
+index cc924ed..8c8da89 100644
+--- a/src/routes/app/prospects/+page.svelte
++++ b/src/routes/app/prospects/+page.svelte
+@@ -83,7 +83,7 @@
+ 							<ul class="flex flex-wrap gap-1.5">{#each p.issues as x (x.key)}<li class="rounded-full bg-tile px-3 py-1 text-xs">{x.label}</li>{/each}</ul>
+ 							<dl class="mt-4 grid gap-1.5 text-sm">
+ 								{#if p.address}<div><dt class="inline text-muted">Address</dt> <dd class="inline">{p.address}</dd></div>{/if}
+-								{#if p.website}<div><dt class="inline text-muted">Website</dt> <dd class="inline"><a class="underline" href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener nofollow">{p.website.replace(/^https?:\/\//, '')}</a>{#if (p.checked.ms ?? 0) > 50} · {(p.checked.ms / 1000).toFixed(1)} s{/if}</dd></div>{/if}
++								{#if p.website}<div><dt class="inline text-muted">Website</dt> <dd class="inline"><a class="underline" href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener nofollow">{p.website.replace(/^https?:\/\//, '')}</a>{#if (p.checked.ms ?? 0) > 50} · {((p.checked.ms ?? 0) / 1000).toFixed(1)} s{/if}</dd></div>{/if}
+ 								{#if p.phone}<div><dt class="inline text-muted">Phone</dt> <dd class="inline"><a class="underline" href="tel:{p.phone}">{p.phone}</a></dd></div>{/if}
+ 								{#if p.email}<div><dt class="inline text-muted">Email</dt> <dd class="inline">{p.email}</dd></div>{/if}
+ 								{#if p.instagram}<div><dt class="inline text-muted">Instagram</dt> <dd class="inline">{p.instagram}</dd></div>{/if}
+diff --git a/src/routes/app/settings/alerts/+page.svelte b/src/routes/app/settings/alerts/+page.svelte
+index e013f30..a4d330e 100644
+--- a/src/routes/app/settings/alerts/+page.svelte
++++ b/src/routes/app/settings/alerts/+page.svelte
+@@ -21,7 +21,7 @@
+ 			<span class="mt-1 block text-xs text-white/40">Slack → Apps → Incoming Webhooks → choose a channel → copy the URL.</span>
+ 		</label>
+ 		<label class="flex items-center gap-3 rounded-[18px] bg-white/[.07] p-4 text-sm">
+-			<input type="checkbox" name="digest" checked={a.digest !== false} class="size-5 accent-[#C6F432]" />
++			<input type="checkbox" name="digest" checked={a.digest !== false} class="size-5 accent-ink" />
+ 			<span><b class="font-medium">Weekly summary</b> every Monday: one line per client, ready to forward.</span>
+ 		</label>
+ 		<div class="mt-auto flex flex-wrap gap-2">
+diff --git a/src/routes/app/settings/team/+page.svelte b/src/routes/app/settings/team/+page.svelte
+index b57230f..b090231 100644
+--- a/src/routes/app/settings/team/+page.svelte
++++ b/src/routes/app/settings/team/+page.svelte
+@@ -20,7 +20,7 @@
+ 		<p class="mt-2 text-sm text-muted">People of your agency — and clients who get read-only access to their own dashboard.</p>
+ 		<ul class="mt-5 divide-y divide-line">
+ 			<li class="flex items-center gap-3 py-3">
+-				<span class="grid size-9 place-items-center rounded-full bg-[#E4F5B8] text-sm font-semibold text-accent-ink">{data.owner.name.slice(0, 1)}</span>
++				<span class="grid size-9 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-ink">{data.owner.name.slice(0, 1)}</span>
+ 				<div class="min-w-0 flex-1"><p class="truncate font-medium">{data.owner.name} <span class="text-xs font-normal text-muted">(you)</span></p><p class="truncate text-xs text-muted">{data.owner.email || 'no email yet'}</p></div>
+ 				<span class="rounded-full bg-ink px-2.5 py-1 text-[11px] text-white">Owner</span>
+ 			</li>
+diff --git a/src/routes/layout.css b/src/routes/layout.css
+index 1e6a039..a1899ca 100644
+--- a/src/routes/layout.css
++++ b/src/routes/layout.css
+@@ -4,15 +4,17 @@
+ 	--font-sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+ 	--font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
+ 
+-	--color-paper: #efefeb;
++	/* Neutral by default. The agency's own colour (from its site, or picked) replaces --color-accent at runtime. */
++	--color-paper: #f7f7f5;
+ 	--color-card: #ffffff;
+-	--color-tile: #f3f3f0;
++	--color-tile: #f2f2ef;
+ 	--color-ink: #0d0d0d;
+ 	--color-ink-2: #3b3c40;
+-	--color-muted: #85878d;
+-	--color-line: #e3e3de;
+-	--color-accent: #c6f432;
+-	--color-accent-ink: #172000;
++	--color-muted: #8a8b90;
++	--color-line: #e8e8e4;
++	--color-accent: #0d0d0d;
++	--color-accent-ink: #ffffff;
++	--color-accent-soft: color-mix(in oklab, var(--color-accent) 12%, white);
+ 	--color-good: #2f9e44;
+ 	--color-good-bg: #e8f7d4;
+ 	--color-warn: #b7791f;
+@@ -58,6 +60,9 @@ body {
+ 	min-width: 0;
+ 	background: var(--color-card);
+ 	border-radius: var(--radius-card);
++	box-shadow:
++		0 0 0 1px var(--color-line),
++		0 1px 2px rgb(0 0 0 / 0.03);
+ }
+ .tile {
+ 	min-width: 0;
+@@ -66,9 +71,21 @@ body {
+ }
+ .card-dark {
+ 	min-width: 0;
+-	background: var(--color-ink);
++	/* soft graphite gradient; on dark surfaces the accent switches to its light variant */
++	background:
++		radial-gradient(120% 90% at 100% 0%, color-mix(in oklab, var(--accent-dark, #fff) 14%, transparent), transparent 60%),
++		linear-gradient(160deg, #1c1c1d, #0d0d0d);
+ 	color: white;
+ 	border-radius: var(--radius-card);
++	--color-accent: var(--accent-dark, #ffffff);
++	--color-accent-ink: var(--accent-dark-ink, #0d0d0d);
++}
++
++/* any dark surface: the accent switches to its light variant (white when neutral) */
++.on-dark,
++.bg-ink {
++	--color-accent: var(--accent-dark, #ffffff);
++	--color-accent-ink: var(--accent-dark-ink, #0d0d0d);
+ }
+ 
+ .btn {
+@@ -101,10 +118,10 @@ body {
+ 	color: var(--color-accent-ink);
+ }
+ .btn-accent:hover {
+-	background: #b8e81f;
++	background: color-mix(in oklab, var(--color-accent) 86%, black);
+ }
+ .btn-ghost {
+-	border: 1px solid #d6d6d0;
++	border: 1px solid var(--color-line);
+ 	background: transparent;
+ }
+ .btn-ghost:hover {
+@@ -133,7 +150,8 @@ body {
+ 	align-items: center;
+ 	gap: 0.4rem;
+ 	border-radius: 999px;
+-	border: 1px solid #d0d0ca;
++	border: 1px solid var(--color-line);
++	background: white;
+ 	padding: 0.45rem 1rem;
+ 	font-size: 0.875rem;
+ 	white-space: nowrap;
+@@ -150,7 +168,7 @@ body {
+ 
+ .input {
+ 	width: 100%;
+-	border: 1px solid #d6d6d0;
++	border: 1px solid var(--color-line);
+ 	background: white;
+ 	border-radius: 999px;
+ 	padding: 0.7rem 1.1rem;
+@@ -161,7 +179,7 @@ select.input {
+ 	border-radius: 16px;
+ }
+ .input:focus {
+-	outline: 2px solid var(--color-ink);
++	outline: 2px solid var(--color-accent);
+ 	outline-offset: -1px;
+ }
+ 
+diff --git a/src/routes/onboarding/+page.svelte b/src/routes/onboarding/+page.svelte
+index a136707..23c6c7a 100644
+--- a/src/routes/onboarding/+page.svelte
++++ b/src/routes/onboarding/+page.svelte
+@@ -93,7 +93,7 @@
+ 					{/if}
+ 					<ul class="mt-4 grid gap-2 sm:grid-cols-2">
+ 						{#each data.matches as m (m.key)}
+-							<li class="rounded-[18px] p-4 {m.option ? 'bg-[#E4F5B8]' : 'bg-tile'}">
++							<li class="rounded-[18px] p-4 {m.option ? 'bg-accent-soft' : 'bg-tile'}">
+ 								<p class="text-xs text-muted">{m.label}</p>
+ 								<p class="mt-1 truncate font-medium">{m.option?.label ?? 'Not found'}</p>
+ 								{#if m.option}<input type="hidden" name={m.key} value={m.option.value} />{/if}
+@@ -146,7 +146,7 @@
+ 			<form method="POST" action="?step=3&client={data.client.id}&/check" class="mt-4" use:enhance={() => { checking = true; return async ({ update }) => { await update({ reset: false }); checking = false; }; }}>
+ 				<input type="hidden" name="client" value={data.client.id} />
+ 				{#if form?.check === 'ok' || data.installed}
+-					<div class="card flex items-center gap-4 bg-[#E4F5B8] p-5 sm:p-6">
++					<div class="card flex items-center gap-4 bg-accent-soft p-5 sm:p-6">
+ 						<span class="grid size-10 place-items-center rounded-full bg-ink text-accent">✓</span>
+ 						<p class="flex-1 font-medium">Snippet found on {data.client.domain.replace(/^https?:\/\//, '')}</p>
+ 						<a href="/onboarding?step=4&client={data.client.id}" class="btn btn-primary">Next →</a>
+diff --git a/src/routes/prospects/+page.svelte b/src/routes/prospects/+page.svelte
+index 8d94892..51f7ac0 100644
+--- a/src/routes/prospects/+page.svelte
++++ b/src/routes/prospects/+page.svelte
+@@ -35,20 +35,20 @@
+ <svelte:head>
+ 	<title>Find 5 clients for your agency — free · Undercut</title>
+ 	<meta name="description" content="Paste your agency’s URL. Undercut finds 5 real local businesses that need what you sell, checks their website and writes the first message. Free." />
+-	<meta name="theme-color" content="#070807" />
++	<meta name="theme-color" content="#F7F7F5" />
+ </svelte:head>
+ 
+-<div class="landing min-h-dvh overflow-x-clip bg-[#070807] text-white">
++<div class="min-h-dvh overflow-x-clip bg-paper text-ink">
+ 	<header class="mx-auto flex max-w-[1180px] items-center justify-between gap-4 px-4 pt-5 sm:px-6">
+-		<a href="/" aria-label="Undercut home"><Logo light /></a>
+-		<a href="/beta?from=prospects" class="btn btn-accent">Create free account →</a>
++		<a href="/" aria-label="Undercut home"><Logo size={28} /></a>
++		<a href="/beta?from=prospects" class="btn btn-primary">Create free account →</a>
+ 	</header>
+ 
+ 	<section class="relative isolate mx-auto max-w-[1180px] px-4 pt-16 pb-10 sm:px-6 sm:pt-24">
+-		<div class="pointer-events-none absolute top-0 left-1/2 -z-10 size-[700px] -translate-x-1/2 rounded-full bg-accent/15 blur-[140px]" aria-hidden="true"></div>
+-		<p class="text-sm text-accent">Free tool · no account needed</p>
+-		<h1 class="mt-3 max-w-3xl text-[40px] leading-[1.05] font-medium tracking-tight sm:text-[64px]">Your next 5 clients are <span class="text-accent">around the corner.</span></h1>
+-		<p class="mt-4 max-w-xl text-lg text-white/60">Paste your agency’s website. We figure out what you sell, find local businesses that need it, check their site and write the first message.</p>
++		<div class="pointer-events-none absolute top-[-200px] left-1/2 -z-10 h-[600px] w-[1000px] -translate-x-1/2 bg-[radial-gradient(40%_50%_at_35%_45%,rgba(180,186,200,.45),transparent_70%),radial-gradient(35%_45%_at_70%_40%,rgba(214,208,198,.5),transparent_70%)] blur-[40px]" aria-hidden="true"></div>
++		<p class="text-sm text-muted">Free tool · no account needed</p>
++		<h1 class="mt-3 max-w-3xl text-[40px] leading-[1.05] font-medium tracking-tight sm:text-[64px]">Your next 5 clients are <em class="font-serif font-normal text-ink/45">around the corner.</em></h1>
++		<p class="mt-4 max-w-xl text-lg text-ink-2">Paste your agency’s website. We figure out what you sell, find local businesses that need it, check their site and write the first message.</p>
+ 
+ 		<form
+ 			method="POST"
+@@ -61,45 +61,45 @@
+ 				};
+ 			}}
+ 		>
+-			<div class="flex flex-col gap-2 rounded-[28px] bg-white/[.06] p-2 ring-1 ring-white/10 focus-within:ring-accent/60 sm:flex-row">
+-				<input name="url" value={url} required autocomplete="url" inputmode="url" placeholder="youragency.be or instagram.com/youragency" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-white/35" />
+-				<button class="btn btn-accent justify-center px-6 py-3" disabled={loading}>{loading ? 'Searching…' : 'Find my 5 clients →'}</button>
++			<div class="flex flex-col gap-2 rounded-[22px] border border-line bg-white p-1.5 shadow-[0_8px_30px_-12px_rgba(0,0,0,.15)] focus-within:border-ink/40 sm:flex-row">
++				<input name="url" value={url} required autocomplete="url" inputmode="url" placeholder="youragency.be or instagram.com/youragency" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-muted" />
++				<button class="btn btn-primary justify-center px-6 py-3" disabled={loading}>{loading ? 'Searching…' : 'Find my 5 clients →'}</button>
+ 			</div>
+ 
+ 			{#if form && 'ask' in form && form.ask}
+-				<div class="mt-4 rounded-[24px] bg-white/[.06] p-5 ring-1 ring-white/10">
+-					<p class="text-sm text-white/80">{form.ask}</p>
+-					<label class="mt-3 block text-xs text-white/50">City<input name="city" required value={profile?.city ?? ''} placeholder="Ixelles, Liège, Gent…" class="mt-1 w-full rounded-2xl bg-white/10 px-4 py-3 text-base text-white outline-none placeholder:text-white/35 focus:ring-1 focus:ring-accent" /></label>
+-					<p class="mt-4 text-xs text-white/50">What do you sell?</p>
++				<div class="card mt-4 p-5">
++					<p class="text-sm text-ink-2">{form.ask}</p>
++					<label class="mt-3 block text-xs text-muted">City<input name="city" required value={profile?.city ?? ''} placeholder="Ixelles, Liège, Gent…" class="mt-1 w-full rounded-2xl border border-line bg-white px-4 py-3 text-base outline-none placeholder:text-muted focus:border-ink/40" /></label>
++					<p class="mt-4 text-xs text-muted">What do you sell?</p>
+ 					<div class="mt-2 flex flex-wrap gap-2">
+ 						{#each SERVICES as [k, l] (k)}
+-							<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={services.includes(k)} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink">{l}</span></label>
++							<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={services.includes(k)} class="peer sr-only" /><span class="inline-block rounded-full border border-line bg-white px-4 py-2 text-sm peer-checked:border-ink peer-checked:bg-ink peer-checked:text-white">{l}</span></label>
+ 						{/each}
+ 					</div>
+ 				</div>
+ 			{:else if run && profile}
+ 				<!-- let them correct what we understood, then search again -->
+-				<details class="mt-3 text-sm text-white/50">
+-					<summary class="cursor-pointer">We understood: <b class="font-medium text-white/80">{profile.name}</b> · {profile.services.join(', ')} · {profile.city}. <u>Change</u></summary>
+-					<div class="mt-3 rounded-[24px] bg-white/[.06] p-5">
+-						<label class="block text-xs">City<input name="city" value={profile.city} class="mt-1 w-full rounded-2xl bg-white/10 px-4 py-3 text-base text-white outline-none focus:ring-1 focus:ring-accent" /></label>
++				<details class="mt-3 text-sm text-muted">
++					<summary class="cursor-pointer">We understood: <b class="font-medium text-ink">{profile.name}</b> · {profile.services.join(', ')} · {profile.city}. <u>Change</u></summary>
++					<div class="card mt-3 p-5">
++						<label class="block text-xs">City<input name="city" value={profile.city} class="mt-1 w-full rounded-2xl border border-line bg-white px-4 py-3 text-base outline-none focus:border-ink/40" /></label>
+ 						<div class="mt-3 flex flex-wrap gap-2">
+ 							{#each SERVICES as [k, l] (k)}
+-								<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={services.includes(k)} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm text-white peer-checked:bg-accent peer-checked:text-accent-ink">{l}</span></label>
++								<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={services.includes(k)} class="peer sr-only" /><span class="inline-block rounded-full border border-line bg-white px-4 py-2 text-sm peer-checked:border-ink peer-checked:bg-ink peer-checked:text-white">{l}</span></label>
+ 							{/each}
+ 						</div>
+-						<button class="btn btn-ghost mt-4 text-white">Search again</button>
++						<button class="btn btn-primary mt-4">Search again</button>
+ 					</div>
+ 				</details>
+ 			{/if}
+ 			{#if form?.error}
+-				<p class="mt-3 text-sm text-[#ff8a7a]">{form.error}{#if 'limit' in form && form.limit} <a href="/beta?from=prospects" class="underline">Create a free account</a>{/if}</p>
++				<p class="mt-3 text-sm text-bad">{form.error}{#if 'limit' in form && form.limit} <a href="/beta?from=prospects" class="underline">Create a free account</a>{/if}</p>
+ 			{/if}
+ 		</form>
+ 
+ 		{#if loading}
+-			<div class="mt-10 flex items-center gap-3 text-white/70" aria-live="polite">
+-				<span class="size-2.5 animate-ping rounded-full bg-accent"></span>{steps[si]}
++			<div class="mt-10 flex items-center gap-3 text-ink-2" aria-live="polite">
++				<span class="size-2.5 animate-ping rounded-full bg-ink"></span>{steps[si]}
+ 			</div>
+ 		{/if}
+ 	</section>
+@@ -107,58 +107,58 @@
+ 	{#if run && !loading}
+ 		<section class="mx-auto max-w-[1180px] px-4 pb-24 sm:px-6">
+ 			{#if run.error}
+-				<p class="rounded-[24px] bg-white/[.06] p-5 text-white/80">{run.error}</p>
++				<p class="card p-5 text-ink-2">{run.error}</p>
+ 			{:else if !run.prospects.length}
+-				<p class="rounded-[24px] bg-white/[.06] p-5 text-white/80">We looked at {run.scanned} businesses around {profile?.city} and their online presence is already good. Try a nearby city or another service.</p>
++				<p class="card p-5 text-ink-2">We looked at {run.scanned} businesses around {profile?.city} and their online presence is already good. Try a nearby city or another service.</p>
+ 			{:else}
+-				<p class="text-sm text-white/50">{run.scanned} businesses around {run.center?.label.split(',')[0]} looked at · the {run.prospects.length} that need you most</p>
++				<p class="text-sm text-muted">{run.scanned} businesses around {run.center?.label.split(',')[0]} looked at · the {run.prospects.length} that need you most</p>
+ 				<div class="mt-4 grid gap-4 lg:grid-cols-2">
+ 					{#each run.prospects as p, i (p.id)}
+-						<article class="flex flex-col rounded-[28px] bg-white/[.05] p-5 ring-1 ring-white/10 sm:p-6">
++						<article class="card flex flex-col p-5 sm:p-6">
+ 							<div class="flex items-start justify-between gap-4">
+ 								<div class="min-w-0">
+-									<p class="text-xs text-white/50">{p.category}{p.address ? ` · ${p.address}` : ''}</p>
++									<p class="text-xs text-muted">{p.category}{p.address ? ` · ${p.address}` : ''}</p>
+ 									<h2 class="mt-1 truncate text-xl font-medium">{p.name}</h2>
+ 								</div>
+ 								<div class="shrink-0 text-right">
+-									<p class="text-3xl font-medium text-accent">{p.score}</p>
+-									<p class="text-[10px] tracking-wide text-white/40 uppercase">needs you</p>
++									<p class="text-3xl font-medium">{p.score}</p>
++									<p class="text-[10px] tracking-wide text-muted uppercase">needs you</p>
+ 								</div>
+ 							</div>
+ 							<ul class="mt-4 flex flex-wrap gap-1.5">
+-								{#each p.issues as x (x.key)}<li class="rounded-full bg-white/10 px-3 py-1 text-xs text-white/80">{x.label}</li>{/each}
++								{#each p.issues as x (x.key)}<li class="rounded-full border border-line px-3 py-1 text-xs text-ink-2">{x.label}</li>{/each}
+ 							</ul>
+-							<div class="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-white/60">
+-								{#if p.website}<a href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener nofollow" class="hover:text-white">↗ Website</a>{/if}
+-								{#if p.phone}<a href="tel:{p.phone}" class="hover:text-white">☎ {p.phone}</a>{/if}
++							<div class="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-2">
++								{#if p.website}<a href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener nofollow" class="hover:text-ink">↗ Website</a>{/if}
++								{#if p.phone}<a href="tel:{p.phone}" class="hover:text-ink">☎ {p.phone}</a>{/if}
+ 								{#if p.instagram}<span>Instagram ✓</span>{/if}
+-								<a href={p.osmUrl} target="_blank" rel="noopener" class="hover:text-white">Map</a>
++								<a href={p.osmUrl} target="_blank" rel="noopener" class="hover:text-ink">Map</a>
+ 							</div>
+ 							{#if i === 0}
+-								<div class="mt-5 rounded-[20px] bg-black/40 p-4">
+-									<p class="text-xs text-accent">First message — review it, then send it yourself</p>
+-									<p class="mt-2 text-sm whitespace-pre-line text-white/80">{p.message}</p>
+-									<button type="button" class="btn btn-ghost mt-3 text-sm text-white" onclick={() => copy(p.id, p.message)}>{copied === p.id ? 'Copied ✓' : 'Copy message'}</button>
++								<div class="mt-5 rounded-[20px] bg-tile p-4">
++									<p class="text-xs text-muted">First message — review it, then send it yourself</p>
++									<p class="mt-2 text-sm whitespace-pre-line text-ink">{p.message}</p>
++									<button type="button" class="btn btn-primary mt-3 text-sm" onclick={() => copy(p.id, p.message)}>{copied === p.id ? 'Copied ✓' : 'Copy message'}</button>
+ 								</div>
+ 							{:else}
+-								<a href="/beta?from=prospects" class="mt-5 block rounded-[20px] bg-black/40 p-4 text-sm text-white/50 hover:text-white">
++								<a href="/beta?from=prospects" class="mt-5 block rounded-[20px] bg-tile p-4 text-sm text-muted hover:text-ink">
+ 									<span class="block blur-[3px] select-none" aria-hidden="true">Bonjour {p.name}, en regardant votre présence en ligne j’ai remarqué…</span>
+-									<span class="mt-2 block text-accent">Create a free account to see this message →</span>
++									<span class="mt-2 block font-medium text-ink">Create a free account to see this message →</span>
+ 								</a>
+ 							{/if}
+ 						</article>
+ 					{/each}
+ 				</div>
+ 
+-				<div class="mt-8 flex flex-col items-start justify-between gap-5 rounded-[32px] bg-accent p-6 text-accent-ink sm:flex-row sm:items-center sm:p-8">
++				<div class="mt-8 flex flex-col items-start justify-between gap-5 card-dark p-6 sm:flex-row sm:items-center sm:p-8">
+ 					<div>
+ 						<p class="text-2xl font-medium">Want 50 like these every month?</p>
+-						<p class="mt-1 opacity-70">Your own dashboard: new prospects every week, a simple pipeline, and your clients’ sites and apps in one place.</p>
++						<p class="mt-1 text-white/60">Your own dashboard: new prospects every week, a simple pipeline, and your clients’ sites and apps in one place.</p>
+ 					</div>
+-					<a href="/beta?from=prospects" class="btn shrink-0 bg-[#0D0D0D] text-white hover:bg-black">Build my dashboard →</a>
++					<a href="/beta?from=prospects" class="btn shrink-0 bg-white text-ink hover:bg-white/90">Build my dashboard →</a>
+ 				</div>
+ 			{/if}
+-			<p class="mt-6 text-xs text-white/35">Business data © <a href="https://www.openstreetmap.org/copyright" class="underline" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Websites checked live by Undercut. You send every message yourself.</p>
++			<p class="mt-6 text-xs text-muted">Business data © <a href="https://www.openstreetmap.org/copyright" class="underline" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Websites checked live by Undercut. You send every message yourself.</p>
+ 		</section>
+ 	{/if}
+ </div>
+-- 
+2.43.0
+

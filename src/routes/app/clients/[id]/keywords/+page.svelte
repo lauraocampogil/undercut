@@ -56,7 +56,7 @@
 
 {#snippet trackBtn(k: string, kind: 'web' | 'app', on: boolean)}
 	{#if on}
-		<span class="rounded-full bg-[#E4F5B8] px-3 py-1 text-xs text-accent-ink">★ Tracked</span>
+		<span class="rounded-full bg-accent-soft px-3 py-1 text-xs text-ink">★ Tracked</span>
 	{:else}
 		<form method="POST" action={act('track')} use:enhance={() => async ({ update }) => update({ reset: false, invalidateAll: true })} class="inline">
 			<input type="hidden" name="keyword" value={k} /><input type="hidden" name="kind" value={kind} />
@@ -84,7 +84,7 @@
 </div>
 
 {#if pushed}
-	<section class="mt-4 rounded-[24px] bg-[#E4F5B8] p-5 sm:p-6">
+	<section class="mt-4 rounded-[24px] bg-accent-soft p-5 sm:p-6">
 		<div class="flex flex-wrap items-start justify-between gap-3">
 			<div><p class="text-sm font-medium">⚡ “{pushed.keyword}” pushed on <b>{pushed.path}</b></p><p class="text-xs text-ink-2">{pushed.why}</p></div>
 			<button class="icon-btn size-8 text-xs" onclick={() => (pushed = null)} aria-label="Close">✕</button>
@@ -136,7 +136,7 @@
 			</div>
 		</div>
 
-		<div class="rounded-[28px] bg-[#E4F5B8] p-6">
+		<div class="rounded-[28px] bg-accent-soft p-6">
 			<h2 class="text-lg font-medium">Quick wins</h2>
 			<p class="text-sm text-ink-2">Already seen on Google at position 4–20. A better title pushes them up.</p>
 			<ul class="mt-4 space-y-2">
@@ -216,7 +216,7 @@
 				</div>
 				<div class="mt-6"><BarChart data={r.trend.points} unit="interest" height={160} dark /></div>
 			</div>
-			<div class="rounded-[28px] bg-[#E4F5B8] p-6">
+			<div class="rounded-[28px] bg-accent-soft p-6">
 				<div class="flex items-center justify-between gap-3"><h2 class="text-lg font-medium">Rising searches</h2><SourceBadge state={r.trend.source} /></div>
 				<ul class="mt-4 space-y-1.5">
 					{#each r.rising as x (x.query)}

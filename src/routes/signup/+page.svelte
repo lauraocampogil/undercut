@@ -33,6 +33,7 @@
 				<label class="block"><span class="label">Agency name</span><input class="input mt-1.5" name="agency" value={form?.agency ?? data.prefill?.agency ?? ''} placeholder="Unix Creative Studio" autocomplete="organization" required /></label>
 				{#if !data.beta}<label class="flex items-center gap-3 rounded-[16px] bg-white p-3 text-sm"><input type="checkbox" name="examples" class="size-4 accent-[#0D0D0D]" />Keep a few example clients to explore</label>{/if}
 				<button class="btn btn-primary w-full py-3 text-base">Create my workspace →</button>
+				<p class="mt-3 text-center text-xs text-muted">By continuing you agree to the <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy policy</a>.</p>
 				<p class="text-center text-xs text-muted">Already have one? <a href="/login" class="underline">Log in</a></p>
 			</form>
 		</div>

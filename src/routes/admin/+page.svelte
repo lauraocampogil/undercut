@@ -22,7 +22,7 @@
 			<div class="card-dark p-5"><p class="text-xs text-white/50">Joined</p><p class="big mt-2 text-[44px] leading-none text-accent">{data.joined}<span class="text-xl text-white/40">/{data.seats}</span></p></div>
 			<div class="card p-5"><p class="text-xs text-muted">Invited, not joined yet</p><p class="big mt-2 text-[44px] leading-none">{counts.invited}</p></div>
 			<div class="card p-5"><p class="text-xs text-muted">Waiting</p><p class="big mt-2 text-[44px] leading-none">{counts.waiting}</p></div>
-			<div class="rounded-[28px] bg-[#E4F5B8] p-5"><p class="text-xs text-accent-ink/70">Seats left</p><p class="big mt-2 text-[44px] leading-none">{Math.max(0, data.seats - data.joined - counts.invited)}</p></div>
+			<div class="rounded-[28px] bg-accent-soft p-5"><p class="text-xs text-muted">Seats left</p><p class="big mt-2 text-[44px] leading-none">{Math.max(0, data.seats - data.joined - counts.invited)}</p></div>
 		</section>
 		{#if form?.invited}
 			<div class="mt-4 rounded-[20px] bg-accent p-4 text-sm text-accent-ink">

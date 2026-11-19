@@ -5,7 +5,7 @@
 	const days = $derived(Number(page.url.searchParams.get('days')) || 28);
 	const showDays = $derived(!/\/(settings|seo|heatmaps)$/.test(page.url.pathname));
 	const section = $derived(
-		({ leads: 'Leads', traffic: 'Traffic', search: 'Search & Maps', seo: 'SEO & fixes', keywords: 'Keywords', campaigns: 'Campaigns', heatmaps: 'Heatmaps', app: 'App analytics', store: 'App Store', paywall: 'Paywall', errors: 'Errors', settings: 'Setup & connections' } as Record<string, string>)[page.url.pathname.split('/')[4] ?? ''] ?? 'Summary'
+		({ leads: 'Leads', traffic: 'Traffic', search: 'Search & Maps', seo: 'SEO & fixes', keywords: 'Keywords', campaigns: 'Campaigns', heatmaps: 'Heatmaps', app: 'App analytics', store: 'App Store', goals: 'Goals', paywall: 'Paywall', errors: 'Errors', settings: 'Setup & connections' } as Record<string, string>)[page.url.pathname.split('/')[4] ?? ''] ?? 'Summary'
 	);
 	const kind = $derived(data.web && data.app ? 'Website + app' : data.app ? 'App' : 'Website');
 </script>
@@ -17,7 +17,7 @@
 		<div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
 			<span class="rounded-full bg-white px-3 py-1 text-xs font-medium">{kind}</span>
 			{#if data.web}<a href={c.domain} target="_blank" rel="noreferrer" class="text-muted hover:text-ink">{c.domain.replace(/^https?:\/\//, '')} ↗</a>{/if}
-			{#if c.demo}<span class="rounded-full bg-[#E4F5B8] px-3 py-1 text-xs">Example client · demo data</span>{/if}
+			{#if c.demo}<span class="rounded-full bg-accent-soft px-3 py-1 text-xs">Example client · demo data</span>{/if}
 		</div>
 	</div>
 	<div class="flex flex-wrap items-center gap-2">

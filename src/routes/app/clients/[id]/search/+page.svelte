@@ -119,7 +119,7 @@
 		<h2 class="display text-[40px] sm:text-[48px]">Google <em>Maps</em></h2>
 		<p class="text-sm text-muted">What people did on the Google Business profile.</p>
 		<div class="mt-5 grid gap-4 lg:grid-cols-[1fr_2fr]">
-			<div class="flex flex-col rounded-[28px] bg-[#E4F5B8] p-6">
+			<div class="flex flex-col rounded-[28px] bg-accent-soft p-6">
 				<div class="flex items-start justify-between gap-3">
 					<p class="text-sm">{n(mp.views)} profile views</p>
 					<SourceBadge state={data.mapsSource} />

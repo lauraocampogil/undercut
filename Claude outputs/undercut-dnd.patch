@@ -1,0 +1,277 @@
+From ff2fa78ab0b2e756936f7208d07732742298b168 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 23:55:42 +0100
+Subject: [PATCH] Dashboard edit mode: drag & drop blocks, resize, hide/add;
+ beta page copy and chips
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/server/agency-actions.ts | 11 +++-
+ src/lib/server/agency-os.ts      | 18 ++++++-
+ src/routes/app/+page.server.ts   |  2 +-
+ src/routes/app/+page.svelte      | 92 ++++++++++++++++++++++++++++----
+ src/routes/beta/+page.svelte     | 13 ++---
+ 5 files changed, 115 insertions(+), 21 deletions(-)
+
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index 8fea0c5..bebf76a 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -1,7 +1,7 @@
+ // Form actions shared by the cockpit (/app) and the prospects page (/app/prospects).
+ import { fail, type RequestEvent } from '@sveltejs/kit';
+ import { profileFromUrl, type Service } from './agency-profile.ts';
+-import { applyAsk, findMore, getOS, removeItem, setGoal, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
++import { applyAsk, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
+ import { isHex } from '#lib/theme.ts';
+ 
+ const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
+@@ -62,6 +62,15 @@ export const agencyActions = {
+ 		setGoal(Number((await request.formData()).get('won')) || 2);
+ 		return { ok: true };
+ 	},
++	layout: async ({ request }: E) => {
++		const f = await request.formData();
++		try {
++			setLayout(JSON.parse(String(f.get('order') ?? '[]')), JSON.parse(String(f.get('sizes') ?? '{}')), JSON.parse(String(f.get('visible') ?? '[]')));
++		} catch {
++			return fail(400, { error: 'Could not save the layout.' });
++		}
++		return { ok: true };
++	},
+ 	theme: async ({ request }: E) => {
+ 		const f = await request.formData();
+ 		const v = String(f.get('accent') ?? '');
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index 1e5209a..333f9ee 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -26,14 +26,17 @@ export type AgencyOS = {
+ 	runs: { at: string; n: number }[]; // prospect searches, for the monthly quota
+ 	goal: { wonPerMonth: number };
+ 	theme: { accent: string | null; picked?: boolean }; // null = neutral; picked = chosen by the user (not from the site)
++	sizes: Partial<Record<BlockId, Size>>; // width of each block on the dashboard grid
+ };
++export type Size = 's' | 'm' | 'l' | 'xl';
++export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', clients: 'xl', todo: 'm', calendar: 'm', site: 's', goals: 's', content: 's' };
+ 
+ const FILE = 'agency-os.json';
+ const DEFAULT_BLOCKS = Object.fromEntries(BLOCKS.map((b) => [b.id, b.id !== 'content'])) as Record<BlockId, boolean>;
+ 
+ export function getOS(): AgencyOS {
+-	const s = readData<AgencyOS>(FILE, { profile: null, pipeline: [], blocks: DEFAULT_BLOCKS, order: BLOCKS.map((b) => b.id), runs: [], goal: { wonPerMonth: 2 }, theme: { accent: null } });
+-	return { ...s, goal: s.goal ?? { wonPerMonth: 2 }, theme: s.theme ?? { accent: null }, blocks: { ...DEFAULT_BLOCKS, ...s.blocks }, order: [...new Set([...(s.order ?? []), ...BLOCKS.map((b) => b.id)])] as BlockId[] };
++	const s = readData<AgencyOS>(FILE, { profile: null, pipeline: [], blocks: DEFAULT_BLOCKS, order: BLOCKS.map((b) => b.id), runs: [], goal: { wonPerMonth: 2 }, theme: { accent: null }, sizes: {} });
++	return { ...s, sizes: { ...DEFAULT_SIZE, ...(s.sizes ?? {}) }, goal: s.goal ?? { wonPerMonth: 2 }, theme: s.theme ?? { accent: null }, blocks: { ...DEFAULT_BLOCKS, ...s.blocks }, order: [...new Set([...(s.order ?? []), ...BLOCKS.map((b) => b.id)])] as BlockId[] };
+ }
+ export function saveOS(s: AgencyOS) {
+ 	writeData(FILE, s);
+@@ -158,3 +161,14 @@ export async function findMore(n = 5): Promise<{ added: number; error?: string }
+ 	if (!run.prospects.length) return { added: 0, error: `No new businesses needing you around ${s.profile.city} right now — try a nearby city in your agency settings.` };
+ 	return { added: addProspects(run.prospects) };
+ }
++
++/** Drag-and-drop layout: order, visibility and width of each block. Unknown ids are ignored. */
++export function setLayout(order: string[], sizes: Record<string, string>, visible: string[]) {
++	const s = getOS();
++	const ids = BLOCKS.map((b) => b.id);
++	const ok = (x: string): x is BlockId => (ids as string[]).includes(x);
++	s.order = [...new Set([...order.filter(ok), ...ids])];
++	for (const [k, v] of Object.entries(sizes)) if (ok(k) && ['s', 'm', 'l', 'xl'].includes(v)) s.sizes[k] = v as Size;
++	if (visible.length) for (const id of ids) s.blocks[id] = visible.includes(id);
++	saveOS(s);
++}
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index 1388602..b429214 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -52,7 +52,7 @@ export const load = async () => {
+ 
+ 	return {
+ 		rows,
+-		os: { profile: os.profile, blocks: os.blocks, order: os.order, goal: os.goal, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
++		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
+ 		stats: { ...stats, due: stats.due.slice(0, 6) },
+ 		quota: monthlyQuota(),
+ 		used: usedThisMonth(os),
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index a631366..277cc1b 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -8,14 +8,53 @@
+ 	import { act } from '#lib/act.ts';
+ 	import AgencySetup from '#lib/components/AgencySetup.svelte';
+ 	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
++	import { flip } from 'svelte/animate';
+ 	let { data, form } = $props();
+ 
+ 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+ 	let finding = $state(false);
+ 	let customise = $state(false);
+ 	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', clients: 'Clients', todo: 'This week', calendar: 'Agenda', site: 'Your own site', goals: 'Goal', content: 'What to post' };
+-	const SPAN: Record<string, string> = { prospects: 'lg:col-span-8', pipeline: 'lg:col-span-4', clients: 'lg:col-span-12', todo: 'lg:col-span-6', calendar: 'lg:col-span-6', site: 'lg:col-span-4', goals: 'lg:col-span-4', content: 'lg:col-span-4' };
+-	const shown = $derived(data.os.order.filter((b) => data.os.blocks[b]));
++	const SPAN: Record<string, string> = { s: 'lg:col-span-4', m: 'lg:col-span-6', l: 'lg:col-span-8', xl: 'lg:col-span-12' };
++	const SIZE_LABEL: Record<string, string> = { s: '⅓', m: '½', l: '⅔', xl: 'Full' };
++	type B = (typeof data.os.order)[number];
++	// local, editable copy of the layout (drag & drop, sizes, visibility); saved to the server after each change
++	let order = $state<B[]>([]);
++	let sizes = $state<Record<string, string>>({});
++	let visible = $state<Record<string, boolean>>({});
++	$effect.pre(() => {
++		order = [...data.os.order];
++		sizes = { ...data.os.sizes };
++		visible = { ...data.os.blocks };
++	});
++	const shown = $derived(order.filter((b) => visible[b]));
++	const hiddenBlocks = $derived(order.filter((b) => !visible[b]));
++	let dragging = $state<B | null>(null);
++	let saving = $state(false);
++	async function saveLayout() {
++		saving = true;
++		const f = new FormData();
++		f.set('order', JSON.stringify(order));
++		f.set('sizes', JSON.stringify(sizes));
++		f.set('visible', JSON.stringify(order.filter((b) => visible[b])));
++		await fetch(act('layout'), { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true' } });
++		saving = false;
++	}
++	const moveTo = (b: B, target: B) => {
++		if (b === target) return;
++		const next = order.filter((x) => x !== b);
++		next.splice(next.indexOf(target), 0, b);
++		order = next;
++	};
++	const cycleSize = (b: B) => {
++		const list = ['s', 'm', 'l', 'xl'];
++		sizes = { ...sizes, [b]: list[(list.indexOf(sizes[b] ?? 'm') + 1) % list.length] };
++		saveLayout();
++	};
++	const setVisible = (b: B, on: boolean) => {
++		visible = { ...visible, [b]: on };
++		saveLayout();
++	};
+ 	const hour = new Date().getHours();
+ 	const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+ 	const todo = $derived.by(() => {
+@@ -78,7 +117,7 @@
+ 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
+ 		<span class="hidden pl-3 text-muted sm:block">✦</span>
+ 		<input name="q" placeholder="Change your dashboard: “hide agenda”, “clients first”, “make it blue”…" class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none" />
+-		<div class="flex gap-2"><button class="btn btn-accent text-sm">Change</button><button type="button" class="pill text-sm {customise ? 'pill-active' : ''}" onclick={() => (customise = !customise)}>Customise</button></div>
++		<div class="flex gap-2"><button class="btn btn-accent text-sm">Change</button><button type="button" class="pill text-sm {customise ? 'pill-active' : ''}" onclick={() => (customise = !customise)}>{customise ? 'Done' : 'Customise'}</button></div>
+ 	</form>
+ 	{#if form?.asked}<p class="mt-2 text-sm text-muted">{form.asked}</p>{/if}
+ 	{#if customise}
+@@ -98,20 +137,42 @@
+ 				</form>
+ 			</div>
+ 		</div>
+-		<div>
+-		<p class="label">Blocks</p>
+-		<div class="mt-2 flex flex-wrap gap-2">
+-			{#each data.os.order as b (b)}
+-				<form method="POST" action={act('ask')} use:enhance={keep}><input type="hidden" name="q" value="{data.os.blocks[b] ? 'hide' : 'show'} {b === 'site' ? 'my site' : b === 'calendar' ? 'agenda' : b === 'todo' ? 'this week' : b === 'content' ? 'post' : b}" /><button class="pill text-sm {data.os.blocks[b] ? 'pill-active' : 'opacity-60'}">{data.os.blocks[b] ? '✓' : '+'} {LABEL[b]}</button></form>
+-			{/each}
+-		</div>
++		<div class="flex flex-wrap items-center justify-between gap-3 rounded-[18px] bg-black/[.03] px-4 py-3 text-sm">
++			<p class="text-ink-2"><b class="font-medium text-ink">Edit mode:</b> drag blocks to move them, change their width, hide them, or add new ones below.</p>
++			<span class="text-xs text-muted">{saving ? 'Saving…' : 'Saved automatically'}</span>
+ 		</div>
+ 		</div>
+ 	{/if}
+ 
+ 	<div class="mt-5 grid gap-4 lg:grid-cols-12">
+ 		{#each shown as b (b)}
+-			<div class="min-w-0 {SPAN[b]}">
++			<div
++				class="relative min-w-0 transition-[opacity,transform] duration-200 {SPAN[sizes[b] ?? 'm']} {customise ? 'cursor-grab rounded-[30px] outline-2 outline-offset-4 outline-dashed outline-black/15 active:cursor-grabbing' : ''} {dragging === b ? 'scale-[.98] opacity-40' : ''}"
++				animate:flip={{ duration: 300 }}
++				draggable={customise}
++				role="listitem"
++				ondragstart={(e) => {
++					dragging = b;
++					e.dataTransfer?.setData('text/plain', b);
++				}}
++				ondragover={(e) => {
++					if (!dragging) return;
++					e.preventDefault();
++					moveTo(dragging, b);
++				}}
++				ondragend={() => {
++					if (dragging) saveLayout();
++					dragging = null;
++				}}
++			>
++				{#if customise}
++					<div class="absolute -top-3 right-4 z-20 flex items-center gap-1 rounded-full bg-ink p-1 text-xs text-white shadow-lg">
++						<span class="px-2 select-none" title="Drag to move">⠿ {LABEL[b]}</span>
++						<button type="button" class="rounded-full bg-white/10 px-2.5 py-1 hover:bg-white/20" onclick={() => cycleSize(b)} title="Change width">{SIZE_LABEL[sizes[b] ?? 'm']}</button>
++						<button type="button" class="grid size-6 place-items-center rounded-full hover:bg-white/20" onclick={() => setVisible(b, false)} aria-label="Hide {LABEL[b]}">✕</button>
++					</div>
++				{/if}
++				<div class={customise ? 'pointer-events-none select-none' : ''}>
+ 				{#if b === 'prospects'}
+ 					<section class="card-dark relative h-full overflow-hidden p-5 sm:p-7">
+ 						<div class="pointer-events-none absolute -top-20 -right-20 size-72 rounded-full bg-accent/20 blur-3xl"></div>
+@@ -262,7 +323,16 @@
+ 						</section>
+ 					</section>
+ 				{/if}
++				</div>
+ 			</div>
+ 		{/each}
+ 	</div>
++	{#if customise && hiddenBlocks.length}
++		<div class="mt-6 rounded-[28px] border-2 border-dashed border-black/10 p-5">
++			<p class="label">Add a block</p>
++			<div class="mt-3 flex flex-wrap gap-2">
++				{#each hiddenBlocks as b (b)}<button type="button" class="pill text-sm" onclick={() => setVisible(b, true)}>+ {LABEL[b]}</button>{/each}
++			</div>
++		</div>
++	{/if}
+ {/if}
+diff --git a/src/routes/beta/+page.svelte b/src/routes/beta/+page.svelte
+index e2c0a39..0ae955a 100644
+--- a/src/routes/beta/+page.svelte
++++ b/src/routes/beta/+page.svelte
+@@ -5,7 +5,7 @@
+ 	const kinds = [
+ 		['web', 'Web agency'],
+ 		['app', 'App studio'],
+-		['comms', 'Communication'],
++		['comms', 'Communication agency'],
+ 		['freelance', 'Freelancer'],
+ 		['other', 'Other']
+ 	];
+@@ -21,10 +21,11 @@
+ 			<a href="/" class="relative"><Logo light /></a>
+ 			<div class="relative py-12">
+ 				<p class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink">Private beta · {data.seats} places</p>
+-				<h1 class="mt-6 text-[44px] leading-[1.02] font-medium tracking-[-0.04em] sm:text-[64px]">Your dashboard,<br /><span class="text-white/45">built around you.</span></h1>
+-				<p class="mt-6 max-w-md leading-[1.7] text-white/65">Agency, studio or freelancer: paste your URL and Undercut builds the dashboard you need — clients to find, clients to keep. Free during the beta, then −50% for life for the first {data.seats}, in exchange for your honest feedback.</p>
++				<h1 class="mt-6 text-[44px] leading-[1.02] font-medium tracking-[-0.04em] sm:text-[64px]">A dashboard<br /><span class="text-white/45">made just for you.</span></h1>
++				<p class="mt-6 max-w-md leading-[1.7] text-white/65">Agency, studio or freelancer: paste your URL and Undercut creates <b class="font-medium text-white">your own personalised dashboard</b> — built from what you sell and where you work. Then make it yours: drag blocks, resize them, choose what you see.</p>
++				<p class="mt-4 max-w-md text-sm leading-[1.7] text-white/45">Free during the beta, then −50% for life for the first {data.seats}, in exchange for your honest feedback.</p>
+ 				<ul class="mt-8 space-y-3 text-sm">
+-					{#each ['New prospects every week, with the first message written', 'A simple pipeline, agenda and goals', 'Your clients’ sites and apps: leads, fixes, reports', 'A direct line to the studio — your requests get built'] as t (t)}
++					{#each ['A dashboard built for you from your URL', 'Drag, resize and choose your blocks', 'New prospects every week, first message written', 'Your clients’ sites and apps: leads, fixes, reports'] as t (t)}
+ 						<li class="flex items-center gap-3"><span class="grid size-6 place-items-center rounded-full bg-white text-xs text-ink">✓</span>{t}</li>
+ 					{/each}
+ 				</ul>
+@@ -55,9 +56,9 @@
+ 					<label class="block"><span class="label">Agency or business name</span><input class="input mt-1.5" name="agency" value={form?.agency ?? ''} autocomplete="organization" required /></label>
+ 					<fieldset>
+ 						<legend class="label">You are…</legend>
+-						<div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
++						<div class="mt-2 flex flex-wrap gap-2">
+ 							{#each kinds as [v, l] (v)}
+-								<label class="cursor-pointer"><input type="radio" name="kind" value={v} bind:group={kind} class="peer sr-only" /><span class="block rounded-full border border-line py-2.5 text-center text-sm peer-checked:border-ink peer-checked:bg-ink peer-checked:text-white">{l}</span></label>
++								<label class="cursor-pointer"><input type="radio" name="kind" value={v} bind:group={kind} class="peer sr-only" /><span class="block rounded-full border border-line px-4 py-2.5 text-center text-sm whitespace-nowrap transition-colors hover:border-ink/40 peer-checked:border-ink peer-checked:bg-ink peer-checked:text-white">{l}</span></label>
+ 							{/each}
+ 						</div>
+ 					</fieldset>
+-- 
+2.43.0
+

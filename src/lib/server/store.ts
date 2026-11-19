@@ -56,41 +56,41 @@ function write(file: string, data: unknown) {
 
 const SEED: Client[] = [
 	{
-		id: 'boulangerie-ixelles',
-		name: 'Boulangerie Ixelles',
-		domain: 'https://boulangerie-ixelles.be',
+		id: 'corner-bakery',
+		name: 'Corner Bakery',
+		domain: 'https://cornerbakery.co',
 		color: '#E0A458',
 		createdAt: '2026-09-02',
 		demo: true,
 		google: {}
 	},
 	{
-		id: 'atelier-vert',
-		name: 'Atelier Vert Architectes',
-		domain: 'https://ateliervert.be',
+		id: 'northline-architects',
+		name: 'Northline Architects',
+		domain: 'https://northline.studio',
 		color: '#3E8E63',
 		createdAt: '2026-09-15',
 		demo: true,
 		google: {}
 	},
 	{
-		id: 'kine-schaerbeek',
-		name: 'Kiné Schaerbeek',
-		domain: 'https://kine-schaerbeek.be',
+		id: 'motion-physio',
+		name: 'Motion Physio',
+		domain: 'https://motionphysio.com',
 		color: '#4C7DD9',
 		createdAt: '2026-10-01',
 		demo: true,
 		google: {}
 	},
 	{
-		id: 'velo-flandria',
-		name: 'Vélo Flandria',
-		domain: 'https://veloflandria.be',
+		id: 'ridewell-bikes',
+		name: 'Ridewell Bikes',
+		domain: 'https://ridewell.bike',
 		color: '#D9534C',
 		createdAt: '2026-10-20',
 		demo: true,
 		type: 'both',
-		app: { name: 'Vélo Flandria', iosId: '', androidPackage: 'be.veloflandria.app' },
+		app: { name: 'Ridewell Bikes', iosId: '', androidPackage: 'bike.ridewell.app' },
 		google: {}
 	},
 	{
@@ -188,7 +188,7 @@ export function deleteClient(id: string) {
 export function getAgency(): Agency {
 	return read<Agency>('agency.json', {
 		name: 'Unix Creative Studio',
-		color: '#C6F432',
+		color: '#0D0D0D',
 		reportFooter: 'Questions? Reply to this email and we will help.'
 	});
 }

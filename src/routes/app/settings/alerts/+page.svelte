@@ -21,7 +21,7 @@
 			<span class="mt-1 block text-xs text-white/40">Slack → Apps → Incoming Webhooks → choose a channel → copy the URL.</span>
 		</label>
 		<label class="flex items-center gap-3 rounded-[18px] bg-white/[.07] p-4 text-sm">
-			<input type="checkbox" name="digest" checked={a.digest !== false} class="size-5 accent-[#C6F432]" />
+			<input type="checkbox" name="digest" checked={a.digest !== false} class="size-5 accent-ink" />
 			<span><b class="font-medium">Weekly summary</b> every Monday: one line per client, ready to forward.</span>
 		</label>
 		<div class="mt-auto flex flex-wrap gap-2">

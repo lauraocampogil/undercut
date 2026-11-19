@@ -1,0 +1,76 @@
+From fd24b360d3b26767cd898f0e1deffd53fb940aeb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 23:41:29 +0100
+Subject: [PATCH] Beta page: new positioning (dashboard built around you),
+ freelancer option, better question
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/routes/beta/+page.svelte | 27 ++++++++++++++-------------
+ 1 file changed, 14 insertions(+), 13 deletions(-)
+
+diff --git a/src/routes/beta/+page.svelte b/src/routes/beta/+page.svelte
+index 20b1c51..e2c0a39 100644
+--- a/src/routes/beta/+page.svelte
++++ b/src/routes/beta/+page.svelte
+@@ -6,6 +6,7 @@
+ 		['web', 'Web agency'],
+ 		['app', 'App studio'],
+ 		['comms', 'Communication'],
++		['freelance', 'Freelancer'],
+ 		['other', 'Other']
+ 	];
+ </script>
+@@ -16,15 +17,15 @@
+ 	<div class="grid min-h-[calc(100dvh-24px)] gap-3 lg:grid-cols-[1fr_1.1fr]">
+ 		<!-- left: the pitch -->
+ 		<div class="relative flex flex-col justify-between overflow-hidden rounded-[36px] bg-ink p-8 text-white sm:p-12">
+-			<div class="absolute -right-24 -bottom-24 size-96 rounded-full bg-accent/30 blur-3xl"></div>
++			<div class="absolute -right-24 -bottom-24 size-96 rounded-full bg-white/10 blur-3xl"></div>
+ 			<a href="/" class="relative"><Logo light /></a>
+ 			<div class="relative py-12">
+-				<p class="inline-flex items-center gap-2 rounded-full bg-accent px-3 py-1 text-xs font-semibold text-accent-ink">Private beta · {data.seats} agencies</p>
+-				<h1 class="mt-6 text-[48px] leading-[0.9] sm:text-[72px]"><span class="shout">Free.</span><br /><span class="display">For the first <em class="text-accent">{data.seats}</em> agencies.</span></h1>
+-				<p class="mt-6 max-w-md text-white/65">Undercut is built with its first users. Join the beta: every feature, free, for all your clients — in exchange for your honest feedback.</p>
++				<p class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink">Private beta · {data.seats} places</p>
++				<h1 class="mt-6 text-[44px] leading-[1.02] font-medium tracking-[-0.04em] sm:text-[64px]">Your dashboard,<br /><span class="text-white/45">built around you.</span></h1>
++				<p class="mt-6 max-w-md leading-[1.7] text-white/65">Agency, studio or freelancer: paste your URL and Undercut builds the dashboard you need — clients to find, clients to keep. Free during the beta, then −50% for life for the first {data.seats}, in exchange for your honest feedback.</p>
+ 				<ul class="mt-8 space-y-3 text-sm">
+-					{#each ['Leads, traffic, SEO & heatmaps for every client', 'One-click fixes, reports with your logo', 'A direct line to the founder — your requests get built'] as t (t)}
+-						<li class="flex items-center gap-3"><span class="grid size-6 place-items-center rounded-full bg-accent text-xs text-accent-ink">✓</span>{t}</li>
++					{#each ['New prospects every week, with the first message written', 'A simple pipeline, agenda and goals', 'Your clients’ sites and apps: leads, fixes, reports', 'A direct line to the studio — your requests get built'] as t (t)}
++						<li class="flex items-center gap-3"><span class="grid size-6 place-items-center rounded-full bg-white text-xs text-ink">✓</span>{t}</li>
+ 					{/each}
+ 				</ul>
+ 			</div>
+@@ -51,19 +52,19 @@
+ 						<label class="block"><span class="label">Your name</span><input class="input mt-1.5" name="name" value={form?.name ?? ''} autocomplete="name" required /></label>
+ 						<label class="block"><span class="label">Work email</span><input class="input mt-1.5" type="email" name="email" value={form?.email ?? ''} autocomplete="email" required /></label>
+ 					</div>
+-					<label class="block"><span class="label">Agency name</span><input class="input mt-1.5" name="agency" value={form?.agency ?? ''} autocomplete="organization" required /></label>
++					<label class="block"><span class="label">Agency or business name</span><input class="input mt-1.5" name="agency" value={form?.agency ?? ''} autocomplete="organization" required /></label>
+ 					<fieldset>
+-						<legend class="label">What kind of agency?</legend>
+-						<div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
++						<legend class="label">You are…</legend>
++						<div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+ 							{#each kinds as [v, l] (v)}
+ 								<label class="cursor-pointer"><input type="radio" name="kind" value={v} bind:group={kind} class="peer sr-only" /><span class="block rounded-full border border-line py-2.5 text-center text-sm peer-checked:border-ink peer-checked:bg-ink peer-checked:text-white">{l}</span></label>
+ 							{/each}
+ 						</div>
+ 					</fieldset>
+-					<label class="block"><span class="label">Agency website</span><input class="input mt-1.5" name="website" value={form?.website ?? ''} placeholder="agency.be" inputmode="url" /></label>
+-					<label class="block"><span class="label">What annoys you most in analytics today? (optional)</span><textarea class="input mt-1.5 rounded-[20px]" rows="3" name="note">{form?.note ?? ''}</textarea></label>
+-					<button class="btn btn-accent w-full py-3 text-base">Request my invitation →</button>
+-				<p class="mt-3 text-center text-xs text-white/50">By continuing you agree to the <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy policy</a>.</p>
++					<label class="block"><span class="label">Your website or Instagram</span><input class="input mt-1.5" name="website" value={form?.website ?? ''} placeholder="youragency.com" inputmode="url" /></label>
++					<label class="block"><span class="label">What would you want your dashboard to do for you? (optional)</span><textarea class="input mt-1.5 rounded-[20px]" rows="3" name="note" placeholder="Find me new clients, show what my clients need, keep my week organised…">{form?.note ?? ''}</textarea></label>
++					<button class="btn btn-primary w-full py-3 text-base">Request my invitation →</button>
++				<p class="text-center text-xs text-muted">By continuing you agree to the <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy policy</a>.</p>
+ 					<p class="text-center text-xs text-muted">Already invited? <a href="/login" class="underline">Log in</a></p>
+ 				</form>
+ 			{/if}
+-- 
+2.43.0
+

@@ -45,7 +45,7 @@
 			<p class="text-sm text-muted">Each line is one paywall (where it shows) and one variant (A/B test). Conversion = trials + purchases ÷ people who saw it.</p>
 		</div>
 		{#if r.winner}
-			<p class="mx-2 mt-4 rounded-[16px] p-3 text-sm {r.winner.enough ? 'bg-[#E4F5B8]' : 'bg-tile'}">
+			<p class="mx-2 mt-4 rounded-[16px] p-3 text-sm {r.winner.enough ? 'bg-accent-soft' : 'bg-tile'}">
 				{#if r.winner.enough}🏆 On “{r.winner.paywall}”, <b>{r.winner.best}</b> converts <b>{r.winner.lift}%</b> better than {r.winner.worst}.
 				{:else}On “{r.winner.paywall}”, <b>{r.winner.best}</b> is ahead (+{r.winner.lift}%) — wait for 100 viewers per variant before deciding.{/if}
 			</p>

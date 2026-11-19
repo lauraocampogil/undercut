@@ -1,0 +1,464 @@
+From bd18cafc3d589d1c746a62d8d91501c3e7ea9d99 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 22:50:13 +0100
+Subject: [PATCH] Calmer typography: Plus Jakarta Sans everywhere, more space
+
+- One typeface (Plus Jakarta Sans) for landing and app; serif/italic accents become quiet grey; mono labels become small spaced caps
+- Remove intro counter and custom cursor; no terminal-style captions
+- Smaller, calmer headings, larger body text with more line height
+- Unix Creative Studio links to unixcreativestudio.com
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ package-lock.json                    | 10 +++
+ package.json                         |  1 +
+ src/lib/components/SplitChars.svelte |  2 +-
+ src/routes/+layout.svelte            |  1 +
+ src/routes/+page.svelte              | 96 +++++++++++++---------------
+ src/routes/layout.css                | 40 +++++++-----
+ 6 files changed, 82 insertions(+), 68 deletions(-)
+
+diff --git a/package-lock.json b/package-lock.json
+index 44dc541..5bc300d 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -10,6 +10,7 @@
+ 			"dependencies": {
+ 				"@fontsource-variable/geist": "^5.3.0",
+ 				"@fontsource-variable/geist-mono": "^5.3.0",
++				"@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+ 				"@fontsource/instrument-serif": "^5.3.0",
+ 				"fast-xml-parser": "^5.12.0",
+ 				"lighthouse": "^13.6.0",
+@@ -81,6 +82,15 @@
+ 				"url": "https://github.com/sponsors/ayuhito"
+ 			}
+ 		},
++		"node_modules/@fontsource-variable/plus-jakarta-sans": {
++			"version": "5.3.0",
++			"resolved": "https://registry.npmjs.org/@fontsource-variable/plus-jakarta-sans/-/plus-jakarta-sans-5.3.0.tgz",
++			"integrity": "sha512-/l/4r0yyWK9JzAlmA0LiYgGgmJe/Gswt4jTJEzr5QhJfwMbvJZDmYWyW0M4X7yCK69BajMVlV/Lx8g7WDc1+sw==",
++			"license": "OFL-1.1",
++			"funding": {
++				"url": "https://github.com/sponsors/ayuhito"
++			}
++		},
+ 		"node_modules/@fontsource/instrument-serif": {
+ 			"version": "5.3.0",
+ 			"resolved": "https://registry.npmjs.org/@fontsource/instrument-serif/-/instrument-serif-5.3.0.tgz",
+diff --git a/package.json b/package.json
+index ba8161a..de92c0c 100644
+--- a/package.json
++++ b/package.json
+@@ -30,6 +30,7 @@
+ 	"dependencies": {
+ 		"@fontsource-variable/geist": "^5.3.0",
+ 		"@fontsource-variable/geist-mono": "^5.3.0",
++		"@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+ 		"@fontsource/instrument-serif": "^5.3.0",
+ 		"fast-xml-parser": "^5.12.0",
+ 		"lighthouse": "^13.6.0",
+diff --git a/src/lib/components/SplitChars.svelte b/src/lib/components/SplitChars.svelte
+index 99d0af3..7a7d0b3 100644
+--- a/src/lib/components/SplitChars.svelte
++++ b/src/lib/components/SplitChars.svelte
+@@ -6,5 +6,5 @@
+ </script>
+ 
+ <svelte:element this={as} class="chars {cls}" use:inview={{ delay }} aria-label={text}>
+-	{#each words as w, wi (wi)}<span class="inline-block whitespace-nowrap" aria-hidden="true">{#each [...w] as ch, ci (ci)}<span class="ch" style="--i:{words.slice(0, wi).join('').length + ci};--st:{step}ms">{ch}</span>{/each}</span>{#if wi < words.length - 1}{' '}{/if}{/each}
++	{#each words as w, wi (wi)}<span class="inline-block whitespace-nowrap" style={wi < words.length - 1 ? 'margin-right:0.26em' : ''} aria-hidden="true">{#each [...w] as ch, ci (ci)}<span class="ch" style="--i:{words.slice(0, wi).join('').length + ci};--st:{step}ms">{ch}</span>{/each}</span>{/each}
+ </svelte:element>
+diff --git a/src/routes/+layout.svelte b/src/routes/+layout.svelte
+index 7d22620..298772e 100644
+--- a/src/routes/+layout.svelte
++++ b/src/routes/+layout.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import '@fontsource-variable/plus-jakarta-sans';
+ 	import '@fontsource-variable/geist';
+ 	import '@fontsource-variable/geist-mono';
+ 	import '@fontsource/instrument-serif/400.css';
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index e7f5cc1..f93c506 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -5,8 +5,6 @@
+ 	import SplitChars from '#lib/components/SplitChars.svelte';
+ 	import DotGlobe from '#lib/components/DotGlobe.svelte';
+ 	import CutText from '#lib/components/CutText.svelte';
+-	import Cursor from '#lib/components/Cursor.svelte';
+-	import Intro from '#lib/components/Intro.svelte';
+ 	import { reveal, inview, pointer, scrub, countUp, spotlight, magnetic, nightZone } from '#lib/motion.ts';
+ 	import { PLANS } from '#lib/plans.ts';
+ 	import { themeStyle } from '#lib/theme.ts';
+@@ -100,14 +98,12 @@
+ 	<meta name="theme-color" content="#ECECEA" />
+ </svelte:head>
+ 
+-<Intro />
+-<Cursor />
+ 
+ {#snippet urlForm(id: string)}
+ 	<form method="POST" action="/prospects" class="w-full max-w-xl" onsubmit={() => (going = true)}>
+ 		<div class="card flex flex-col gap-2 rounded-[22px]! p-1.5 focus-within:shadow-[0_0_0_2px_rgba(13,13,13,.25)] sm:flex-row">
+ 			<label class="sr-only" for={id}>Your agency’s website or Instagram</label>
+-			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.com" class="min-w-0 flex-1 bg-transparent px-4 py-3 font-mono text-[15px] text-ink outline-none placeholder:text-muted" />
++			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.com" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-[15px] text-ink outline-none placeholder:text-muted" />
+ 			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going} use:magnetic={0.15}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-0.5">→</span></button>
+ 		</div>
+ 	</form>
+@@ -186,10 +182,10 @@
+ 			<span class="mx-1 hidden h-5 w-px bg-current opacity-15 md:block"></span>
+ 			<nav class="relative hidden items-center md:flex" onpointerleave={() => (ind = { ...ind, on: false })}>
+ 				<span class="dock-ind absolute inset-y-0 rounded-full bg-black/[.06] transition-all duration-300 ease-[cubic-bezier(.2,.75,.15,1)]" style="left:{ind.x}px;width:{ind.w}px;opacity:{ind.on ? 1 : 0}" aria-hidden="true"></span>
+-				{#each nav as [h, l] (h)}<a href={h} onpointerenter={over} class="dock-link relative rounded-full px-4 py-2.5 font-mono text-[11px] tracking-[0.08em] text-ink-2 uppercase">{l}</a>{/each}
++				{#each nav as [h, l] (h)}<a href={h} onpointerenter={over} class="dock-link relative rounded-full px-4 py-2.5 text-[13px] text-ink-2">{l}</a>{/each}
+ 			</nav>
+ 			<span class="mx-1 hidden h-5 w-px bg-current opacity-15 md:block"></span>
+-			<a href="/login" class="dock-link hidden rounded-full px-3 py-2.5 font-mono text-[11px] tracking-[0.08em] text-ink-2 uppercase sm:block">Log in</a>
++			<a href="/login" class="dock-link hidden rounded-full px-3 py-2.5 text-[13px] text-ink-2 sm:block">Log in</a>
+ 			<a href="/beta" class="group flex items-center gap-2 rounded-full bg-ink py-1.5 pr-1.5 pl-4 text-sm font-medium text-white" use:magnetic={0.2}>Start free<span class="grid size-7 place-items-center rounded-full bg-white text-ink transition-transform duration-300 group-hover:rotate-[-45deg]">→</span></a>
+ 			<button class="grid size-10 place-items-center rounded-full md:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>
+ 				<span class="relative block h-3 w-4"><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 rotate-45' : 'top-0'}"></span><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 -rotate-45' : 'top-3'}"></span></span>
+@@ -200,7 +196,7 @@
+ 		<div class="fixed inset-0 z-40 flex flex-col justify-end bg-paper/90 p-6 pb-10 backdrop-blur-2xl md:hidden" transition:slide={{ duration: 350 }}>
+ 			<nav class="grid gap-2">
+ 				{#each [...nav, ['/login', 'Log in']] as [h, l], i (h)}
+-					<a href={h} class="flex items-baseline gap-4 border-b border-black/[.08] py-3 text-[40px] leading-none font-medium tracking-[-0.04em] [animation:fade-up_.6s_var(--ease-out)_both]" style="animation-delay:{i * 60}ms" onclick={() => (menu = false)}><span class="font-mono text-xs text-muted">0{i + 1}</span>{l}</a>
++					<a href={h} class="flex items-baseline gap-4 border-b border-black/[.08] py-3 text-[40px] leading-none font-medium tracking-[-0.04em] [animation:fade-up_.6s_var(--ease-out)_both]" style="animation-delay:{i * 60}ms" onclick={() => (menu = false)}><span class="text-xs text-muted">0{i + 1}</span>{l}</a>
+ 				{/each}
+ 			</nav>
+ 		</div>
+@@ -208,21 +204,21 @@
+ 
+ 	<!-- ================= HERO ================= -->
+ 	<section class="relative isolate mx-auto flex min-h-dvh max-w-[1280px] flex-col px-5 pt-32 sm:px-10 sm:pt-40" use:pointer>
+-		<div class="flex flex-wrap items-center justify-between gap-3 font-mono text-[11px] tracking-wide text-muted uppercase" use:reveal>
++		<div class="flex flex-wrap items-center justify-between gap-3 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase" use:reveal>
+ 			<span class="tag">For web, app & communication agencies</span>
+ 			<span class="hidden items-center gap-2 sm:flex"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-ink"></span><span class="relative size-2 rounded-full bg-ink"></span></span>Live · {scanned.toLocaleString('en')} websites checked today</span>
+ 		</div>
+ 		<div class="mt-10 grid flex-1 items-center gap-10 lg:mt-6 lg:grid-cols-[1.15fr_1fr]">
+ 			<div class="relative z-10">
+-				<h1 class="text-[clamp(44px,6.4vw,96px)] leading-[0.98] font-medium tracking-[-0.05em]">
++				<h1 class="text-[clamp(40px,5.4vw,80px)] leading-[1.04] font-medium tracking-[-0.04em]">
+ 					<SplitChars as="span" class="block" text="Find your next" delay={150} />
+-					<span class="block" use:reveal={{ delay: 550 }}><CutText words={["clients.", "projects.", "leads."]} shift={0.06} /></span>
++					<span class="block" use:reveal={{ delay: 550 }}><CutText words={["clients.", "projects.", "leads."]} shift={0.035} /></span>
+ 					<SplitChars as="span" class="block font-serif font-normal tracking-[-0.02em] text-ink/40 italic" text="Keep them." delay={800} step={40} />
+ 				</h1>
+-				<p class="mt-10 max-w-md text-[17px] leading-[1.7] text-ink-2" use:reveal={{ delay: 1000 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps.</p>
++				<p class="mt-12 max-w-[30rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1000 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps.</p>
+ 				<div class="mt-10" use:reveal={{ delay: 1150 }}>
+ 					{@render urlForm('hero-url')}
+-					<p class="mt-4 font-mono text-[11px] tracking-wide text-muted uppercase">Free · no account · ~30 seconds</p>
++					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free · no account · ~30 seconds</p>
+ 				</div>
+ 			</div>
+ 			<div class="relative mx-auto w-full max-w-[600px]" use:reveal={{ delay: 400 }} style="transform:translate(calc(var(--mx,0) * -12px), calc(var(--my,0) * -10px))">
+@@ -230,7 +226,7 @@
+ 				{#each chips as c (c.n)}
+ 					<div class="card absolute flex w-[min(210px,46%)] items-center gap-3 rounded-[18px]! p-2.5 pr-3.5 [animation:floaty_6s_ease-in-out_infinite]" style="left:{c.x};top:{c.y};animation-delay:{c.d}s">
+ 						<span class="grid size-9 shrink-0 place-items-center rounded-full bg-ink text-xs font-semibold text-white">{c.s}</span>
+-						<span class="min-w-0"><b class="block truncate text-[13px] font-medium">{c.n}</b><span class="block truncate font-mono text-[10px] text-muted">{c.w}</span></span>
++						<span class="min-w-0"><b class="block truncate text-[13px] font-medium">{c.n}</b><span class="block truncate text-[10px] text-muted">{c.w}</span></span>
+ 					</div>
+ 				{/each}
+ 				<p class="tag absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap">1,104 businesses around you · 16 need you</p>
+@@ -247,7 +243,7 @@
+ 	<div class="relative overflow-hidden border-y border-black/[.07] bg-white/40 py-4 backdrop-blur" aria-hidden="true">
+ 		<div class="flex w-max [animation:marquee_45s_linear_infinite]">
+ 			{#each [0, 1] as k (k)}
+-				<div class="flex items-center gap-10 pr-10 font-mono text-[12px] tracking-wide text-ink-2 uppercase">
++				<div class="flex items-center gap-10 pr-10 text-[12px] tracking-wide text-ink-2 uppercase">
+ 					{#each scans as t (t)}<span class="flex items-center gap-3 whitespace-nowrap"><span class="size-1.5 rounded-full bg-ink/70"></span>{t}</span>{/each}
+ 				</div>
+ 			{/each}
+@@ -259,7 +255,7 @@
+ 		<section class="relative h-[230vh]" use:scrub={{ start: 0, end: 1 }}>
+ 			<div class="sticky top-0 flex h-dvh flex-col items-center justify-center px-6">
+ 				<p class="tag zone-muted mb-12">Why Undercut</p>
+-				<p class="lit mx-auto max-w-5xl text-center text-[clamp(32px,4.8vw,68px)] leading-[1.12] font-medium tracking-[-0.035em]" style="--n:{lit.length}">
++				<p class="lit mx-auto max-w-5xl text-center text-[clamp(28px,3.8vw,52px)] leading-[1.3] font-medium tracking-[-0.03em]" style="--n:{lit.length}">
+ 					{#each lit as w, i (i)}<span style="--i:{i}" class={w.hi ? 'font-serif font-normal italic' : ''}>{w.t}</span>{' '}{/each}
+ 				</p>
+ 			</div>
+@@ -268,7 +264,7 @@
+ 		<!-- giant words that slide sideways with the scroll -->
+ 		<section class="relative overflow-hidden py-16 sm:py-24" use:scrub={{ start: 1, end: 0 }} aria-hidden="true">
+ 			<p class="text-[clamp(64px,13vw,190px)] leading-[0.9] font-medium tracking-[-0.06em] whitespace-nowrap" style="transform:translateX(calc(10% - var(--p,0) * 60%))">Find clients <span class="font-serif font-normal italic opacity-50">—</span> Sign them <span class="font-serif font-normal italic opacity-50">—</span> <CutText text="Keep them" shift={0.1} /></p>
+-			<p class="mt-2 font-mono text-[clamp(28px,5vw,72px)] leading-none tracking-[-0.04em] whitespace-nowrap opacity-40" style="transform:translateX(calc(-50% + var(--p,0) * 45%))">[ prospects ] [ pipeline ] [ clients ] [ fixes ] [ reports ] [ prospects ] [ pipeline ]</p>
++			<p class="mt-2 text-[clamp(28px,5vw,72px)] leading-none tracking-[-0.04em] whitespace-nowrap opacity-40" style="transform:translateX(calc(-50% + var(--p,0) * 45%))">[ prospects ] [ pipeline ] [ clients ] [ fixes ] [ reports ] [ prospects ] [ pipeline ]</p>
+ 		</section>
+ 
+ 		<section class="relative mx-auto max-w-[1280px] px-5 pt-8 pb-40 sm:px-10">
+@@ -276,7 +272,7 @@
+ 				{#each [[30, ' s', 'to your first prospects'], [1104, '', 'businesses scanned near you'], [1, ' click', 'to ship a fix'], [0, '', 'cookies, events or setup']] as [v, suf, l], i (l)}
+ 					<div class="zone-line px-2 py-12 sm:px-6 {i ? 'lg:border-l' : ''} {i % 2 ? 'border-l' : ''}" data-stagger>
+ 						<p class="big text-[clamp(44px,5vw,76px)] whitespace-nowrap" use:countUp={{ to: v as number, suffix: suf as string, ms: 1400 + i * 200 }}>{v}{suf}</p>
+-						<p class="zone-muted mt-3 font-mono text-[11px] tracking-wide uppercase">{l}</p>
++						<p class="zone-muted mt-3 text-[11px] tracking-wide uppercase">{l}</p>
+ 					</div>
+ 				{/each}
+ 			</div>
+@@ -287,15 +283,15 @@
+ 	<section class="relative mx-auto max-w-[1280px] px-4 py-24 sm:px-10 sm:py-40">
+ 		<div class="text-center">
+ 			<p class="tag" use:reveal>The dashboard</p>
+-			<SplitText text={'One screen.\n*Everything that matters.*'} class="mt-6 text-[clamp(38px,5.4vw,76px)] leading-[1] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
+-			<p class="mx-auto mt-8 max-w-lg leading-[1.7] text-ink-2" use:reveal={{ delay: 200 }}>Prospects, pipeline, this week’s to-do and every client’s site and app. It builds itself from your URL — then you shape it.</p>
++			<SplitText text={'One screen.\n*Everything that matters.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
++			<p class="mx-auto mt-8 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>Prospects, pipeline, this week’s to-do and every client’s site and app. It builds itself from your URL — then you shape it.</p>
+ 		</div>
+ 		<div class="relative mt-20 [perspective:2000px]" use:scrub={{ start: 1, end: 0.35 }}>
+ 			<div class="relative origin-top transition-transform duration-150 ease-out" style="transform:rotateX(calc(22deg - var(--p,0) * 22deg)) scale(calc(.9 + var(--p,0) * .1));opacity:calc(.4 + var(--p,0) * .6)">
+ 				<div class="card rounded-[30px]! p-2 sm:p-2.5">
+ 					<div class="flex items-center gap-2 px-3 pt-1 pb-2.5">
+ 						<span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span><span class="size-2.5 rounded-full bg-black/10"></span>
+-						<span class="mx-auto rounded-full bg-black/[.04] px-4 py-1 font-mono text-[11px] text-muted">app.getundercut.app</span>
++						<span class="mx-auto rounded-full bg-black/[.04] px-4 py-1 text-[11px] text-muted">app.getundercut.app</span>
+ 					</div>
+ 					{@render mock(null, 'Your agency')}
+ 				</div>
+@@ -312,17 +308,17 @@
+ 	<section id="how" class="relative mx-auto grid max-w-[1280px] scroll-mt-24 gap-16 px-5 py-24 sm:px-10 sm:py-40 lg:grid-cols-[1fr_1.2fr]">
+ 		<div class="lg:sticky lg:top-32 lg:self-start">
+ 			<p class="tag" use:reveal>How it works</p>
+-			<SplitText text={'Four steps.\n*One morning.*'} class="mt-6 text-[clamp(38px,5.4vw,76px)] leading-[1] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
+-			<p class="mt-8 max-w-sm leading-[1.7] text-ink-2" use:reveal={{ delay: 200 }}>No CRM to set up, no list to buy, no ten open tabs. From your URL to your first call before lunch.</p>
++			<SplitText text={'Four steps.\n*One morning.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
++			<p class="mt-8 max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>No CRM to set up, no list to buy, no ten open tabs. From your URL to your first call before lunch.</p>
+ 		</div>
+ 		<ol class="relative" use:scrub={{ start: 0.8, end: 0.5 }}>
+ 			<span class="absolute top-2 bottom-2 left-[11px] w-px origin-top bg-[linear-gradient(to_bottom,rgba(13,13,13,.5)_50%,transparent_50%)] bg-[length:1px_6px]" style="transform:scaleY(var(--p,0))" aria-hidden="true"></span>
+ 			{#each steps as s, i (s.n)}
+ 				<li class="relative pb-20 pl-14 last:pb-0" use:reveal={{ delay: i * 80 }}>
+ 					<span class="absolute top-1 left-0 grid size-[23px] place-items-center rounded-full border border-ink/30 bg-paper"><span class="size-2 rounded-full bg-ink"></span></span>
+-					<p class="font-mono text-xs text-muted">{s.n} — <span class="caret">{s.k}</span></p>
++					<p class="text-sm font-medium text-muted">{s.n}</p>
+ 					<h3 class="mt-4 text-[clamp(28px,3vw,40px)] leading-tight font-medium tracking-[-0.035em]">{s.t}</h3>
+-					<p class="mt-4 max-w-md leading-[1.7] text-ink-2">{s.d}</p>
++					<p class="mt-4 max-w-md leading-[1.75] text-ink-2">{s.d}</p>
+ 				</li>
+ 			{/each}
+ 		</ol>
+@@ -333,41 +329,41 @@
+ 		<div class="flex flex-wrap items-end justify-between gap-8">
+ 			<div>
+ 				<p class="tag" use:reveal>Features</p>
+-				<SplitText text={'Find. Sign. Keep.\n*Nothing else.*'} class="mt-6 text-[clamp(38px,5.4vw,76px)] leading-[1] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
++				<SplitText text={'Find. Sign. Keep.\n*Nothing else.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+ 			</div>
+-			<p class="max-w-sm leading-[1.7] text-ink-2" use:reveal={{ delay: 200 }}>Everything an agency needs to bring clients in and keep them happy. Nothing an analyst would.</p>
++			<p class="max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>Everything an agency needs to bring clients in and keep them happy. Nothing an analyst would.</p>
+ 		</div>
+ 		<div class="mt-20 grid grid-cols-1 gap-3 md:grid-cols-6" use:reveal>
+ 			<article class="card group flex flex-col gap-8 p-8 md:col-span-4" data-stagger use:inview use:spotlight>
+ 				<div class="flex flex-wrap items-start justify-between gap-3">
+ 					<div><span class="tag">Find clients</span><h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
+-					<p class="max-w-xs text-sm leading-[1.7] text-ink-2">Real businesses around you, each website checked, a first message written from what we found.</p>
++					<p class="max-w-xs text-sm leading-[1.75] text-ink-2">Real businesses around you, each website checked, a first message written from what we found.</p>
+ 				</div>
+ 				<div class="rounded-[20px] bg-white/60 p-5 shadow-[inset_0_0_0_1px_rgba(0,0,0,.05)]">
+-					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Lumen Hair Studio</b><span class="font-mono text-xs text-muted">Hair salon · 400 m away</span></span><span class="grid size-12 place-items-center rounded-full bg-ink font-semibold text-white">90</span></p>
+-					<div class="mt-4 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full bg-white px-3 py-1 font-mono text-[11px] opacity-0 shadow-[0_0_0_1px_rgba(0,0,0,.06)] transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
++					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Lumen Hair Studio</b><span class="text-xs text-muted">Hair salon · 400 m away</span></span><span class="grid size-12 place-items-center rounded-full bg-ink font-semibold text-white">90</span></p>
++					<div class="mt-4 flex flex-wrap gap-1.5">{#each ['site not mobile', 'no https', 'last update 2018'] as x, i (x)}<span class="translate-y-2 rounded-full bg-white px-3 py-1 text-[11px] opacity-0 shadow-[0_0_0_1px_rgba(0,0,0,.06)] transition-all duration-500 group-[.in]:translate-y-0 group-[.in]:opacity-100" style="transition-delay:{300 + i * 150}ms">{x}</span>{/each}</div>
+ 					<p class="mt-4 overflow-hidden rounded-[14px] bg-black/[.04] p-3 text-sm whitespace-nowrap text-ink-2 [clip-path:inset(0_100%_0_0)] transition-[clip-path] delay-700 duration-[1800ms] ease-linear group-[.in]:[clip-path:inset(0_0_0_0)]">“Hi, I was looking at your website and noticed it doesn’t display well on phones…”</p>
+ 				</div>
+ 			</article>
+ 			<article class="card-dark group flex flex-col gap-6 p-8 md:col-span-2" data-stagger use:inview use:spotlight>
+ 				<div><span class="tag text-white/50!">Pipeline</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Signed this month.</h3></div>
+ 				<div class="mt-auto">{@render dotbars(bars, true)}</div>
+-				<p class="font-mono text-xs text-white/50">reply rate 32% · 3 signed</p>
++				<p class="text-xs text-white/50">reply rate 32% · 3 signed</p>
+ 			</article>
+ 			<article class="card flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:spotlight>
+ 				<div><span class="tag">Make it yours</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Shape it in words.</h3></div>
+-				<p class="text-sm leading-[1.7] text-ink-2">Hide blocks, reorder them — or just type what you want.</p>
+-				<p class="mt-auto rounded-[16px] bg-black/[.04] px-4 py-3 font-mono text-[12px] text-ink-2"><span class="caret">✦ hide agenda, clients first</span></p>
++				<p class="text-sm leading-[1.75] text-ink-2">Hide blocks, reorder them — or just type what you want.</p>
++				<p class="mt-auto rounded-[16px] bg-black/[.04] px-4 py-3 text-[12px] text-ink-2">“Hide the agenda and put clients first.”</p>
+ 			</article>
+ 			<article class="card flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:spotlight>
+ 				<div><span class="tag">Keep clients</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3></div>
+-				<p class="text-sm leading-[1.7] text-ink-2">Forms, calls and WhatsApps counted per channel. No cookies, no setup.</p>
+-				<p class="mt-auto"><span class="big text-[56px]" use:countUp={{ to: 46 }}>46</span><span class="ml-2 font-mono text-xs text-muted">leads · ↑ 24%</span></p>
++				<p class="text-sm leading-[1.75] text-ink-2">Forms, calls and WhatsApps counted per channel. No cookies, no setup.</p>
++				<p class="mt-auto"><span class="big text-[56px]" use:countUp={{ to: 46 }}>46</span><span class="ml-2 text-xs text-muted">leads · ↑ 24%</span></p>
+ 			</article>
+ 			<article class="card group flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:inview use:spotlight>
+ 				<div><span class="tag">One-click fixes</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Fix it. Don’t ticket it.</h3></div>
+ 				<div class="mt-auto rounded-[18px] bg-black/[.04] p-4">
+-					<p class="font-mono text-[11px] text-muted">/services · description missing</p>
++					<p class="text-[11px] text-muted">/services · description missing</p>
+ 					<div class="mt-3 flex items-center justify-between">
+ 						<span class="relative h-7 w-12 rounded-full bg-black/10 transition-colors delay-700 duration-300 group-[.in]:bg-ink"><span class="absolute top-1 left-1 size-5 rounded-full bg-white shadow transition-transform delay-700 duration-300 group-[.in]:translate-x-5"></span></span>
+ 						<span class="text-xs font-medium opacity-0 transition-opacity delay-1000 duration-300 group-[.in]:opacity-100">Live on the site ✓</span>
+@@ -377,14 +373,14 @@
+ 			<article class="card flex flex-col gap-5 p-8 md:col-span-3" data-stagger use:spotlight>
+ 				<div><span class="tag">Apps too</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Crashes, reviews, paywall.</h3></div>
+ 				<div class="mt-auto grid grid-cols-3 gap-2 text-center">
+-					{#each [['99.7%', 'crash-free'], ['4.6★', 'app store'], ['3.1%', 'paywall']] as [v, l] (l)}<div class="rounded-[16px] bg-black/[.04] p-4"><p class="text-xl font-medium">{v}</p><p class="mt-1 font-mono text-[10px] text-muted uppercase">{l}</p></div>{/each}
++					{#each [['99.7%', 'crash-free'], ['4.6★', 'app store'], ['3.1%', 'paywall']] as [v, l] (l)}<div class="rounded-[16px] bg-black/[.04] p-4"><p class="text-xl font-medium">{v}</p><p class="mt-1 text-[10px] text-muted uppercase">{l}</p></div>{/each}
+ 				</div>
+ 			</article>
+ 			<article class="card flex flex-col gap-5 p-8 md:col-span-3" data-stagger use:spotlight>
+ 				<div><span class="tag">Reports</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Monday reports with your logo.</h3></div>
+ 				<div class="mt-auto flex items-center gap-4 rounded-[18px] bg-black/[.04] p-4">
+-					<span class="grid size-11 shrink-0 place-items-center rounded-xl border border-dashed border-ink/20 font-mono text-[10px] text-muted">logo</span>
+-					<div class="min-w-0 flex-1"><p class="text-sm font-medium">October for Lou Studio</p><p class="truncate font-mono text-[11px] text-muted">38 leads (+12) · 4 fixes done</p></div>
++					<span class="grid size-11 shrink-0 place-items-center rounded-xl border border-dashed border-ink/20 text-[10px] text-muted">logo</span>
++					<div class="min-w-0 flex-1"><p class="text-sm font-medium">October for Lou Studio</p><p class="truncate text-[11px] text-muted">38 leads (+12) · 4 fixes done</p></div>
+ 				</div>
+ 			</article>
+ 		</div>
+@@ -397,7 +393,7 @@
+ 			<div>
+ 				<p class="tag">A note from the studio</p>
+ 				<p class="mt-6 max-w-3xl text-[clamp(22px,2.4vw,32px)] leading-[1.35] tracking-[-0.02em]">We’re a small studio too. Undercut is built with the same care we put into client work — <span class="font-serif italic">every pixel, every number, every message.</span> If something feels off, you’ll be talking to the people who made it.</p>
+-				<p class="mt-8 font-mono text-[11px] tracking-wide text-muted uppercase">— Unix Creative Studio</p>
++				<a href="https://unixcreativestudio.com/" target="_blank" rel="noopener" class="mt-8 inline-flex items-center gap-2 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase hover:text-ink">— Unix Creative Studio <span aria-hidden="true">↗</span></a>
+ 			</div>
+ 		</div>
+ 	</section>
+@@ -406,16 +402,16 @@
+ 	<section id="pricing" class="relative mx-auto max-w-[1280px] scroll-mt-24 px-4 py-24 sm:px-10 sm:py-40">
+ 		<div class="text-center">
+ 			<p class="tag" use:reveal>Pricing</p>
+-			<SplitText text={'One new client\n*pays for the year.*'} class="mt-6 text-[clamp(38px,5.6vw,80px)] leading-[1] font-medium tracking-[-0.045em]" emClass="font-serif font-normal text-ink/40" />
++			<SplitText text={'One new client\n*pays for the year.*'} class="mt-6 text-[clamp(32px,4.4vw,62px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+ 			<p class="mt-8 text-ink-2" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-ink">The first 30 agencies keep −50% for life.</b></p>
+ 		</div>
+ 		<div class="mt-20 grid gap-3 md:grid-cols-3" use:reveal>
+ 			{#each ['freelance', 'agency', 'studio'] as const as id (id)}
+ 				{@const p = PLANS[id]}
+ 				<div class="flex flex-col gap-5 p-8 {id === 'agency' ? 'card-dark' : 'card'}" data-stagger use:spotlight>
+-					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-white px-2.5 py-0.5 font-mono text-[10px] font-medium text-ink uppercase">Popular</span>{/if}</div>
++					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-medium text-ink uppercase">Popular</span>{/if}</div>
+ 					<p><span class="big text-[64px]">€{Math.round(p.price / 2)}</span><span class="text-sm opacity-60"> / month for life</span></p>
+-					<p class="-mt-3 font-mono text-xs opacity-60"><s>€{p.price}</s> after the first 30</p>
++					<p class="-mt-3 text-xs opacity-60"><s>€{p.price}</s> after the first 30</p>
+ 					<ul class="space-y-2 text-sm opacity-80">
+ 						<li>✓ {p.prospects} prospects a month</li>
+ 						<li>✓ Up to {p.clients} clients (sites & apps)</li>
+@@ -430,14 +426,14 @@
+ 	<!-- ================= FAQ ================= -->
+ 	<section id="faq" class="relative mx-auto max-w-3xl scroll-mt-24 px-4 py-24 sm:px-6 sm:py-40">
+ 		<p class="tag text-center" use:reveal>FAQ</p>
+-		<SplitText text="Straight *answers.*" class="mt-6 text-center text-[clamp(36px,5vw,64px)] leading-none font-medium tracking-[-0.04em]" emClass="font-serif font-normal text-ink/40" />
++		<SplitText text="Straight *answers.*" class="mt-6 text-center text-[clamp(30px,4vw,52px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+ 		<ul class="mt-16 space-y-2" use:reveal>
+ 			{#each faqs as f, i (f.q)}
+ 				<li class="card overflow-hidden" data-stagger>
+ 					<button class="flex w-full items-center justify-between gap-4 p-6 text-left font-medium" onclick={() => (open = open === i ? null : i)} aria-expanded={open === i}>
+-						<span class="flex items-baseline gap-4"><span class="font-mono text-xs text-muted">0{i + 1}</span>{f.q}</span><span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-ink text-white' : 'bg-black/5'}">+</span>
++						<span class="flex items-baseline gap-4"><span class="text-xs text-muted">0{i + 1}</span>{f.q}</span><span class="grid size-8 shrink-0 place-items-center rounded-full text-lg transition-transform duration-300 {open === i ? 'rotate-45 bg-ink text-white' : 'bg-black/5'}">+</span>
+ 					</button>
+-					{#if open === i}<p class="px-6 pb-6 pl-14 text-sm leading-[1.7] text-ink-2" transition:slide={{ duration: 260 }}>{f.a}</p>{/if}
++					{#if open === i}<p class="px-6 pb-6 pl-14 text-sm leading-[1.75] text-ink-2" transition:slide={{ duration: 260 }}>{f.a}</p>{/if}
+ 				</li>
+ 			{/each}
+ 		</ul>
+@@ -448,20 +444,20 @@
+ 		<div class="card-dark relative isolate mx-auto flex max-w-[1280px] flex-col items-center overflow-hidden rounded-[36px]! px-6 py-28 text-center sm:py-40">
+ 			<div class="pointer-events-none absolute -bottom-56 left-1/2 -z-10 w-[760px] -translate-x-1/2 opacity-70" aria-hidden="true"><DotGlobe size={760} points={1000} hot={12} dark /></div>
+ 			<p class="tag text-white/50!">Free tool</p>
+-			<h2 class="mt-6 text-[clamp(40px,7vw,104px)] leading-[0.95] font-medium tracking-[-0.045em]">
++			<h2 class="mt-6 text-[clamp(36px,5.6vw,84px)] leading-[1.04] font-medium tracking-[-0.04em]">
+ 				<SplitChars as="span" class="block" text="Your next client" />
+ 				<SplitChars as="span" class="block font-serif font-normal text-white/45 italic" text="is around the corner." delay={300} step={30} />
+ 			</h2>
+ 			<div class="mt-12 flex w-full justify-center" use:reveal={{ delay: 300 }}>{@render urlForm('cta-url')}</div>
+-			<p class="mt-5 font-mono text-[11px] text-white/50 uppercase">No card · −50% for life for the first 30 · Data in the EU</p>
++			<p class="mt-5 text-[11px] text-white/50 uppercase">No card · −50% for life for the first 30 · Data in the EU</p>
+ 		</div>
+ 	</section>
+ 
+ 	<footer class="relative overflow-hidden px-4 pt-14 sm:px-10">
+ 		<div class="mx-auto flex max-w-[1240px] flex-wrap items-center justify-between gap-4 text-sm text-muted">
+ 			<Logo size={24} />
+-			<nav class="flex gap-5 font-mono text-[11px] uppercase"><a href="/prospects" class="hover:text-ink">Free tool</a><a href="#pricing" class="hover:text-ink">Pricing</a><a href="/login" class="hover:text-ink">Log in</a></nav>
+-			<p class="font-mono text-[11px] uppercase">Designed & built by <span class="text-ink">Unix Creative Studio</span></p>
++			<nav class="flex gap-5 text-[11px] uppercase"><a href="/prospects" class="hover:text-ink">Free tool</a><a href="#pricing" class="hover:text-ink">Pricing</a><a href="/login" class="hover:text-ink">Log in</a></nav>
++			<p class="text-[11px] uppercase">Designed & built by <a href="https://unixcreativestudio.com/" class="text-ink underline decoration-black/20 underline-offset-4 hover:decoration-ink" target="_blank" rel="noopener">Unix Creative Studio</a></p>
+ 		</div>
+ 		<div class="mx-auto mt-10 max-w-[1280px] overflow-hidden pb-4 text-center" use:scrub={{ start: 1, end: 0.6 }} aria-hidden="true">
+ 			<p class="text-[22vw] leading-[0.85] font-medium tracking-[-0.075em] text-ink select-none lg:text-[280px]"><CutText text="undercut" shift={0.04} scroll /></p>
+diff --git a/src/routes/layout.css b/src/routes/layout.css
+index 35d1398..87070e9 100644
+--- a/src/routes/layout.css
++++ b/src/routes/layout.css
+@@ -1,8 +1,9 @@
+ @import 'tailwindcss';
+ 
+ @theme {
+-	--font-sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+-	--font-serif: 'Instrument Serif', ui-serif, Georgia, serif;
++	--font-sans: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
++	/* one typeface everywhere: 'serif' accents now use the same sans, in grey */
++	--font-serif: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+ 	--font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
+ 
+ 	/* Light greys + glass, black accent (white on dark). The agency's own colour can replace it at runtime. */
+@@ -53,10 +54,14 @@ body {
+ @layer components {
+ /* Display serif for titles */
+ .display {
+-	font-family: var(--font-serif);
+-	font-weight: 400;
+-	letter-spacing: -0.02em;
+-	line-height: 0.95;
++	font-family: var(--font-sans);
++	font-weight: 500;
++	letter-spacing: -0.04em;
++	line-height: 1;
++}
++.display em {
++	font-style: normal;
++	color: var(--color-muted);
+ }
+ 
+ /* Large light numerals (reference style) */
+@@ -100,20 +105,12 @@ body {
+ }
+ /* mono label in brackets: [ NEW PROSPECTS ] */
+ .tag {
+-	font-family: var(--font-mono);
+-	font-size: 0.7rem;
+-	letter-spacing: 0.06em;
++	font-size: 0.72rem;
++	font-weight: 700;
++	letter-spacing: 0.14em;
+ 	text-transform: uppercase;
+ 	color: var(--color-muted);
+ }
+-.tag::before {
+-	content: '[ ';
+-	opacity: 0.5;
+-}
+-.tag::after {
+-	content: ' ]';
+-	opacity: 0.5;
+-}
+ /* little corner marks around a button */
+ .corners {
+ 	position: relative;
+@@ -631,3 +628,12 @@ html {
+ 		box-shadow 0.8s;
+ }
+ .night .cursor-ring { border-color: rgb(255 255 255 / 0.5); }
++
++/* no italic serif: emphasised words are just quieter */
++.font-serif {
++	font-style: normal !important;
++	font-weight: 500;
++}
++.big {
++	font-weight: 400;
++}
+-- 
+2.43.0
+
