@@ -31,7 +31,6 @@
 				<label class="block"><span class="label">Email</span><input class="input mt-1.5" type="email" name="email" value={form?.email ?? data.prefill?.email ?? ''} autocomplete="email" required /></label>
 				<label class="block"><span class="label">Password</span><input class="input mt-1.5" type="password" name="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters" required /></label>
 				<label class="block"><span class="label">Agency name</span><input class="input mt-1.5" name="agency" value={form?.agency ?? data.prefill?.agency ?? ''} placeholder="Unix Creative Studio" autocomplete="organization" required /></label>
-				{#if !data.beta}<label class="flex items-center gap-3 rounded-[16px] bg-white p-3 text-sm"><input type="checkbox" name="examples" class="size-4 accent-[#0D0D0D]" />Keep a few example clients to explore</label>{/if}
 				<button class="btn btn-primary w-full justify-center py-3 text-base">Create my account</button>
 				<p class="mt-3 text-center text-xs text-muted">By continuing you agree to the <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy policy</a>.</p>
 				<p class="text-center text-sm text-ink-2">Already have an account? <a href="/login" class="font-medium underline">Log in</a></p>

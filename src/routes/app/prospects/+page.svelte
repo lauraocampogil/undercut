@@ -90,6 +90,8 @@
 								<div><a class="text-xs text-muted underline" href={p.osmUrl} target="_blank" rel="noopener">See on the map</a></div>
 							</dl>
 							<div class="mt-4 flex flex-wrap gap-2">
+								{#if data.clients[p.id]}<a href="/app/crm/{data.clients[p.id]}" class="btn btn-primary text-xs">Open client →</a>
+								{:else if p.stage === 'won' || p.stage === 'talking'}<form method="POST" action="?/makeClient"><input type="hidden" name="id" value={p.id} /><button class="btn btn-primary text-xs">{p.stage === 'won' ? 'Make client' : 'Signed! Make client'}</button></form>{/if}
 								{#each STAGES.filter((s) => s.id !== p.stage) as s (s.id)}
 									<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={p.id} /><input type="hidden" name="stage" value={s.id} /><button class="pill text-xs">→ {s.label}</button></form>
 								{/each}

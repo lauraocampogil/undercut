@@ -24,7 +24,9 @@
 		sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
 		chevron: 'm6 9 6 6 6-6',
 		menu: 'M4 7h16M4 12h16M4 17h16',
-		x: 'M18 6 6 18M6 6l12 12'
+		x: 'M18 6 6 18M6 6l12 12',
+		calendar: 'M4 5h16v16H4zM4 10h16M8 3v4M16 3v4',
+		list: 'M9 6h12M9 12h12M9 18h12M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2'
 	} as const;
 	let { name, size = 16 }: { name: keyof typeof P; size?: number } = $props();
 </script>

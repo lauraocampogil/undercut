@@ -20,7 +20,7 @@
 			<div class="absolute -right-24 -bottom-24 size-96 rounded-full bg-white/10 blur-3xl"></div>
 			<a href="/" class="relative"><Logo light /></a>
 			<div class="relative py-12">
-				<p class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink">Private beta · {data.seats} places</p>
+				<p class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink">Private beta · {data.left > 0 ? `${data.left} of ${data.seats} places left` : 'full: join the waitlist'}</p>
 				<h1 class="mt-6 text-[44px] leading-[1.02] font-medium tracking-[-0.04em] sm:text-[64px]">A dashboard<br /><span class="text-white/45">made just for you.</span></h1>
 				<p class="mt-6 max-w-md leading-[1.7] text-white/65">Agency, studio or freelancer: paste your URL and Undercut creates <b class="font-medium text-white">your own personalised dashboard</b> — built from what you sell and where you work. Then make it yours: drag blocks, resize them, choose what you see.</p>
 				<p class="mt-4 max-w-md text-sm leading-[1.7] text-white/45">Free during the beta, then −50% for life for the first {data.seats}, in exchange for your honest feedback.</p>
@@ -41,6 +41,14 @@
 					<h2 class="display mt-4 text-[48px] leading-none">You’re on the <em>list</em>, {form.joined}.</h2>
 					<p class="mt-4 text-ink-2">We invite agencies one by one so each gets proper help. You’ll get an email with your personal invitation link.</p>
 					<a href="/" class="btn btn-primary mt-8">Back to the site</a>
+				</div>
+			{:else if data.left > 0}
+				<div class="max-w-md text-center">
+					<p class="tag text-muted">{data.left} free places left</p>
+					<h2 class="mt-4 text-[40px] leading-tight font-medium tracking-tight">No waiting list yet.</h2>
+					<p class="mt-4 text-ink-2">The first {data.seats} agencies get in directly. Create your account and paste your URL: your dashboard is ready in a minute.</p>
+					<a href="/signup" class="btn btn-primary mt-8">Create my account</a>
+					<p class="mt-4 text-sm text-ink-2">Already have one? <a href="/login" class="underline">Log in</a></p>
 				</div>
 			{:else}
 				<form method="POST" class="w-full max-w-lg space-y-5">

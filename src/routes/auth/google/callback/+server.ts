@@ -4,7 +4,7 @@ import { acceptInviteWithGoogle, findUser, inviteWorkspace, startSession } from 
 import { addLogin, createWorkspace, getAccount, getAgency, listClients, loadWorkspace, lookupLogin, saveAccount, saveAgency, writeData } from '#lib/server/store.ts';
 import { dbOn } from '#lib/server/db.ts';
 import { inWorkspace } from '#lib/server/context.ts';
-import { markJoined, rowByCode } from '#lib/server/beta.ts';
+import { markJoined, rowByCode, seatsLeft } from '#lib/server/beta.ts';
 
 export const GET = async ({ url, cookies, locals }) => {
 	const mode = cookies.get('oauth_mode') === 'login' ? 'login' : 'data';
@@ -57,6 +57,7 @@ export const GET = async ({ url, cookies, locals }) => {
 			// c) new agency: open sign-up (a beta invitation only pre-fills the agency name)
 			const r = beta ? await rowByCode(beta) : null;
 			const row = r && r.status !== 'joined' ? r : null;
+			if (!row && (await seatsLeft()) <= 0) redirect(303, '/beta?full=1');
 			const nws = await createWorkspace(row?.agency || `${id.name}’s agency`);
 			await addLogin(id.email, nws);
 			await inWorkspace(nws, () => {

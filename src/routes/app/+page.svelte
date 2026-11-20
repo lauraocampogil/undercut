@@ -1,20 +1,18 @@
 <script lang="ts">
-	import Delta from '#lib/components/Delta.svelte';
-	import Sparkline from '#lib/components/Sparkline.svelte';
-	import HealthRing from '#lib/components/HealthRing.svelte';
 	import ArrowLink from '#lib/components/ArrowLink.svelte';
-	import { n, pct } from '#lib/format.ts';
 	import { enhance } from '$app/forms';
 	import { act } from '#lib/act.ts';
 	import AgencySetup from '#lib/components/AgencySetup.svelte';
 	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
+	import { eur, dayLabel, todayIso } from '#lib/biz-format.ts';
 	import { flip } from 'svelte/animate';
 	let { data, form } = $props();
 
 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+	const clear = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update();
 	let finding = $state(false);
 	let customise = $state(false);
-	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', clients: 'Clients', todo: 'This week', calendar: 'Agenda', site: 'Your own site', goals: 'Goal', content: 'What to post' };
+	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', tasks: 'Tasks', agenda: 'Agenda', clients: 'Clients', money: 'Revenue' };
 	const SPAN: Record<string, string> = { s: 'lg:col-span-4', m: 'lg:col-span-6', l: 'lg:col-span-8', xl: 'lg:col-span-12' };
 	const SIZE_LABEL: Record<string, string> = { s: '⅓', m: '½', l: '⅔', xl: 'Full' };
 	type B = (typeof data.os.order)[number];
@@ -57,37 +55,11 @@
 	};
 	const hour = new Date().getHours();
 	const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-	const todo = $derived.by(() => {
-		const t: { title: string; why: string; href: string; urgent?: boolean }[] = [];
-		for (const p of data.stats.due) t.push({ title: `Follow up with ${p.name}`, why: p.note || `Contacted · ${p.pitch}`, href: '/app/prospects', urgent: true });
-		if (data.stats.counts.new) t.push({ title: `Contact ${Math.min(5, data.stats.counts.new)} new prospects`, why: 'The message is written — review it and send it yourself.', href: '/app/prospects' });
-		for (const r of data.rows) for (const k of r.tasks.filter((x) => x.level === 'bad').slice(0, 1)) t.push({ title: `${r.client.name}: ${k.title}`, why: 'Client site', href: `/app/clients/${r.client.id}`, urgent: true });
-		if (!data.rows.length) t.push({ title: 'Add your first client', why: 'Their site or app health, leads and fixes in one place.', href: '/app/clients/new' });
-		return t.slice(0, 6);
-	});
+	const t = todayIso();
+	const cur = $derived(data.currency);
 	const STAGE_LABEL = { new: 'To contact', contacted: 'Contacted', talking: 'Talking', won: 'Won' } as const;
-	const fmtDay = (d: string) => new Date(d + 'T12:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-
-	type Row = (typeof data.rows)[number];
-	let filter = $state<'all' | 'attention' | 'healthy' | 'apps'>('all');
-	const dot = { good: 'bg-good', warn: 'bg-[#E3A21A]', bad: 'bg-bad' };
-	const totals = $derived({
-		visits: data.rows.reduce((s: number, r: Row) => s + (r.main?.label === 'visits' ? r.main.value : 0), 0),
-		prev: data.rows.reduce((s: number, r: Row) => s + (r.main?.label === 'visits' ? r.main.prev : 0), 0),
-		urgent: data.rows.reduce((s: number, r: Row) => s + r.tasks.filter((t) => t.level === 'bad').length, 0),
-		attention: data.rows.filter((r: Row) => r.health.level !== 'good').length
-	});
-	const rows = $derived(
-		data.rows.filter((r: Row) =>
-			filter === 'attention' ? r.health.level !== 'good' : filter === 'healthy' ? r.health.level === 'good' : filter === 'apps' ? r.client.type !== 'web' : true
-		)
-	);
-	const filters = $derived([
-		{ id: 'all', label: 'All', count: data.rows.length },
-		{ id: 'attention', label: 'Needs attention', count: totals.attention },
-		{ id: 'healthy', label: 'Healthy', count: data.rows.length - totals.attention },
-		{ id: 'apps', label: 'Apps', count: data.rows.filter((r: Row) => r.client.type !== 'web').length }
-	] as const);
+	const KIND: Record<string, string> = { meeting: 'Meeting', task: 'Task', followup: 'Follow-up', invoice: 'Invoice' };
+	const todayCount = $derived(data.agenda.filter((a) => a.date <= t).length);
 </script>
 
 <svelte:head><title>Dashboard · Undercut</title></svelte:head>
@@ -97,7 +69,7 @@
 		<div class="pointer-events-none absolute -right-24 -bottom-24 size-96 rounded-full bg-accent/30 blur-3xl"></div>
 		<p class="relative text-sm text-accent">Build your dashboard</p>
 		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">Paste your agency’s URL. Your dashboard builds itself.</h1>
-		<p class="relative mt-3 max-w-xl text-white/60">We read what you sell and where you work, then find local businesses that need you — next to your clients’ sites and apps.</p>
+		<p class="relative mt-3 max-w-xl text-white/60">We read what you sell and where you work. Then you get real prospects nearby, a pipeline, tasks and agenda, clients, quotes and invoices.</p>
 		<div class="relative mt-6 max-w-2xl"><AgencySetup profile={null} error={form?.setupError ?? ''} /></div>
 	</section>
 {:else}
@@ -107,9 +79,9 @@
 			<h1 class="display mt-2 text-[48px] sm:text-[76px]">Your <em>week</em></h1>
 		</div>
 		<div class="flex flex-wrap gap-x-10 gap-y-4">
-			<div><p class="big text-5xl">{data.stats.counts.new}</p><p class="mt-1 text-sm text-muted">to contact</p></div>
-			<div><p class="big text-5xl">{data.stats.counts.talking}</p><p class="mt-1 text-sm text-muted">talking</p></div>
-			<div><p class="big text-5xl">{data.stats.wonMonth}<span class="text-2xl text-muted">/{data.os.goal.wonPerMonth}</span></p><p class="mt-1 text-sm text-muted">won this month</p></div>
+			<div><p class="big text-5xl">{todayCount}</p><p class="mt-1 text-sm text-muted">for today</p></div>
+			<div><p class="big text-5xl">{data.openTasks}</p><p class="mt-1 text-sm text-muted">open tasks</p></div>
+			<div><p class="big text-5xl">{eur(data.money.mrr, cur)}</p><p class="mt-1 text-sm text-muted">per month</p></div>
 		</div>
 	</section>
 
@@ -130,7 +102,7 @@
 			<div class="mt-6 flex flex-wrap items-center gap-3">
 				<form method="POST" action={act('built')} use:enhance={keep}><button class="btn bg-white text-ink hover:bg-white/90">Looks good</button></form>
 				<button type="button" class="btn btn-ghost border-white/20 text-white" onclick={() => (customise = true)}>Change it</button>
-				<span class="text-xs text-white/50">Or type below: “clients first”, “hide agenda”…</span>
+				<span class="text-xs text-white/50">Or type below: “tasks first”, “hide agenda”…</span>
 			</div>
 		</section>
 	{/if}
@@ -138,7 +110,7 @@
 	<!-- ask to change: plain-language edits to the dashboard -->
 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
 		<span class="hidden pl-3 text-muted sm:block">✦</span>
-		<input name="q" placeholder="Change your dashboard: “hide agenda”, “clients first”, “make it blue”…" class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none" />
+		<input name="q" placeholder="Change your dashboard: “hide agenda”, “tasks first”, “make it blue”…" class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none" />
 		<div class="flex gap-2"><button class="btn btn-accent text-sm">Change</button><button type="button" class="pill text-sm {customise ? 'pill-active' : ''}" onclick={() => (customise = !customise)}>{customise ? 'Done' : 'Customise'}</button></div>
 	</form>
 	{#if form?.asked}<p class="mt-2 text-sm text-muted">{form.asked}</p>{/if}
@@ -166,10 +138,11 @@
 		</div>
 	{/if}
 
-	<div class="mt-5 grid gap-4 lg:grid-cols-12">
+	<!-- 12-column grid: blocks on the same row share the same height -->
+	<div class="mt-5 grid gap-4 lg:auto-rows-[minmax(330px,auto)] lg:grid-flow-dense lg:grid-cols-12">
 		{#each shown as b (b)}
 			<div
-				class="relative min-w-0 transition-[opacity,transform] duration-200 {SPAN[sizes[b] ?? 'm']} {customise ? 'cursor-grab rounded-[30px] outline-2 outline-offset-4 outline-dashed outline-black/15 active:cursor-grabbing' : ''} {dragging === b ? 'scale-[.98] opacity-40' : ''}"
+				class="relative flex min-w-0 flex-col transition-[opacity,transform] duration-200 {SPAN[sizes[b] ?? 'm']} {customise ? 'cursor-grab rounded-[30px] outline-2 outline-offset-4 outline-dashed outline-black/15 active:cursor-grabbing' : ''} {dragging === b ? 'scale-[.98] opacity-40' : ''}"
 				animate:flip={{ duration: 300 }}
 				draggable={customise}
 				role="listitem"
@@ -194,155 +167,110 @@
 						<button type="button" class="grid size-6 place-items-center rounded-full hover:bg-white/20" onclick={() => setVisible(b, false)} aria-label="Hide {LABEL[b]}">✕</button>
 					</div>
 				{/if}
-				<div class={customise ? 'pointer-events-none select-none' : ''}>
+				<div class="flex flex-1 flex-col {customise ? 'pointer-events-none select-none' : ''}">
 				{#if b === 'prospects'}
-					<section class="card-dark relative h-full overflow-hidden p-5 sm:p-7">
+					<section class="card-dark relative flex flex-1 flex-col overflow-hidden p-5 sm:p-7">
 						<div class="pointer-events-none absolute -top-20 -right-20 size-72 rounded-full bg-accent/20 blur-3xl"></div>
 						<div class="relative flex flex-wrap items-start justify-between gap-3">
-							<div><p class="text-sm text-accent">New prospects</p><p class="mt-1 text-sm text-white/50">Around {data.os.profile.city} · {Math.max(0, data.quota - data.used)} of {data.quota} left this month</p></div>
-							<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update, result }) => { await update({ reset: false }); finding = false; }; }}>
+							<div><p class="font-medium">New prospects</p><p class="mt-1 text-sm text-white/50">Around {data.os.profile.city} · {Math.max(0, data.quota - data.used)} of {data.quota} left this month</p></div>
+							<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; }; }}>
 								<button class="btn btn-accent text-sm" disabled={finding || data.used >= data.quota}>{finding ? 'Looking…' : '+ Find 5'}</button>
 							</form>
 						</div>
 						{#if form?.findError}<p class="relative mt-3 text-sm text-[#ffb4a8]">{form.findError}</p>{/if}
-						<ul class="relative mt-5 grid gap-2">
+						<ul class="relative mt-5 grid min-w-0 flex-1 grid-cols-1 content-start gap-2">
 							{#each data.os.fresh as p (p.id)}
-								<li><a href="/app/prospects" class="flex items-center gap-3 rounded-[18px] bg-white/[.06] p-3 hover:bg-white/10">
+								<li class="min-w-0"><a href="/app/prospects" class="flex min-w-0 items-center gap-3 rounded-[18px] bg-white/[.06] p-3 hover:bg-white/10">
 									<span class="grid size-10 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold text-accent-ink">{p.score}</span>
 									<span class="min-w-0"><b class="block truncate text-sm font-medium">{p.name}</b><span class="block truncate text-xs text-white/50">{p.category} · {p.pitch}</span></span>
 								</a></li>
 							{:else}
-								<li class="rounded-[18px] bg-white/[.06] p-4 text-sm text-white/60">{finding ? 'Checking the websites of businesses around you…' : 'Click “Find 5” — we look around you and check each website.'}</li>
+								<li class="rounded-[18px] bg-white/[.06] p-4 text-sm text-white/60">{finding ? 'Checking the websites of businesses around you…' : 'Press “Find 5”: we look at real businesses around you, check each website and write the first message.'}</li>
 							{/each}
 						</ul>
-						{#if data.os.fresh.length}<a href="/app/prospects" class="relative mt-4 inline-block text-sm text-accent hover:underline">See all and contact them →</a>{/if}
+						{#if data.os.fresh.length}<a href="/app/prospects" class="relative mt-4 inline-block text-sm text-white/80 hover:underline">See all and contact them →</a>{/if}
 					</section>
 				{:else if b === 'pipeline'}
-					<section class="card h-full p-5 sm:p-6">
+					<section class="card flex flex-1 flex-col p-5 sm:p-6">
 						<div class="flex items-center justify-between"><p class="font-medium">Pipeline</p><ArrowLink href="/app/prospects" label="Open pipeline" /></div>
-						<ul class="mt-4 grid gap-2">
+						<ul class="mt-5 grid gap-3">
 							{#each Object.entries(STAGE_LABEL) as [k, l] (k)}
 								{@const c = data.stats.counts[k as keyof typeof STAGE_LABEL]}
 								{@const max = Math.max(1, ...Object.keys(STAGE_LABEL).map((x) => data.stats.counts[x as keyof typeof STAGE_LABEL]))}
-								<li class="grid grid-cols-[88px_1fr_28px] items-center gap-3 text-sm"><span class="text-muted">{l}</span><span class="h-2.5 overflow-hidden rounded-full bg-tile"><span class="block h-full rounded-full {k === 'won' ? 'bg-accent' : 'bg-ink'}" style="width:{(c / max) * 100}%"></span></span><b class="text-right font-medium">{c}</b></li>
+								<li class="grid grid-cols-[88px_1fr_28px] items-center gap-3 text-sm"><span class="text-muted">{l}</span><span class="h-2.5 overflow-hidden rounded-full bg-tile"><span class="block h-full rounded-full bg-ink" style="width:{(c / max) * 100}%"></span></span><b class="text-right font-medium">{c}</b></li>
 							{/each}
 						</ul>
-						<p class="mt-4 text-xs text-muted">{data.stats.replyRate != null ? `${data.stats.replyRate}% of contacted businesses answered` : 'Move prospects along as you contact them.'}</p>
+						<p class="mt-auto pt-4 text-xs text-muted">{data.stats.replyRate != null ? `${data.stats.replyRate}% of contacted businesses answered.` : 'Move prospects along as you contact them. When one signs, press “Make client”.'}</p>
 					</section>
-				{:else if b === 'todo'}
-					<section class="card h-full p-5 sm:p-6">
-						<p class="font-medium">This week</p>
-						<ol class="mt-4 grid gap-2">
-							{#each todo as t, i (t.title)}
-								<li><a href={t.href} class="flex gap-3 rounded-[16px] bg-tile p-3 hover:bg-[#e6e6e1]"><span class="grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold {t.urgent ? 'bg-ink text-white' : 'bg-white'}">{i + 1}</span><span class="min-w-0"><b class="block truncate text-sm font-medium">{t.title}</b><span class="block truncate text-xs text-muted">{t.why}</span></span></a></li>
+				{:else if b === 'tasks'}
+					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+						<div class="flex items-center justify-between"><p class="font-medium">Tasks <span class="text-sm font-normal text-muted">· {data.openTasks} open</span></p><ArrowLink href="/app/tasks" label="All tasks" /></div>
+						<form method="POST" action={act('task')} use:enhance={clear} class="mt-4 flex gap-2">
+							<input name="title" required placeholder="Add a task…" class="input text-sm" />
+							<input name="due" type="date" class="input hidden w-36 min-w-0 shrink-0 text-sm sm:block" aria-label="Due date" />
+							<button class="pill text-sm">Add</button>
+						</form>
+						<ul class="mt-3 flex-1 divide-y divide-line">
+							{#each data.tasks as k (k.id)}
+								<li class="flex items-center gap-3 py-2 text-sm">
+									<form method="POST" action={act('toggleTask')} use:enhance={keep}><input type="hidden" name="id" value={k.id} /><button class="grid size-5 place-items-center rounded-md border border-ink/25 hover:border-ink" aria-label="Mark as done"></button></form>
+									<span class="min-w-0 flex-1"><span class="block truncate">{k.title}</span>{#if k.client}<span class="block truncate text-xs text-muted">{k.client}</span>{/if}</span>
+									{#if k.due}<span class="shrink-0 text-xs {k.due < t ? 'text-bad' : 'text-muted'}">{k.due === t ? 'Today' : dayLabel(k.due)}</span>{/if}
+								</li>
 							{:else}
-								<li class="text-sm text-muted">Nothing urgent. Find new prospects or check a client.</li>
+								<li class="py-2 text-sm text-muted">Nothing to do yet. Add your first task above.</li>
 							{/each}
-						</ol>
+						</ul>
 					</section>
-				{:else if b === 'calendar'}
-					<section class="card h-full p-5 sm:p-6">
-						<p class="font-medium">Agenda</p>
-						<ul class="mt-4 grid gap-2">
-							{#each data.stats.upcoming as p (p.id)}
-								<li class="flex items-center gap-3 text-sm"><span class="w-28 shrink-0 text-muted">{fmtDay(p.next!)}</span><a href="/app/prospects" class="truncate hover:underline">Follow up · <b class="font-medium">{p.name}</b></a></li>
+				{:else if b === 'agenda'}
+					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+						<div class="flex items-center justify-between"><p class="font-medium">Agenda <span class="text-sm font-normal text-muted">· next 7 days</span></p><ArrowLink href="/app/tasks" label="Open agenda" /></div>
+						<ul class="mt-4 flex-1 space-y-1.5">
+							{#each data.agenda as a (a.kind + a.id)}
+								<li><a href={a.href} class="flex items-center gap-3 rounded-[14px] bg-tile px-3 py-2 text-sm hover:bg-[#e6e6e1]">
+									<span class="w-[88px] shrink-0 text-xs {a.late ? 'text-bad' : 'text-muted'}">{a.late ? 'Late' : a.date === t ? 'Today' : dayLabel(a.date)}{a.time ? ` ${a.time}` : ''}</span>
+									<span class="min-w-0 flex-1 truncate">{a.title}{#if a.sub}<span class="text-muted"> · {a.sub}</span>{/if}</span>
+									<span class="hidden shrink-0 text-[11px] text-muted sm:inline">{KIND[a.kind]}</span>
+								</a></li>
 							{:else}
-								<li class="text-sm text-muted">When you mark a prospect as contacted, a follow-up appears here 4 days later. You can change the date on each prospect.</li>
+								<li class="text-sm text-muted">Nothing planned this week. Meetings, tasks with a date, follow-ups and invoices due show up here.</li>
 							{/each}
 						</ul>
-					</section>
-				{:else if b === 'site'}
-					<section class="card h-full p-5 sm:p-6">
-						<p class="font-medium">Your own site</p>
-						{#if data.own}
-							<div class="mt-4 flex items-center justify-between gap-4">
-								<div>{#if data.own.main}<p class="big text-4xl">{n(data.own.main.value)}</p><p class="text-xs text-muted">{data.own.main.label}, 28 days</p>{/if}</div>
-								<HealthRing score={data.own.health.score} size={58} />
-							</div>
-							{#if data.own.tasks[0]}<a href="/app/clients/{data.own.client.id}" class="mt-4 block truncate text-sm text-ink-2 hover:underline">→ {data.own.tasks[0].title}</a>{/if}
-						{:else}
-							<p class="mt-3 text-sm text-ink-2">Prospects will look at your site before answering. Track it like a client: speed, Google, leads.</p>
-							<a href="/app/clients/new?domain={encodeURIComponent(data.os.profile.url)}&name={encodeURIComponent(data.os.profile.name)}" class="btn btn-primary mt-4 text-sm">Track my site</a>
-						{/if}
-					</section>
-				{:else if b === 'goals'}
-					<section class="card h-full p-5 sm:p-6">
-						<p class="font-medium">Goal this month</p>
-						<p class="mt-3 flex items-baseline gap-2"><span class="big text-5xl">{data.stats.wonMonth}</span><span class="text-muted">/ {data.os.goal.wonPerMonth} new clients</span></p>
-						<div class="mt-3 h-2.5 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full bg-accent" style="width:{Math.min(100, Math.max(3, (data.stats.wonMonth / data.os.goal.wonPerMonth) * 100))}%"></div></div>
-						<p class="mt-3 text-xs text-muted">{data.stats.wonValue ? `€${data.stats.wonValue}/month signed this month. ` : ''}{data.stats.replyRate ? `At ${data.stats.replyRate}% replies, contact about ${Math.ceil((data.os.goal.wonPerMonth - data.stats.wonMonth) / Math.max(0.05, data.stats.replyRate / 100 / 3))} more businesses.` : 'Contact ~15 businesses per new client to start with.'}</p>
-						<form method="POST" action={act('goal')} use:enhance={keep} class="mt-3 flex items-center gap-2 text-xs text-muted">Target <input name="won" type="number" min="1" max="100" value={data.os.goal.wonPerMonth} class="input w-16 py-1 text-sm" /> per month <button class="pill text-xs">Save</button></form>
-					</section>
-				{:else if b === 'content'}
-					<section class="card h-full p-5 sm:p-6">
-						<p class="font-medium">What to post</p>
-						<ul class="mt-4 grid gap-2">
-							{#each data.content as c (c.title)}<li class="rounded-[16px] bg-tile p-3"><b class="block text-sm font-medium">{c.title}</b><span class="text-xs text-muted">{c.why}</span></li>{/each}
-						</ul>
+						<a href="/app/tasks" class="mt-4 text-sm text-ink-2 hover:underline">+ Add a meeting</a>
 					</section>
 				{:else if b === 'clients'}
-					<section>
-						<p class="mb-1 font-medium">Clients <span class="text-sm font-normal text-muted">· {data.rows.length} · {n(totals.visits)} visits · {totals.urgent} urgent fixes</span></p>
-						<div class="scrollbar-none mt-8 -mx-3 flex gap-2 overflow-x-auto px-3">
-							{#each filters as f (f.id)}
-								<button class="pill {filter === f.id ? 'pill-active' : ''}" onclick={() => (filter = f.id)}>
-									{f.label}<span class="text-xs opacity-60">{f.count}</span>
-								</button>
-							{/each}
-							<a href="/app/clients/new" class="pill ml-auto border-ink bg-ink text-white">+ Add client</a>
+					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+						<div class="flex items-center justify-between gap-3"><p class="font-medium">Clients <span class="text-sm font-normal text-muted">· {data.money.active} active</span></p><ArrowLink href="/app/crm" label="All clients" /></div>
+						{#if data.clients.length}
+							<ul class="mt-4 flex-1 divide-y divide-line">
+								{#each data.clients as c (c.id)}
+									<li><a href="/app/crm/{c.id}" class="flex items-center gap-3 py-2.5 text-sm hover:underline">
+										<span class="grid size-8 shrink-0 place-items-center rounded-full bg-tile text-xs font-semibold">{c.name.slice(0, 1).toUpperCase()}</span>
+										<span class="min-w-0 flex-1"><span class="block truncate font-medium">{c.name}</span><span class="block truncate text-xs text-muted">{c.services.join(', ') || 'No services listed'}</span></span>
+										{#if c.site !== null}<span class="text-xs {c.site ? 'text-good' : 'text-bad'}" title="Website check">{c.site ? '● site online' : '● site down'}</span>{/if}
+										<span class="w-20 shrink-0 text-right">{c.fee ? eur(c.fee, cur) : '—'}</span>
+									</a></li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="mt-4 flex-1 text-sm text-muted">{data.clientCount ? 'No active clients right now.' : 'Add the clients you already work for, or turn a won prospect into a client from your pipeline.'}</p>
+						{/if}
+						<a href="/app/crm" class="btn btn-primary mt-4 self-start text-sm">+ Add client</a>
+					</section>
+				{:else if b === 'money'}
+					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+						<div class="flex items-center justify-between"><p class="font-medium">Revenue</p><ArrowLink href="/app/invoices" label="Quotes & invoices" /></div>
+						<p class="mt-4 text-xs text-muted">Monthly retainers</p>
+						<p class="big text-5xl">{eur(data.money.mrr, cur)}</p>
+						<dl class="mt-4 grid grid-cols-2 gap-2 text-sm">
+							<div class="rounded-[14px] bg-tile p-3"><dt class="text-xs text-muted">Paid this month</dt><dd class="mt-0.5 font-medium">{eur(data.money.paidMonth, cur)}</dd></div>
+							<div class="rounded-[14px] bg-tile p-3"><dt class="text-xs text-muted">Waiting</dt><dd class="mt-0.5 font-medium {data.money.overdue ? 'text-bad' : ''}">{eur(data.money.unpaid, cur)}{data.money.overdue ? ` · ${data.money.overdue} late` : ''}</dd></div>
+						</dl>
+						<div class="mt-auto pt-5">
+							<div class="flex items-baseline justify-between text-sm"><span class="text-muted">New clients this month</span><b class="font-medium">{data.stats.wonMonth} / {data.os.goal.wonPerMonth}</b></div>
+							<div class="mt-2 h-2 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full bg-ink" style="width:{Math.min(100, (data.stats.wonMonth / data.os.goal.wonPerMonth) * 100)}%"></div></div>
+							<form method="POST" action={act('goal')} use:enhance={keep} class="mt-2 flex items-center gap-2 text-xs text-muted">Goal <input name="won" type="number" min="1" max="100" value={data.os.goal.wonPerMonth} class="input w-16 py-1 text-sm" /> per month <button class="pill text-xs">Save</button></form>
 						</div>
-
-						<section class="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-							{#each rows as r, i (r.client.id)}
-								{@const dark = i === 0 && r.health.level === 'bad' && filter !== 'healthy'}
-								{@const top = r.tasks[0]}
-								<article class="flex flex-col p-5 sm:p-6 {dark ? 'card-dark' : 'card'}">
-									<div class="flex items-start justify-between gap-3">
-										<div class="flex min-w-0 items-center gap-3">
-											<span class="grid size-11 shrink-0 place-items-center rounded-full text-sm font-semibold text-white" style="background:{r.client.color}">{r.client.name.slice(0, 1)}</span>
-											<div class="min-w-0">
-												<h2 class="truncate font-medium">{r.client.name}</h2>
-												<p class="truncate text-xs {dark ? 'text-white/50' : 'text-muted'}">{r.client.type === 'app' ? 'App' : r.client.domain.replace(/^https?:\/\//, '')}{r.client.type === 'both' ? ' + app' : ''}</p>
-											</div>
-										</div>
-										<ArrowLink href="/app/clients/{r.client.id}" label="Open {r.client.name}" {dark} />
-									</div>
-
-									<div class="mt-8 flex items-end justify-between gap-4">
-										{#if r.main}
-											<div>
-												<p class="flex items-start gap-1.5"><span class="big text-5xl">{n(r.main.value)}</span><Delta value={pct(r.main.value, r.main.prev)} {dark} /></p>
-												<p class="mt-1 text-xs {dark ? 'text-white/50' : 'text-muted'}">{r.main.label}</p>
-											</div>
-										{/if}
-										<HealthRing score={r.health.score} size={58} {dark} />
-									</div>
-
-									{#if r.main}
-										<div class="mt-5"><Sparkline data={r.main.daily} color={dark ? 'var(--color-accent)' : 'var(--color-ink)'} width={320} height={42} /></div>
-									{/if}
-
-									<!-- one dot per area: the whole status at a glance -->
-									<div class="mt-5 flex flex-wrap gap-1.5 border-t pt-4 {dark ? 'border-white/10' : 'border-line'}">
-										{#each r.areas as a (a.key)}
-											<a href={a.href} class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs {dark ? 'bg-white/10 text-white/80 hover:bg-white/20' : 'bg-tile text-ink-2 hover:bg-[#e6e6e1]'}" title="{a.label}: {a.value} {a.sub}">
-												<span class="size-1.5 rounded-full {dot[a.level]}"></span>{a.label.replace('Google ', '').replace(' health', '')}
-											</a>
-										{/each}
-									</div>
-									{#if top}
-										<a href="/app/clients/{r.client.id}" class="mt-3 truncate text-xs {dark ? 'text-accent' : 'text-ink-2'} hover:underline">→ {top.title}{r.tasks.length > 1 ? ` · +${r.tasks.length - 1}` : ''}</a>
-									{/if}
-								</article>
-							{/each}
-							<a href="/app/clients/new" class="grid min-h-[260px] place-items-center rounded-[28px] border-2 border-dashed border-[#d0d0ca] p-6 text-center transition-colors hover:border-ink">
-								<span>
-									<span class="mx-auto grid size-12 place-items-center rounded-full bg-ink text-2xl text-white">+</span>
-									<span class="display mt-4 block text-3xl">Add a client</span>
-									<span class="mt-1 block text-sm text-muted">Website, app or both.</span>
-								</span>
-							</a>
-						</section>
 					</section>
 				{/if}
 				</div>

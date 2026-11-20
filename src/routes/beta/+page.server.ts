@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { invite, isAdmin, joinWaitlist, listWaitlist, seats } from '#lib/server/beta.ts';
+import { invite, isAdmin, joinWaitlist, listWaitlist, seats, seatsLeft } from '#lib/server/beta.ts';
 
-export const load = () => ({ seats: seats() });
+export const load = async () => ({ seats: seats(), left: await seatsLeft() });
 
 export const actions = {
 	default: async ({ request }) => {

@@ -5,7 +5,7 @@ import { googleConfigured } from '#lib/server/google.ts';
 import { authEnabled, hashPassword, passwordProblem, setOwnerPassword, startSession } from '#lib/server/auth.ts';
 import { dbOn } from '#lib/server/db.ts';
 import { inWorkspace } from '#lib/server/context.ts';
-import { markJoined, rowByCode } from '#lib/server/beta.ts';
+import { markJoined, rowByCode, seatsLeft } from '#lib/server/beta.ts';
 
 export const load = async ({ url, locals }) => {
 	if (locals.user && locals.ws) redirect(303, '/app');
@@ -14,6 +14,9 @@ export const load = async ({ url, locals }) => {
 		const code = url.searchParams.get('code') ?? '';
 		const row = code ? await rowByCode(code) : null;
 		if (row?.status === 'joined') redirect(303, '/login');
+		// the first free seats are open to anyone; then only invited agencies (waitlist)
+		const left = await seatsLeft();
+		if (!row && left <= 0) redirect(303, '/beta?full=1');
 		return { plan: 'beta', google: googleConfigured(), code: row ? code : '', beta: true, prefill: row ? { name: row.name, email: row.email, agency: row.agency } : null };
 	}
 	// Local mode: one workspace per install — once protected, new visitors log in instead.
@@ -36,6 +39,7 @@ export const actions = {
 		if (dbOn()) {
 			const code = String(f.get('code') ?? '');
 			const row = code ? await rowByCode(code) : null;
+			if (!row && (await seatsLeft()) <= 0) return fail(400, { name, email, agency, error: 'The free beta is full. Join the waitlist at /beta.' });
 			if (await lookupLogin(email)) return fail(400, { name, email, agency, error: 'An account with this email already exists — log in instead.' });
 			const ws = await createWorkspace(agency);
 			await addLogin(email, ws);
@@ -56,8 +60,8 @@ export const actions = {
 		saveAgency({ ...getAgency(), name: agency });
 		const plan = String(f.get('plan') ?? '');
 		if (plan in PLANS) saveBilling({ ...getBilling(), plan: 'trial' as PlanId });
-		// Start with an empty workspace unless they want to explore the example clients
-		if (f.get('examples') !== 'on') writeData('clients.json', listClients().filter((c) => !c.demo));
+		// start empty: no example data
+		writeData('clients.json', listClients().filter((c) => !c.demo));
 		redirect(303, '/onboarding');
 	}
 };

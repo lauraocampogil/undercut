@@ -6,16 +6,14 @@ import { findProspects, type Prospect } from './prospects.ts';
 
 export type Stage = 'new' | 'contacted' | 'talking' | 'won' | 'lost';
 export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */ };
-export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'calendar' | 'site' | 'goals' | 'todo' | 'content';
+export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'tasks' | 'agenda' | 'money';
 export const BLOCKS: { id: BlockId; label: string; help: string }[] = [
 	{ id: 'prospects', label: 'New prospects', help: 'Local businesses that need what you sell' },
 	{ id: 'pipeline', label: 'Pipeline', help: 'Who you contacted, who is talking, who signed' },
-	{ id: 'clients', label: 'Clients', help: 'Your clients’ sites and apps: what needs you' },
-	{ id: 'todo', label: 'This week', help: 'The most important things to do' },
-	{ id: 'calendar', label: 'Agenda', help: 'Follow-ups and calls you planned' },
-	{ id: 'site', label: 'Your own site', help: 'Is your agency site fast and findable?' },
-	{ id: 'goals', label: 'Goals', help: 'Revenue and clients targets' },
-	{ id: 'content', label: 'What to post', help: 'Ideas for your socials this week' }
+	{ id: 'tasks', label: 'Tasks', help: 'Your to-do list, per client' },
+	{ id: 'agenda', label: 'Agenda', help: 'Meetings, deadlines, follow-ups and invoices due' },
+	{ id: 'clients', label: 'Clients', help: 'Who you work for and what they pay' },
+	{ id: 'money', label: 'Revenue', help: 'Monthly revenue, unpaid invoices and your goal' }
 ];
 
 export type AgencyOS = {
@@ -29,16 +27,31 @@ export type AgencyOS = {
 	sizes: Partial<Record<BlockId, Size>>; // width of each block on the dashboard grid
 	custom?: boolean; // the user rearranged the dashboard: don't rebuild it automatically
 	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
+	layoutV?: number; // version of the block set the saved layout was made for
 };
+const LAYOUT_V = 2; // v2: prospects, pipeline, tasks, agenda, clients, revenue
 export type Size = 's' | 'm' | 'l' | 'xl';
-export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', clients: 'xl', todo: 'm', calendar: 'm', site: 's', goals: 's', content: 's' };
+export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', tasks: 'm', agenda: 'm', clients: 'l', money: 's' };
+const IDS = new Set<string>(['prospects', 'pipeline', 'clients', 'tasks', 'agenda', 'money']);
+const known = <T,>(o: Record<string, T> | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([k]) => IDS.has(k))) as Partial<Record<BlockId, T>>;
 
 const FILE = 'agency-os.json';
-const DEFAULT_BLOCKS = Object.fromEntries(BLOCKS.map((b) => [b.id, b.id !== 'content'])) as Record<BlockId, boolean>;
+const DEFAULT_BLOCKS = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;
 
 export function getOS(): AgencyOS {
-	const s = readData<AgencyOS>(FILE, { profile: null, pipeline: [], blocks: DEFAULT_BLOCKS, order: BLOCKS.map((b) => b.id), runs: [], goal: { wonPerMonth: 2 }, theme: { accent: null }, sizes: {} });
-	return { ...s, sizes: { ...DEFAULT_SIZE, ...(s.sizes ?? {}) }, goal: s.goal ?? { wonPerMonth: 2 }, theme: s.theme ?? { accent: null }, blocks: { ...DEFAULT_BLOCKS, ...s.blocks }, order: [...new Set([...(s.order ?? []), ...BLOCKS.map((b) => b.id)])] as BlockId[] };
+	const s = readData<AgencyOS>(FILE, { profile: null, pipeline: [], blocks: DEFAULT_BLOCKS, order: BLOCKS.map((b) => b.id), runs: [], goal: { wonPerMonth: 2 }, theme: { accent: null }, sizes: {}, layoutV: LAYOUT_V });
+	// a layout saved for the old block set: start again from the dashboard built for this agency
+	if (s.layoutV !== LAYOUT_V) {
+		const l = s.profile ? layoutFor(s.profile) : null;
+		s.order = l?.order ?? BLOCKS.map((b) => b.id);
+		s.blocks = DEFAULT_BLOCKS;
+		s.sizes = { ...DEFAULT_SIZE };
+		s.custom = false;
+		if (s.built && l) s.built = { ...s.built, kind: l.kind, why: l.why };
+		s.layoutV = LAYOUT_V;
+		writeData(FILE, s);
+	}
+	return { ...s, sizes: { ...DEFAULT_SIZE, ...known(s.sizes) }, goal: s.goal ?? { wonPerMonth: 2 }, theme: s.theme ?? { accent: null }, blocks: { ...DEFAULT_BLOCKS, ...known(s.blocks) }, order: [...new Set([...(s.order ?? []).filter((x) => IDS.has(x)), ...BLOCKS.map((b) => b.id)])] as BlockId[] };
 }
 export function saveOS(s: AgencyOS) {
 	writeData(FILE, s);
@@ -97,27 +110,12 @@ export function layoutFor(p: AgencyProfile) {
 	const parts = [web && 'Web', social && 'Social media', app && 'Apps', brand && !web && 'Branding'].filter(Boolean) as string[];
 	const kind = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} & ${parts.at(-1)} agency` : parts[0] === 'Apps' ? 'App studio' : `${parts[0] ?? 'Web'} agency`;
 
-	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, false])) as Record<BlockId, boolean>;
+	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;
 	const sizes: Partial<Record<BlockId, Size>> = { ...DEFAULT_SIZE };
-	const why: string[] = [];
-	// everyone: prospects, pipeline, this week, agenda, clients, goal
-	for (const b of ['prospects', 'pipeline', 'todo', 'calendar', 'clients', 'goals'] as BlockId[]) blocks[b] = true;
 	const looks = [web && 'a weak website', social && 'weak Instagram / TikTok', app && 'no app or online booking'].filter(Boolean).join(', ');
-	why.push(`Prospects nearby with ${looks || 'a weak online presence'}`, 'Pipeline and agenda');
-	if (web || brand) {
-		blocks.site = true;
-		why.push('Your clients’ sites: leads, Google, one-click fixes', 'Your own site’s health');
-	}
-	if (app) why.push('Your clients’ apps: users, crashes, reviews');
-	if (social) {
-		blocks.content = true;
-		why.push('What to post this week');
-	}
-	// order: what matters most for this mix comes first
-	let order: BlockId[];
-	if (app && !web && !social) order = ['clients', 'prospects', 'pipeline', 'todo', 'calendar', 'goals', 'site', 'content'];
-	else if (social && !web) order = ['prospects', 'content', 'pipeline', 'todo', 'clients', 'calendar', 'goals', 'site'];
-	else order = ['prospects', 'pipeline', 'todo', 'calendar', 'clients', 'content', 'site', 'goals'];
+	const why = [`Prospects around ${p.city || 'you'} with ${looks || 'a weak online presence'}, first message written`, 'Pipeline from first message to signed client', 'Tasks and agenda: meetings, deadlines, follow-ups', 'Clients, quotes and invoices, monthly revenue'];
+	// rows of 12 columns: what matters most for this mix comes first
+	const order: BlockId[] = app && !web && !social ? ['clients', 'money', 'tasks', 'agenda', 'prospects', 'pipeline'] : ['prospects', 'pipeline', 'tasks', 'agenda', 'clients', 'money'];
 	return { kind, order, blocks, sizes, why };
 }
 
@@ -178,16 +176,14 @@ export function applyAsk(text: string): string {
 		const words: Record<BlockId, RegExp> = {
 			prospects: /prospect|lead|nouveaux clients|new clients|klanten zoeken/,
 			pipeline: /pipeline|crm|suivi|deals?/,
-			clients: /clients?\b|klanten|sites? clients/,
-			calendar: /calend|agenda|meeting|rendez-vous|rdv/,
-			site: /mon site|my site|own site|site de l.agence|eigen site/,
-			goals: /goal|objectif|doel|revenue|chiffre/,
-			todo: /to-?do|tâches|taches|cette semaine|this week/,
-			content: /post|contenu|content|social|réseaux|instagram/
+			clients: /clients?\b|klanten/,
+			agenda: /calend|agenda|meeting|rendez-vous|rdv/,
+			money: /money|revenue|invoice|factur|goal|objectif|chiffre|omzet/,
+			tasks: /to-?do|tasks?|tâches|taches|taken/
 		};
 		return words[b.id].test(t);
 	});
-	if (!match) return 'I did not understand which block — try “hide calendar”, “show what to post” or “prospects first”.';
+	if (!match) return 'I did not understand which block — try “hide agenda”, “show revenue” or “tasks first”.';
 	if (hide) s.blocks[match.id] = false;
 	else if (show || first) s.blocks[match.id] = true;
 	if (first) s.order = [match.id, ...s.order.filter((b) => b !== match.id)];

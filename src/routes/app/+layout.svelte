@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import Logo from '#lib/components/Logo.svelte';
-	import Assistant from '#lib/components/Assistant.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	let { data, children } = $props();
 
@@ -24,7 +23,9 @@
 	const agencyNav = $derived([
 		{ href: '/app', label: 'Dashboard', icon: 'grid' },
 		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
-		{ href: '/app/alerts', label: 'Alerts', icon: 'bell', badge: data.unread }
+		{ href: '/app/crm', label: 'Clients', icon: 'team' },
+		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
+		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' }
 	] as Item[]);
 	const clientNav = $derived.by(() => {
 		if (!current) return [] as { group: string; items: Item[] }[];
@@ -60,6 +61,7 @@
 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
 			return path === hp && (hq === 'mode=app') === appMode;
 		}
+		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects'].includes(hp)) return path === hp || path.startsWith(hp + '/');
 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
 	};
 
@@ -81,12 +83,12 @@
 	</a>
 {/snippet}
 
-<div class="min-h-dvh lg:grid lg:grid-cols-[264px_1fr]" style={data.theme}>
+<div class="app-shell min-h-dvh lg:grid lg:grid-cols-[264px_1fr]" style={data.theme}>
 	<!-- mobile top bar -->
 	<header class="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/60 bg-white/50 px-4 py-3 backdrop-blur-xl lg:hidden">
 		<button class="icon-btn" onclick={() => (drawer = true)} aria-label="Open menu"><Icon name="menu" /></button>
 		<a href="/app"><Logo size={26} /></a>
-		<a href="/app/alerts" class="relative icon-btn" aria-label="Alerts"><Icon name="bell" />{#if data.unread}<span class="absolute -top-1 -right-1 grid min-w-4 place-items-center rounded-full bg-bad px-1 text-[9px] text-white">{data.unread}</span>{/if}</a>
+		<span class="size-10"></span>
 	</header>
 
 	<!-- sidebar -->
@@ -97,30 +99,6 @@
 		<div class="flex items-center justify-between px-2 pb-3">
 			<a href="/app"><Logo /></a>
 			<span class="flex items-center gap-2"><button class="icon-btn size-9 lg:hidden" onclick={() => (drawer = false)} aria-label="Close menu"><Icon name="x" /></button></span>
-		</div>
-
-		<!-- client switcher -->
-		<div class="relative">
-			<button class="flex w-full items-center gap-3 rounded-2xl bg-white p-2 text-left text-sm" onclick={() => (menu = menu === 'clients' ? null : 'clients')} aria-expanded={menu === 'clients'}>
-				<span class="grid size-9 shrink-0 place-items-center rounded-xl text-xs font-semibold text-white" style="background:{current?.color ?? '#0D0D0D'}">{initial(current?.name ?? 'A')}</span>
-				<span class="min-w-0 flex-1">
-					<span class="block text-[11px] leading-tight text-muted">{current ? 'Client' : data.agency.name}</span>
-					<span class="block truncate leading-tight font-medium">{current?.name ?? 'All clients'}</span>
-				</span>
-				<Icon name="chevron" size={14} />
-			</button>
-			{#if menu === 'clients'}
-				<div class="absolute top-full right-0 left-0 z-40 mt-2 max-h-80 overflow-y-auto rounded-[20px] bg-white p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
-					<a href="/app" class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-tile">All clients</a>
-					{#each data.clients as c (c.id)}
-						<a href="/app/clients/{c.id}" class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm hover:bg-tile {current?.id === c.id ? 'bg-tile font-medium' : ''}">
-							<span class="size-2.5 rounded-full" style="background:{c.color}"></span><span class="flex-1 truncate">{c.name}</span>
-							<span class="text-[10px] text-muted">{c.type === 'both' ? 'web+app' : c.type}</span>
-						</a>
-					{/each}
-					<a href="/app/clients/new" class="mt-1 flex items-center justify-center gap-2 rounded-xl bg-ink px-3 py-2 text-sm text-white"><Icon name="plus" size={14} />Add client</a>
-				</div>
-			{/if}
 		</div>
 
 		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Agency">
@@ -138,11 +116,6 @@
 		{/if}
 
 		<div class="mt-auto flex flex-col gap-2 pt-4">
-			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="var(--accent-dark, #fff)"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
-				<span class="flex-1 text-left">Ask Undercut AI</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
-			</button>
-
 			<!-- account & settings -->
 			<div class="relative">
 				{#if menu === 'account'}
@@ -155,11 +128,6 @@
 						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>Agency settings</a>
 						<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>Team</a>
 						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>Billing & usage</a>
-						<a href="/app/settings/alerts" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bell" /></span>Alert settings</a>
-						<a href="/app/settings#connections" class="flex items-center gap-3 px-4 py-2 hover:bg-tile">
-							<span class="grid w-6 place-items-center"><span class="size-2 rounded-full {data.google.connected ? 'bg-good' : 'bg-[#E3A21A]'}"></span></span>Connections
-							<span class="ml-auto text-xs text-muted">{data.google.connected ? 'Google on' : 'Google off'}</span>
-						</a>
 						<div class="my-2 border-t border-line"></div>
 						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>My account</a>
 						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>Log out</a>
@@ -168,7 +136,6 @@
 				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
 					<span class="relative grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-ink">
 						{initial(data.account.name)}
-						<span class="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-paper {data.google.connected ? 'bg-good' : 'bg-[#E3A21A]'}"></span>
 					</span>
 					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">Account & settings</span></span>
 					<Icon name="cog" size={15} />
@@ -185,5 +152,4 @@
 			{@render children()}
 		</div>
 	</main>
-	<Assistant clients={data.clients} />
 </div>

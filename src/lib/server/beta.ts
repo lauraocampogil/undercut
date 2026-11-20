@@ -9,6 +9,13 @@ export type WaitRow = { id: string; email: string; name: string; agency: string;
 
 export const seats = () => Math.max(1, Number(env.BETA_SEATS) || 30);
 
+/** Free beta seats still open (the first BETA_SEATS agencies sign up directly, then the waitlist). */
+export async function seatsLeft() {
+	if (!dbOn()) return seats();
+	const rows = await db.select<{ id: string }>('workspaces', { select: 'id' });
+	return Math.max(0, seats() - rows.length);
+}
+
 // local mode: one JSON file (global, not per workspace)
 const FILE = join(process.cwd(), '.data', 'waitlist.json');
 const readLocal = (): WaitRow[] => (existsSync(FILE) ? JSON.parse(readFileSync(FILE, 'utf8')) : []);
