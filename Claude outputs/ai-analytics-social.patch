@@ -1,0 +1,904 @@
+From 4331a1140eed2e3d8fef5427143e22b2deca2716 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 16:04:15 +0100
+Subject: [PATCH] Undercut AI answers about the agency's own business;
+ analytics back (page, dashboard block, linked to clients); dashboard from
+ Instagram, TikTok or LinkedIn
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/AgencySetup.svelte      |  4 +-
+ src/lib/components/Assistant.svelte        | 23 +++---
+ src/lib/server/agency-actions.ts           |  2 +-
+ src/lib/server/agency-os.ts                | 22 +++---
+ src/lib/server/agency-profile.ts           | 52 +++++++++++++-
+ src/lib/server/analytics-rows.ts           | 24 +++++++
+ src/lib/server/assistant-business.ts       | 80 +++++++++++++++++++++
+ src/lib/server/assistant.ts                | 83 ++++++++++++++++++----
+ src/routes/+page.svelte                    |  4 +-
+ src/routes/api/assistant/action/+server.ts | 11 ++-
+ src/routes/app/+layout.svelte              | 12 +++-
+ src/routes/app/+page.server.ts             |  7 +-
+ src/routes/app/+page.svelte                | 22 +++++-
+ src/routes/app/analytics/+page.server.ts   |  3 +
+ src/routes/app/analytics/+page.svelte      | 70 ++++++++++++++++++
+ src/routes/app/crm/[id]/+page.server.ts    |  6 ++
+ src/routes/app/crm/[id]/+page.svelte       | 10 +++
+ src/routes/beta/+page.svelte               |  2 +-
+ src/routes/prospects/+page.server.ts       |  2 +-
+ src/routes/prospects/+page.svelte          |  2 +-
+ 20 files changed, 392 insertions(+), 49 deletions(-)
+ create mode 100644 src/lib/server/analytics-rows.ts
+ create mode 100644 src/lib/server/assistant-business.ts
+ create mode 100644 src/routes/app/analytics/+page.server.ts
+ create mode 100644 src/routes/app/analytics/+page.svelte
+
+diff --git a/src/lib/components/AgencySetup.svelte b/src/lib/components/AgencySetup.svelte
+index 5718ca8..02590b3 100644
+--- a/src/lib/components/AgencySetup.svelte
++++ b/src/lib/components/AgencySetup.svelte
+@@ -38,8 +38,8 @@
+ 	class="grid gap-4"
+ >
+ 	<label class="block text-sm">
+-		<span class={dark ? 'text-white/60' : 'label'}>Your agency’s website or Instagram</span>
+-		<input name="url" value={profile?.url ?? ''} required inputmode="url" placeholder="youragency.com" class="mt-1.5 w-full rounded-2xl px-4 py-3 text-base outline-none focus:ring-1 focus:ring-accent {field}" />
++		<span class={dark ? 'text-white/60' : 'label'}>Your agency’s website, Instagram, TikTok or LinkedIn</span>
++		<input name="url" value={profile?.url ?? ''} required inputmode="url" placeholder="youragency.com or instagram.com/youragency" class="mt-1.5 w-full rounded-2xl px-4 py-3 text-base outline-none focus:ring-1 focus:ring-accent {field}" />
+ 	</label>
+ 	{#if profile}
+ 		<div class="grid gap-4 sm:grid-cols-2">
+diff --git a/src/lib/components/Assistant.svelte b/src/lib/components/Assistant.svelte
+index a8638e7..f0ce297 100644
+--- a/src/lib/components/Assistant.svelte
++++ b/src/lib/components/Assistant.svelte
+@@ -14,14 +14,15 @@
+ 	let list = $state<HTMLDivElement>();
+ 	let field = $state<HTMLTextAreaElement>();
+ 
+-	const clientId = $derived(page.params.id ?? null);
++	// analytics client when on /app/clients/[id]; otherwise the agency's own business
++	const clientId = $derived(page.url.pathname.startsWith('/app/clients/') && page.params.id ? page.params.id : null);
+ 	const client = $derived(clients.find((c) => c.id === clientId) ?? null);
+ 	const key = $derived(clientId ?? '_all');
+ 	const messages = $derived(threads[key] ?? []);
+ 	const suggestions = $derived(
+ 		client
+ 			? ['What should I fix first?', 'Why did leads change?', 'Fix everything you can automatically', `Keywords for "${client.name.split(' ')[0].toLowerCase()} bruxelles"`, 'How do I make the site faster?']
+-			: ['Which client needs me most?', 'Keywords for "site web restaurant"']
++			: ['What should I do today?', 'How much did I earn this month?', 'Who hasn’t paid yet?', 'Which prospects should I follow up?', 'Who are my biggest clients?']
+ 	);
+ 
+ 	async function send(text = input) {
+@@ -92,7 +93,7 @@
+ </script>
+ 
+ {#if !open}
+-	<button class="group no-print on-dark fixed right-4 bottom-4 z-40 grid size-14 place-items-center rounded-full bg-ink text-accent shadow-[0_12px_40px_-12px_rgba(0,0,0,.6)] transition-transform hover:-translate-y-0.5 sm:right-6 sm:bottom-6" onclick={() => (open = true)} aria-label="Ask Undercut AI (⌘J)" title="Ask Undercut AI (⌘J)">
++	<button class="group no-print on-dark fixed right-4 bottom-4 z-40 grid size-14 place-items-center rounded-full bg-ink text-white shadow-[0_12px_40px_-12px_rgba(0,0,0,.6)] transition-transform hover:-translate-y-0.5 sm:right-6 sm:bottom-6" onclick={() => (open = true)} aria-label="Ask Undercut AI (⌘J)" title="Ask Undercut AI (⌘J)">
+ 		<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+ 		<span class="pointer-events-none absolute right-full mr-3 hidden rounded-full bg-ink px-3 py-1.5 text-xs whitespace-nowrap text-white group-hover:block">Ask Undercut AI · ⌘J</span>
+ 	</button>
+@@ -100,12 +101,12 @@
+ 	<aside class="no-print fixed inset-0 z-50 flex flex-col bg-paper sm:inset-auto sm:top-3 sm:right-3 sm:bottom-3 sm:w-[420px] sm:rounded-[28px] sm:shadow-[0_30px_80px_-20px_rgba(0,0,0,.45)]" aria-label="Undercut AI">
+ 		<header class="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+ 			<div class="flex items-center gap-2.5">
+-				<span class="on-dark grid size-9 place-items-center rounded-full bg-ink text-accent">
++				<span class="on-dark grid size-9 place-items-center rounded-full bg-ink text-white">
+ 					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+ 				</span>
+ 				<div>
+ 					<p class="font-medium leading-tight">Undercut AI</p>
+-					<p class="text-xs text-muted">{client ? `Working on ${client.name}` : 'All clients'}</p>
++					<p class="text-xs text-muted">{client ? `Analytics of ${client.name}` : 'Your business'}</p>
+ 				</div>
+ 			</div>
+ 			<button class="icon-btn" onclick={() => (open = false)} aria-label="Close">✕</button>
+@@ -115,7 +116,7 @@
+ 			{#if !messages.length}
+ 				<div class="pt-6 text-center">
+ 					<p class="display text-[34px] leading-tight">What do you want<br />to <em>do</em> today?</p>
+-					<p class="mt-2 text-sm text-muted">Ask about {client ? client.name : 'your clients'} — or tell me what to fix.</p>
++					<p class="mt-2 text-sm text-muted">{client ? `Ask about ${client.name}, or tell me what to fix.` : 'Ask about your clients, money, invoices, tasks or prospects.'}</p>
+ 				</div>
+ 				<div class="flex flex-col gap-2 pt-2">
+ 					{#each suggestions as s (s)}
+@@ -133,10 +134,10 @@
+ 							<div class="mt-2 flex flex-col gap-1.5">
+ 								{#each m.actions as a, ai (ai)}
+ 									{#if m.done?.[ai]}
+-										<p class="rounded-full bg-accent-soft px-4 py-2 text-xs text-ink">{m.done[ai]}</p>
++										<p class="rounded-full bg-tile px-4 py-2 text-xs text-ink">{m.done[ai]}</p>
+ 									{:else}
+-										<button class="flex items-center gap-2 rounded-full px-4 py-2 text-left text-sm font-medium {a.type === 'open' || a.type === 'mark_done' ? 'border border-line bg-white hover:border-ink' : 'bg-accent text-accent-ink hover:bg-[#b8e81f]'}" onclick={() => run(mi, ai, a)}>
+-											<span>{a.type === 'open' ? '→' : a.type === 'mark_done' ? '✓' : '⚡'}</span>{a.label}
++										<button class="flex items-center gap-2 rounded-full px-4 py-2 text-left text-sm font-medium {a.type === 'open' || a.type === 'mark_done' ? 'border border-line bg-white hover:border-ink' : 'bg-ink text-white hover:bg-ink/85'}" onclick={() => run(mi, ai, a)}>
++											<span>{a.type === 'open' ? '→' : a.type === 'mark_done' ? '✓' : a.type === 'add_task' ? '+' : '⚡'}</span>{a.label}
+ 										</button>
+ 									{/if}
+ 								{/each}
+@@ -158,13 +159,13 @@
+ 					bind:this={field}
+ 					bind:value={input}
+ 					rows="1"
+-					placeholder={client ? `Ask or tell me what to do for ${client.name}…` : 'Ask anything about your clients…'}
++					placeholder={client ? `Ask or tell me what to do for ${client.name}…` : 'Ask anything about your business…'}
+ 					class="max-h-32 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+ 					onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+ 				></textarea>
+ 				<button class="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-white disabled:opacity-40" disabled={!input.trim() || busy} aria-label="Send">→</button>
+ 			</div>
+-			<p class="mt-1.5 px-2 text-[11px] text-muted">The AI proposes; nothing changes on a site until you click.</p>
++			<p class="mt-1.5 px-2 text-[11px] text-muted">Undercut AI only reads your data and proposes. Nothing changes until you click.</p>
+ 		</form>
+ 	</aside>
+ {/if}
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index 80cbc15..2260a0c 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -24,7 +24,7 @@ export const agencyActions = {
+ 				return fail(400, { setupError: 'That doesn’t look like a web address.' });
+ 			}
+ 		} else if (current) p = { ...current };
+-		else return fail(400, { setupError: 'Paste your agency’s website or Instagram.' });
++		else return fail(400, { setupError: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.' });
+ 		// what the user typed always wins over what we detected (only when the form sent those fields)
+ 		if (f.has('city')) p.city = city || p.city;
+ 		if (f.has('name') && name) p.name = name;
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index 7f4f226..1b8a393 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -6,14 +6,15 @@ import { findProspects, type Prospect } from './prospects.ts';
+ 
+ export type Stage = 'new' | 'contacted' | 'talking' | 'won' | 'lost';
+ export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */ };
+-export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'tasks' | 'agenda' | 'money';
++export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'tasks' | 'agenda' | 'money' | 'analytics';
+ export const BLOCKS: { id: BlockId; label: string; help: string }[] = [
+ 	{ id: 'prospects', label: 'New prospects', help: 'Local businesses that need what you sell' },
+ 	{ id: 'pipeline', label: 'Pipeline', help: 'Who you contacted, who is talking, who signed' },
+ 	{ id: 'tasks', label: 'Tasks', help: 'Your to-do list, per client' },
+ 	{ id: 'agenda', label: 'Agenda', help: 'Meetings, deadlines, follow-ups and invoices due' },
+ 	{ id: 'clients', label: 'Clients', help: 'Who you work for and what they pay' },
+-	{ id: 'money', label: 'Revenue', help: 'Monthly revenue, unpaid invoices and your goal' }
++	{ id: 'money', label: 'Revenue', help: 'Monthly revenue, unpaid invoices and your goal' },
++	{ id: 'analytics', label: 'Analytics', help: 'Your clients’ sites and apps: visits, leads, heatmaps, SEO' }
+ ];
+ 
+ export type AgencyOS = {
+@@ -29,10 +30,10 @@ export type AgencyOS = {
+ 	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
+ 	layoutV?: number; // version of the block set the saved layout was made for
+ };
+-const LAYOUT_V = 2; // v2: prospects, pipeline, tasks, agenda, clients, revenue
++const LAYOUT_V = 3; // v3: prospects, pipeline, tasks, agenda, clients, revenue, analytics
+ export type Size = 's' | 'm' | 'l' | 'xl';
+-export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', tasks: 'm', agenda: 'm', clients: 'l', money: 's' };
+-const IDS = new Set<string>(['prospects', 'pipeline', 'clients', 'tasks', 'agenda', 'money']);
++export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', tasks: 'm', agenda: 'm', clients: 'l', money: 's', analytics: 'xl' };
++const IDS = new Set<string>(['prospects', 'pipeline', 'clients', 'tasks', 'agenda', 'money', 'analytics']);
+ const known = <T,>(o: Record<string, T> | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([k]) => IDS.has(k))) as Partial<Record<BlockId, T>>;
+ 
+ const FILE = 'agency-os.json';
+@@ -44,7 +45,7 @@ export function getOS(): AgencyOS {
+ 	if (s.layoutV !== LAYOUT_V) {
+ 		const l = s.profile ? layoutFor(s.profile) : null;
+ 		s.order = l?.order ?? BLOCKS.map((b) => b.id);
+-		s.blocks = DEFAULT_BLOCKS;
++		s.blocks = l?.blocks ?? DEFAULT_BLOCKS;
+ 		s.sizes = { ...DEFAULT_SIZE };
+ 		s.custom = false;
+ 		if (s.built && l) s.built = { ...s.built, kind: l.kind, why: l.why };
+@@ -113,9 +114,11 @@ export function layoutFor(p: AgencyProfile) {
+ 	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;
+ 	const sizes: Partial<Record<BlockId, Size>> = { ...DEFAULT_SIZE };
+ 	const looks = [web && 'a weak website', social && 'weak Instagram / TikTok', app && 'no app or online booking'].filter(Boolean).join(', ');
+-	const why = [`Prospects around ${p.city || 'you'} with ${looks || 'a weak online presence'}, first message written`, 'Pipeline from first message to signed client', 'Tasks and agenda: meetings, deadlines, follow-ups', 'Clients, quotes and invoices, monthly revenue'];
++	const why: string[] = [`Prospects around ${p.city || 'you'} with ${looks || 'a weak online presence'}, first message written`, 'Pipeline from first message to signed client', 'Tasks and agenda: meetings, deadlines, follow-ups', 'Clients, quotes and invoices, monthly revenue'];
+ 	// rows of 12 columns: what matters most for this mix comes first
+-	const order: BlockId[] = app && !web && !social ? ['clients', 'money', 'tasks', 'agenda', 'prospects', 'pipeline'] : ['prospects', 'pipeline', 'tasks', 'agenda', 'clients', 'money'];
++	blocks.analytics = web || app || brand;
++	if (blocks.analytics) why.push(app && !web ? 'Your clients’ apps: users, crashes, reviews' : 'Your clients’ sites: visits, leads, heatmaps, SEO fixes');
++	const order: BlockId[] = app && !web && !social ? ['clients', 'money', 'analytics', 'tasks', 'agenda', 'prospects', 'pipeline'] : ['prospects', 'pipeline', 'tasks', 'agenda', 'clients', 'money', 'analytics'];
+ 	return { kind, order, blocks, sizes, why };
+ }
+ 
+@@ -179,7 +182,8 @@ export function applyAsk(text: string): string {
+ 			clients: /clients?\b|klanten/,
+ 			agenda: /calend|agenda|meeting|rendez-vous|rdv/,
+ 			money: /money|revenue|invoice|factur|goal|objectif|chiffre|omzet/,
+-			tasks: /to-?do|tasks?|tâches|taches|taken/
++			tasks: /to-?do|tasks?|tâches|taches|taken/,
++			analytics: /analytic|stats|visits?|heatmap|seo|traffic|trafic/
+ 		};
+ 		return words[b.id].test(t);
+ 	});
+diff --git a/src/lib/server/agency-profile.ts b/src/lib/server/agency-profile.ts
+index 019f140..9553473 100644
+--- a/src/lib/server/agency-profile.ts
++++ b/src/lib/server/agency-profile.ts
+@@ -15,6 +15,7 @@ export type AgencyProfile = {
+ 	source: 'site' | 'manual' | 'ai';
+ 	needs?: string; // what could not be detected
+ 	color?: string; // brand colour found on the site (#rrggbb)
++	platform?: string; // when built from a social profile: Instagram, TikTok, LinkedIn…
+ };
+ 
+ export const SERVICE_LABEL: Record<Service, string> = { web: 'Websites', app: 'Mobile apps', social: 'Social media', seo: 'SEO', branding: 'Branding & design', ads: 'Ads' };
+@@ -40,6 +41,8 @@ export function isSocialUrl(u: string) {
+ 
+ export function normaliseUrl(input: string) {
+ 	let s = input.trim();
++	// "@unixstudio" on its own: an Instagram handle
++	if (/^@[\w.]{2,30}$/.test(s)) s = `instagram.com/${s.slice(1)}`;
+ 	if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
+ 	const u = new URL(s);
+ 	if (!u.hostname.includes('.')) throw new Error('invalid');
+@@ -111,11 +114,58 @@ async function aiRefine(p: AgencyProfile, text: string): Promise<AgencyProfile |
+ 	}
+ }
+ 
++const PLATFORM: [RegExp, string][] = [
++	[/instagram\.com/i, 'Instagram'],
++	[/tiktok\.com/i, 'TikTok'],
++	[/linkedin\.com/i, 'LinkedIn'],
++	[/facebook\.com/i, 'Facebook'],
++	[/behance\.net/i, 'Behance'],
++	[/(x|twitter)\.com/i, 'X']
++];
++/** Name from the handle in a social URL: instagram.com/unix.studio → "Unix Studio", linkedin.com/company/acme-agency → "Acme Agency". */
++const handleName = (url: string) => {
++	const parts = new URL(url).pathname.split('/').filter(Boolean).filter((x) => !['company', 'in', 'school', 'showcase', 'pages'].includes(x));
++	const h = (parts[0] ?? '').replace(/^@/, '');
++	return h.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim();
++};
++/** Instagram, TikTok, LinkedIn…: read the public preview (name + bio) that these sites share with link previews. */
++async function fromSocial(url: string, base: AgencyProfile): Promise<AgencyProfile> {
++	const platform = PLATFORM.find(([re]) => re.test(url))?.[1] ?? 'Social';
++	const name = handleName(url) || base.name;
++	let title = '';
++	let bio = '';
++	for (const ua of ['facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Mozilla/5.0 (compatible; UndercutBot/1.0; +https://getundercut.app)']) {
++		try {
++			const r = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'follow', headers: { 'user-agent': ua, 'accept-language': 'en,fr;q=0.8' } });
++			const html = (await r.text()).slice(0, 400_000);
++			const meta = (prop: string) => clean(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]*content=["']([^"']*)`, 'i').exec(html)?.[1] ?? new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${prop}["']`, 'i').exec(html)?.[1] ?? '');
++			title = meta('og:title') || clean(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '');
++			bio = meta('og:description') || meta('description');
++			if (bio || (title && !/log ?in|sign ?up|instagram$|tiktok$/i.test(title))) break;
++		} catch {
++			/* try the next way */
++		}
++	}
++	// "Unix Studio (@unix.studio) • Instagram photos and videos" → "Unix Studio"
++	const cleanTitle = title.replace(/\s*(\(@|•|·|\|| - | – | on TikTok).*$/i, '').replace(/\s*\|\s*LinkedIn$/i, '').trim();
++	const text = `${title} ${bio}`;
++	const services = (Object.keys(DICT) as Service[]).filter((x) => DICT[x].test(text));
++	if (!services.includes('social') && /Instagram|TikTok/.test(platform)) services.push('social');
++	const city = KNOWN_CITIES.find((c) => new RegExp(`\\b${c}\\b`, 'i').test(text)) ?? [...text.matchAll(BE_CITY)].map((x) => x[2])[0] ?? '';
++	let p: AgencyProfile = { ...base, name: (cleanTitle && cleanTitle.length <= 60 ? cleanTitle : name).slice(0, 60), services: services.length ? services : ['social'], city, summary: bio.slice(0, 200), source: 'site', platform };
++	if (bio) {
++		const ai = await aiRefine(p, `${platform} profile of an agency. ${text}`);
++		if (ai) p = { ...ai, platform };
++	}
++	p.needs = !p.city ? `We read your ${platform} profile. Which city do you look for clients in? Check what you sell too.` : bio ? undefined : `We could only read your ${platform} name. Tell us what you sell and where.`;
++	return p;
++}
++
+ export async function profileFromUrl(raw: string): Promise<AgencyProfile> {
+ 	const url = normaliseUrl(raw);
+ 	const host = new URL(url).hostname.replace(/^www\./, '');
+ 	const base: AgencyProfile = { url, name: host.split('.')[0].replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), services: [], city: '', country: host.endsWith('.be') ? 'BE' : host.endsWith('.fr') ? 'FR' : host.endsWith('.nl') ? 'NL' : host.endsWith('.lu') ? 'LU' : '', lang: 'fr', summary: '', source: 'site' };
+-	if (isSocialUrl(url)) return { ...base, source: 'manual', needs: 'Social profiles cannot be read automatically — tell us what you sell and where.' };
++	if (isSocialUrl(url)) return fromSocial(url, base);
+ 	let html = '';
+ 	try {
+ 		const r = await fetch(url, { signal: AbortSignal.timeout(9000), redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (compatible; UndercutBot/1.0; +https://getundercut.app)', 'accept-language': 'fr,nl;q=0.8,en;q=0.6' } });
+diff --git a/src/lib/server/analytics-rows.ts b/src/lib/server/analytics-rows.ts
+new file mode 100644
+index 0000000..8f046de
+--- /dev/null
++++ b/src/lib/server/analytics-rows.ts
+@@ -0,0 +1,24 @@
++// One summary row per tracked site or app (the analytics module): health, headline number, areas, open fixes.
++import { listClients } from './store.ts';
++import { getClientOverview } from './overview.ts';
++
++export async function analyticsRows() {
++	const rows = await Promise.all(
++		listClients()
++			.filter((c) => !c.demo)
++			.map(async (c) => {
++				const o = await getClientOverview(c);
++				return {
++					client: { id: c.id, name: c.name, color: c.color, domain: c.domain, type: c.type ?? 'web' },
++					health: o.health,
++					areas: o.areas.map((a) => ({ key: a.key, label: a.label, level: a.level, value: a.value, sub: a.sub, href: a.href })),
++					tasks: o.tasks.filter((t) => !t.done && t.level !== 'good').map((t) => ({ id: t.id, level: t.level, title: t.title })),
++					// one headline number + its trend: website visits, or app users for app-only clients (null = nothing measured yet)
++					main: o.metrics ? { value: o.metrics.visits.total, prev: o.metrics.visits.prev, label: 'visits', daily: o.metrics.visits.daily } : o.app ? { value: o.app.active.total, prev: o.app.active.prev, label: 'app users', daily: o.app.dau } : null
++				};
++			})
++	);
++	return rows.sort((a, b) => a.health.score - b.health.score);
++}
++
++export const hostOf = (u?: string) => (u ?? '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').toLowerCase();
+diff --git a/src/lib/server/assistant-business.ts b/src/lib/server/assistant-business.ts
+new file mode 100644
+index 0000000..35c1d40
+--- /dev/null
++++ b/src/lib/server/assistant-business.ts
+@@ -0,0 +1,80 @@
++// What Undercut AI can read about the agency's own business: money, clients, invoices, tasks, agenda, pipeline.
++import { agenda, docTotal, getBiz, money, today } from './business.ts';
++import { getOS, pipelineStats } from './agency-os.ts';
++
++export function businessOverview() {
++	const b = getBiz();
++	const os = getOS();
++	const m = money(b);
++	const st = pipelineStats(os);
++	return {
++		today: today(),
++		agency: os.profile ? { name: os.profile.name, city: os.profile.city, services: os.profile.services } : null,
++		currency: b.details.currency,
++		revenue: { monthlyRetainers: m.mrr, paidThisMonth: m.paidMonth, waitingForPayment: m.unpaid, unpaidInvoices: m.unpaidCount, overdueInvoices: m.overdue, openQuotes: m.openQuotes },
++		clients: { active: m.active, total: b.clients.length },
++		tasks: { open: b.tasks.filter((t) => !t.done).length, late: b.tasks.filter((t) => !t.done && t.due && t.due < today()).length },
++		pipeline: { ...st.counts, wonThisMonth: st.wonMonth, goalPerMonth: os.goal.wonPerMonth, replyRate: st.replyRate, followUpsDue: st.due.length }
++	};
++}
++
++export function businessClients() {
++	const b = getBiz();
++	return b.clients.map((c) => {
++		const inv = b.docs.filter((d) => d.kind === 'invoice' && d.clientId === c.id);
++		return {
++			id: c.id,
++			name: c.name,
++			status: c.status,
++			services: c.services,
++			monthlyFee: c.fee ?? 0,
++			since: c.since,
++			paidTotal: inv.filter((d) => d.status === 'paid').reduce((t, d) => t + docTotal(d).total, 0),
++			unpaidTotal: inv.filter((d) => d.status === 'sent').reduce((t, d) => t + docTotal(d).total, 0),
++			openTasks: b.tasks.filter((t) => t.clientId === c.id && !t.done).length,
++			website: c.website,
++			siteOnline: c.site ? c.site.status >= 200 && c.site.status < 400 : null
++		};
++	});
++}
++
++export function businessInvoices(status?: string) {
++	const b = getBiz();
++	const name = (id: string) => b.clients.find((c) => c.id === id)?.name ?? 'Deleted client';
++	return b.docs
++		.filter((d) => !status || d.status === status || (status === 'overdue' && d.kind === 'invoice' && d.status === 'sent' && !!d.due && d.due < today()))
++		.map((d) => ({ id: d.id, kind: d.kind, number: d.number, client: name(d.clientId), date: d.date, due: d.due, status: d.status, total: docTotal(d).total }));
++}
++
++export function businessTasks() {
++	const b = getBiz();
++	const name = (id?: string) => (id ? b.clients.find((c) => c.id === id)?.name : undefined);
++	return b.tasks.filter((t) => !t.done).map((t) => ({ id: t.id, title: t.title, client: name(t.clientId), due: t.due }));
++}
++
++export function businessAgenda(days = 14) {
++	return agenda(getBiz(), getOS().pipeline, days);
++}
++
++export function businessPipeline() {
++	return getOS().pipeline.map((p) => ({ id: p.id, name: p.name, category: p.category, stage: p.stage, followUp: p.next, value: p.value, note: p.note, why: p.pitch }));
++}
++
++export const BUSINESS_TOOLS = [
++	{ name: 'business_overview', description: 'The agency’s own numbers: monthly retainers, paid this month, unpaid and overdue invoices, open quotes, clients, tasks, pipeline counts and monthly goal.', input_schema: { type: 'object', properties: {} } },
++	{ name: 'business_clients', description: 'The agency’s clients: status, services, monthly fee, paid and unpaid totals, open tasks, website status.', input_schema: { type: 'object', properties: {} } },
++	{ name: 'business_invoices', description: 'Quotes and invoices with client, dates, status and total. Optional status filter: draft, sent, paid, accepted, declined, overdue.', input_schema: { type: 'object', properties: { status: { type: 'string' } } } },
++	{ name: 'business_tasks', description: 'Open tasks with client and due date.', input_schema: { type: 'object', properties: {} } },
++	{ name: 'business_agenda', description: 'Meetings, task deadlines, prospect follow-ups and invoices due in the next days (and anything late).', input_schema: { type: 'object', properties: { days: { type: 'number' } } } },
++	{ name: 'business_pipeline', description: 'Prospects in the pipeline: stage (new, contacted, talking, won, lost), follow-up date, value, notes.', input_schema: { type: 'object', properties: {} } }
++];
++
++export function runBusinessTool(name: string, input: Record<string, unknown>): unknown {
++	if (name === 'business_overview') return businessOverview();
++	if (name === 'business_clients') return businessClients();
++	if (name === 'business_invoices') return businessInvoices(input.status ? String(input.status) : undefined);
++	if (name === 'business_tasks') return businessTasks();
++	if (name === 'business_agenda') return businessAgenda(Number(input.days) || 14);
++	if (name === 'business_pipeline') return businessPipeline();
++	return undefined;
++}
+diff --git a/src/lib/server/assistant.ts b/src/lib/server/assistant.ts
+index 480edf0..3e326d3 100644
+--- a/src/lib/server/assistant.ts
++++ b/src/lib/server/assistant.ts
+@@ -14,6 +14,7 @@ import { AUTO_FIX_ISSUES } from '#lib/fixable.ts';
+ import { track } from './usage.ts';
+ import { explain } from './why.ts';
+ import { getLeads } from './leads.ts';
++import { BUSINESS_TOOLS, runBusinessTool, businessOverview, businessInvoices, businessAgenda, businessPipeline, businessClients, businessTasks } from './assistant-business.ts';
+ 
+ export type Msg = { role: 'user' | 'assistant'; content: string };
+ export type Action =
+@@ -22,7 +23,8 @@ export type Action =
+ 	| { type: 'keyword_fix'; label: string; keyword: string }
+ 	| { type: 'mark_done'; label: string; taskId: string }
+ 	| { type: 'rerun_audit'; label: string }
+-	| { type: 'open'; label: string; href: string };
++	| { type: 'open'; label: string; href: string }
++	| { type: 'add_task'; label: string; title: string; due?: string; client?: string };
+ export type Reply = { reply: string; actions: Action[]; ai: boolean };
+ 
+ // ---------- tools (shared by Claude and the fallback) ----------
+@@ -63,14 +65,14 @@ const TOOLS = [
+ 	{ name: 'how_to_fix', description: 'Step-by-step fix + code for a problem that cannot be fixed automatically (speed, console errors, HTML errors, contrast…).', input_schema: { type: 'object', properties: { problem: { type: 'string' } }, required: ['problem'] } },
+ 	{ name: 'explain_change', description: 'Why did a number change? Splits the change of visits, leads or Google clicks across channel, landing page, device and country.', input_schema: { type: 'object', properties: { metric: { type: 'string', enum: ['visits', 'leads', 'clicks'] } }, required: ['metric'] } },
+ 	{ name: 'get_leads', description: 'Leads of the current client (forms, calls, emails, WhatsApp) by channel and landing page.', input_schema: { type: 'object', properties: {} } },
+-	{ name: 'list_clients', description: 'All clients of the agency with health score.', input_schema: { type: 'object', properties: {} } },
++	{ name: 'list_clients', description: 'Sites and apps tracked in Analytics, with health score.', input_schema: { type: 'object', properties: {} } },
+ 	{
+ 		name: 'propose_action',
+ 		description:
+-			'Show the user a button that applies a change when clicked. Use it whenever the user asks to do/fix something. Types: fix_issue (needs issueId of an autoFixable SEO issue: title-missing, title-length, desc, alt, canonical, schema), fix_all (all automatic SEO fixes), keyword_fix (needs keyword: publish a title+description targeting it), mark_done (needs taskId), rerun_audit, open (needs href).',
++			'Show the user a button that applies a change when clicked. Use it whenever the user asks to do/fix/plan something. Types: add_task (needs title; optional due YYYY-MM-DD and client name), open (needs href, e.g. /app/invoices/ID, /app/crm/ID, /app/prospects, /app/tasks), fix_issue (needs issueId of an autoFixable SEO issue: title-missing, title-length, desc, alt, canonical, schema), fix_all (all automatic SEO fixes), keyword_fix (needs keyword), mark_done (needs taskId), rerun_audit.',
+ 		input_schema: {
+ 			type: 'object',
+-			properties: { type: { type: 'string', enum: ['fix_issue', 'fix_all', 'keyword_fix', 'mark_done', 'rerun_audit', 'open'] }, label: { type: 'string' }, issueId: { type: 'string' }, keyword: { type: 'string' }, taskId: { type: 'string' }, href: { type: 'string' } },
++			properties: { type: { type: 'string', enum: ['add_task', 'open', 'fix_issue', 'fix_all', 'keyword_fix', 'mark_done', 'rerun_audit'] }, label: { type: 'string' }, title: { type: 'string' }, due: { type: 'string' }, client: { type: 'string' }, issueId: { type: 'string' }, keyword: { type: 'string' }, taskId: { type: 'string' }, href: { type: 'string' } },
+ 			required: ['type', 'label']
+ 		}
+ 	}
+@@ -78,14 +80,14 @@ const TOOLS = [
+ 
+ async function withClaude(client: Client | null, messages: Msg[]): Promise<Reply> {
+ 	const actions: Action[] = [];
+-	const system = `You are Undercut AI, the assistant inside an analytics tool for digital agencies (websites and apps). ${client ? `The agency is looking at the client "${client.name}" (${client.type ?? 'web'}, ${client.domain}).` : 'The agency is on the overview of all clients.'}
+-Answer in the user's language, short and concrete (max ~120 words, plain sentences, no markdown headings). Use the tools to look at real data before answering. When the user wants something done, call propose_action so they get a button — you cannot change a site yourself, never claim you did. Prefer automatic fixes when the issue is autoFixable; otherwise give the steps.`;
++	const system = `You are Undercut AI, the assistant inside the private dashboard of a digital agency (or freelancer). Today is ${new Date().toISOString().slice(0, 10)}. You can read the agency's own business (clients, monthly retainers, quotes and invoices, tasks, agenda, prospects pipeline) and the analytics of the client sites and apps it tracks. ${client ? `The agency is looking at the analytics of "${client.name}" (${client.type ?? 'web'}, ${client.domain}).` : 'The agency is on its main dashboard.'}
++Answer in the user's language, short and concrete (max ~120 words, plain sentences, no markdown headings, amounts with the currency). Always use the tools to look at real data before answering, and never invent numbers: if the data is empty, say so and suggest what to add. When the user wants something done (a reminder, a task, open an invoice, fix a site), call propose_action so they get a button. You cannot change anything yourself, never claim you did.`;
+ 	let convo: any[] = messages.map((m) => ({ role: m.role, content: m.content }));
+ 	for (let i = 0; i < 6; i++) {
+ 		const res = await fetch('https://api.anthropic.com/v1/messages', {
+ 			method: 'POST',
+ 			headers: { 'x-api-key': env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+-			body: JSON.stringify({ model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5', max_tokens: 900, system, tools: client ? TOOLS : TOOLS.filter((t) => ['list_clients', 'keyword_research'].includes(t.name)), messages: convo }),
++			body: JSON.stringify({ model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5', max_tokens: 900, system, tools: [...BUSINESS_TOOLS, ...(client ? TOOLS : TOOLS.filter((t) => ['list_clients', 'keyword_research', 'propose_action'].includes(t.name)))], messages: convo }),
+ 			signal: AbortSignal.timeout(60_000)
+ 		});
+ 		if (!res.ok) throw new Error(`Claude ${res.status}`);
+@@ -100,7 +102,9 @@ Answer in the user's language, short and concrete (max ~120 words, plain sentenc
+ 		for (const u of uses) {
+ 			let out: unknown;
+ 			try {
+-				if (u.name === 'get_client_status' && client) out = await clientStatus(client);
++				const biz = runBusinessTool(u.name, u.input ?? {});
++				if (biz !== undefined) out = biz;
++				else if (u.name === 'get_client_status' && client) out = await clientStatus(client);
+ 				else if (u.name === 'get_seo_problems' && client) out = await seoProblems(client);
+ 				else if (u.name === 'keyword_research') out = await keywords(String(u.input.keyword));
+ 				else if (u.name === 'how_to_fix' && client) out = await howToFix(client, String(u.input.problem));
+@@ -123,7 +127,7 @@ Answer in the user's language, short and concrete (max ~120 words, plain sentenc
+ 
+ // ---------- rules-based fallback ----------
+ function lang(t: string): 'es' | 'fr' | 'en' {
+-	if (/\b(qué|que|cómo|como|arregla|hazme|hacer|dame|palabras?|por qué|mejorar|cliente)\b/i.test(t)) return 'es';
++	if (/(¿|cuánto|cuanto|ganado|quién|quien|hoy|semana|tareas?|facturas?|\b(qué|que|cómo|como|arregla|hazme|hacer|dame|palabras?|por qué|mejorar|cliente)\b)/i.test(t)) return 'es';
+ 	if (/\b(comment|pourquoi|corrige|répare|fais|mots?-clés?|améliorer|quoi)\b/i.test(t)) return 'fr';
+ 	return 'en';
+ }
+@@ -136,6 +140,61 @@ const T = {
+ 	overview: { en: 'Clients that need you most:', es: 'Los clientes que más te necesitan:', fr: 'Les clients qui ont le plus besoin de toi :' }
+ };
+ 
++// Agency-level questions without an AI key: money, unpaid invoices, today, follow-ups, best clients, tasks.
++const money = (n: number, cur: string) => new Intl.NumberFormat('en-IE', { style: 'currency', currency: cur, maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
++const BT = {
++	revenue: { en: (a: string, b: string, c: string) => `This month you were paid ${a}. Monthly retainers add up to ${b}. Still waiting for ${c}.`, es: (a: string, b: string, c: string) => `Este mes has cobrado ${a}. Tus cuotas mensuales suman ${b}. Aún esperas ${c}.`, fr: (a: string, b: string, c: string) => `Ce mois-ci tu as encaissé ${a}. Tes forfaits mensuels font ${b}. Encore ${c} en attente.` },
++	unpaid: { en: 'Not paid yet:', es: 'Todavía sin pagar:', fr: 'Pas encore payé :' },
++	allPaid: { en: 'Every invoice you sent is paid.', es: 'Todas las facturas que enviaste están pagadas.', fr: 'Toutes les factures envoyées sont payées.' },
++	today: { en: 'For today:', es: 'Para hoy:', fr: 'Pour aujourd’hui :' },
++	week: { en: 'This week:', es: 'Esta semana:', fr: 'Cette semaine :' },
++	free: { en: 'Nothing planned today. Add a task or find new prospects.', es: 'Nada previsto hoy. Añade una tarea o busca nuevos prospectos.', fr: 'Rien de prévu aujourd’hui. Ajoute une tâche ou cherche de nouveaux prospects.' },
++	follow: { en: 'Follow up with:', es: 'Haz seguimiento a:', fr: 'Relance :' },
++	noFollow: { en: 'No follow-up due. Contact the prospects in “To contact”.', es: 'Ningún seguimiento pendiente. Contacta a los prospectos en “To contact”.', fr: 'Aucune relance prévue. Contacte les prospects « To contact ».' },
++	best: { en: 'Your biggest clients:', es: 'Tus clientes más importantes:', fr: 'Tes plus gros clients :' },
++	noClients: { en: 'No clients yet. Add them in Clients, or turn a won prospect into a client.', es: 'Aún no tienes clientes. Añádelos en Clients o convierte un prospecto ganado.', fr: 'Pas encore de clients. Ajoute-les dans Clients.' },
++	tasks: { en: 'Open tasks:', es: 'Tareas abiertas:', fr: 'Tâches ouvertes :' },
++	noTasks: { en: 'No open tasks.', es: 'No tienes tareas abiertas.', fr: 'Aucune tâche ouverte.' },
++	summary: { en: (s: string) => `Your business today: ${s}. Ask me about money, unpaid invoices, today, follow-ups or clients.`, es: (s: string) => `Tu negocio hoy: ${s}. Pregúntame por ingresos, facturas sin pagar, hoy, seguimientos o clientes.`, fr: (s: string) => `Ton activité aujourd’hui : ${s}. Demande-moi le chiffre, les impayés, aujourd’hui, les relances ou les clients.` }
++};
++function businessFallback(q: string, L: 'es' | 'fr' | 'en'): Reply {
++	const t = q.toLowerCase();
++	const o = businessOverview();
++	const cur = o.currency;
++	if (/(unpaid|not paid|n.?t paid|owe|overdue|sin pagar|no ha pagado|no me ha pagado|no han pagado|debe|impay|pas pay|retard)/i.test(t)) {
++		const list = businessInvoices('sent').filter((d) => d.kind === 'invoice');
++		if (!list.length) return { reply: BT.allPaid[L], actions: [], ai: false };
++		return { reply: `${BT.unpaid[L]}\n${list.slice(0, 6).map((d) => `• ${d.client}: ${money(d.total, cur)} (${d.number}${d.due && d.due < o.today ? ', late' : ''})`).join('\n')}`, actions: list.slice(0, 3).map((d) => ({ type: 'open' as const, label: `Open ${d.number}`, href: `/app/invoices/${d.id}` })), ai: false };
++	}
++	if (/(earn|revenue|income|money|paid|turnover|gan|ingres|cobr|factur|dinero|chiffre|gagn|encaiss|argent)/i.test(t)) {
++		const r = o.revenue;
++		return { reply: BT.revenue[L](money(r.paidThisMonth, cur), money(r.monthlyRetainers, cur), money(r.waitingForPayment, cur)), actions: [{ type: 'open', label: 'Open quotes & invoices', href: '/app/invoices' }], ai: false };
++	}
++	if (/(follow|prospect|seguimiento|relanc|lead)/i.test(t)) {
++		const due = businessPipeline().filter((p) => p.followUp && p.followUp <= o.today && p.stage !== 'won' && p.stage !== 'lost');
++		if (!due.length) return { reply: BT.noFollow[L], actions: [{ type: 'open', label: 'Open pipeline', href: '/app/prospects' }], ai: false };
++		return { reply: `${BT.follow[L]}\n${due.slice(0, 6).map((p) => `• ${p.name}${p.note ? ` (${p.note.slice(0, 60)})` : ''}`).join('\n')}`, actions: [{ type: 'open', label: 'Open pipeline', href: '/app/prospects' }], ai: false };
++	}
++	if (/(today|what should i do|priorit|hoy|qué hago|que hago|aujourd|quoi faire|semaine|week)/i.test(t)) {
++		const week = /week|semana|semaine/.test(t);
++		const items = businessAgenda(week ? 7 : 0);
++		if (!items.length) return { reply: BT.free[L], actions: [{ type: 'open', label: 'Open tasks & agenda', href: '/app/tasks' }], ai: false };
++		return { reply: `${(week ? BT.week : BT.today)[L]}\n${items.slice(0, 8).map((a) => `• ${a.late ? '⚠ ' : ''}${a.time ? a.time + ' ' : ''}${a.title}${a.sub ? ` · ${a.sub}` : ''}`).join('\n')}`, actions: [{ type: 'open', label: 'Open tasks & agenda', href: '/app/tasks' }], ai: false };
++	}
++	if (/(best|biggest|top|mejor|más importante|meilleur|plus gros|client)/i.test(t)) {
++		const cs = businessClients().filter((c) => c.status === 'active').sort((a, b) => b.monthlyFee + b.paidTotal - (a.monthlyFee + a.paidTotal));
++		if (!cs.length) return { reply: BT.noClients[L], actions: [{ type: 'open', label: 'Open clients', href: '/app/crm' }], ai: false };
++		return { reply: `${BT.best[L]}\n${cs.slice(0, 5).map((c) => `• ${c.name}: ${money(c.monthlyFee, cur)}/month · ${money(c.paidTotal, cur)} paid so far`).join('\n')}`, actions: cs.slice(0, 2).map((c) => ({ type: 'open' as const, label: `Open ${c.name}`, href: `/app/crm/${c.id}` })), ai: false };
++	}
++	if (/(task|tarea|tâche|todo|to-do)/i.test(t)) {
++		const ts = businessTasks();
++		return { reply: ts.length ? `${BT.tasks[L]}\n${ts.slice(0, 8).map((k) => `• ${k.title}${k.client ? ` · ${k.client}` : ''}${k.due ? ` (${k.due})` : ''}`).join('\n')}` : BT.noTasks[L], actions: [{ type: 'open', label: 'Open tasks', href: '/app/tasks' }], ai: false };
++	}
++	const parts = [`${o.clients.active} active clients`, `${money(o.revenue.monthlyRetainers, cur)}/month`, `${o.tasks.open} open tasks`, `${o.pipeline.new} prospects to contact`];
++	if (o.revenue.overdueInvoices) parts.push(`${o.revenue.overdueInvoices} late invoices`);
++	return { reply: BT.summary[L](parts.join(', ')), actions: [], ai: false };
++}
++
+ async function fallback(client: Client | null, messages: Msg[]): Promise<Reply> {
+ 	const q = messages.at(-1)?.content ?? '';
+ 	const L = lang(q);
+@@ -152,11 +211,7 @@ async function fallback(client: Client | null, messages: Msg[]): Promise<Reply>
+ 			ai: false
+ 		};
+ 	}
+-	if (!client) {
+-		const rows = await Promise.all(listClients().map(async (c) => ({ c, h: (await getClientOverview(c)).health.score })));
+-		rows.sort((a, b) => a.h - b.h);
+-		return { reply: `${T.overview[L]}\n${rows.slice(0, 3).map((r) => `• ${r.c.name} — ${r.h}/100`).join('\n')}`, actions: rows.slice(0, 3).map((r) => ({ type: 'open' as const, label: `Open ${r.c.name}`, href: `/app/clients/${r.c.id}` })), ai: false };
+-	}
++	if (!client) return businessFallback(q, L);
+ 	if (/\b(why|por qué|porque|pourquoi)\b/i.test(lower)) {
+ 		const metric = /lead|contact|call|llamad|formul/i.test(lower) ? 'leads' : /google|search|click|clic|seo/i.test(lower) ? 'clicks' : 'visits';
+ 		const w = await explain(client, metric, 28);
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 0d92701..9138708 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -103,8 +103,8 @@
+ {#snippet urlForm(id: string)}
+ 	<form method="POST" action="/prospects" class="w-full max-w-xl" onsubmit={() => (going = true)}>
+ 		<div class="card flex flex-col gap-2 rounded-[22px]! p-1.5 focus-within:shadow-[0_0_0_2px_rgba(13,13,13,.25)] sm:flex-row">
+-			<label class="sr-only" for={id}>Your agency’s website or Instagram</label>
+-			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.com" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-[15px] text-ink outline-none placeholder:text-muted" />
++			<label class="sr-only" for={id}>Your agency’s website, Instagram, TikTok or LinkedIn</label>
++			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="Your site, Instagram, TikTok or LinkedIn" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-[15px] text-ink outline-none placeholder:text-muted" />
+ 			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going}><span class="roll" data-t={going ? 'Searching…' : 'Find my 5 clients'}><span>{going ? 'Searching…' : 'Find my 5 clients'}</span></span><span class="transition-transform group-hover:translate-x-0.5">→</span></button>
+ 		</div>
+ 	</form>
+diff --git a/src/routes/api/assistant/action/+server.ts b/src/routes/api/assistant/action/+server.ts
+index 3292936..030e3b8 100644
+--- a/src/routes/api/assistant/action/+server.ts
++++ b/src/routes/api/assistant/action/+server.ts
+@@ -3,13 +3,22 @@ import { getClient, toggleDone, getDone } from '#lib/server/store.ts';
+ import { fixAll, fixIssue, keywordToFix } from '#lib/server/fix-engine.ts';
+ import { publishIssue } from '#lib/server/fixes.ts';
+ import { getSeoAudit } from '#lib/server/seo-audit.ts';
++import { addTask, getBiz } from '#lib/server/business.ts';
+ 
+ // Runs the action behind a button the assistant proposed — only when the agency clicks it.
+ export const POST = async ({ request }) => {
+ 	const b = await request.json().catch(() => ({}));
++	const a = b.action ?? {};
++	// agency-level actions (no tracked site needed)
++	if (a.type === 'add_task') {
++		const title = String(a.title ?? '').trim().slice(0, 300);
++		if (!title) error(400, 'No task');
++		const c = a.client ? getBiz().clients.find((x) => x.name.toLowerCase() === String(a.client).toLowerCase()) : undefined;
++		addTask({ title, clientId: c?.id, due: /^\d{4}-\d{2}-\d{2}$/.test(String(a.due ?? '')) ? String(a.due) : undefined });
++		return json({ ok: true, message: `✓ Task added${a.due ? ` for ${a.due}` : ''}.` });
++	}
+ 	const client = getClient(String(b.clientId ?? ''));
+ 	if (!client) error(404, 'Client not found');
+-	const a = b.action ?? {};
+ 	switch (a.type) {
+ 		case 'fix_issue': {
+ 			const n = await fixIssue(client, String(a.issueId));
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 0966fa3..5abcfc6 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -2,6 +2,7 @@
+ 	import { page } from '$app/state';
+ 	import Logo from '#lib/components/Logo.svelte';
+ 	import Icon from '#lib/components/Icon.svelte';
++	import Assistant from '#lib/components/Assistant.svelte';
+ 	let { data, children } = $props();
+ 
+ 	let drawer = $state(false); // mobile sidebar
+@@ -25,7 +26,8 @@
+ 		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
+ 		{ href: '/app/crm', label: 'Clients', icon: 'team' },
+ 		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
+-		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' }
++		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
++		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
+ 	] as Item[]);
+ 	const clientNav = $derived.by(() => {
+ 		if (!current) return [] as { group: string; items: Item[] }[];
+@@ -61,7 +63,7 @@
+ 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
+ 			return path === hp && (hq === 'mode=app') === appMode;
+ 		}
+-		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects'].includes(hp)) return path === hp || path.startsWith(hp + '/');
++		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics'].includes(hp)) return path === hp || path.startsWith(hp + '/');
+ 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
+ 	};
+ 
+@@ -116,6 +118,11 @@
+ 		{/if}
+ 
+ 		<div class="mt-auto flex flex-col gap-2 pt-4">
++			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
++				<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
++				<span class="flex-1 text-left">Ask Undercut AI</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
++			</button>
++
+ 			<!-- account & settings -->
+ 			<div class="relative">
+ 				{#if menu === 'account'}
+@@ -152,4 +159,5 @@
+ 			{@render children()}
+ 		</div>
+ 	</main>
++	<Assistant clients={data.clients} />
+ </div>
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index 61a922d..8a1aef2 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -2,8 +2,9 @@ import { getOS, monthlyQuota, pipelineStats, usedThisMonth } from '#lib/server/a
+ import { agencyActions } from '#lib/server/agency-actions.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
+ import { agenda, getBiz, money } from '#lib/server/business.ts';
++import { analyticsRows } from '#lib/server/analytics-rows.ts';
+ 
+-export const load = () => {
++export const load = async () => {
+ 	const os = getOS();
+ 	const b = getBiz();
+ 	const stats = pipelineStats(os);
+@@ -20,7 +21,9 @@ export const load = () => {
+ 		clientCount: b.clients.length,
+ 		clientOptions: b.clients.filter((c) => c.status !== 'ended').map((c) => ({ id: c.id, name: c.name })),
+ 		money: money(b),
+-		currency: b.details.currency
++		currency: b.details.currency,
++		// analytics block: only read the tracked sites when the block is shown
++		analytics: os.blocks.analytics ? (await analyticsRows()).slice(0, 3) : []
+ 	};
+ };
+ 
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index 61d70ef..1657ea2 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -1,5 +1,7 @@
+ <script lang="ts">
+ 	import ArrowLink from '#lib/components/ArrowLink.svelte';
++	import HealthRing from '#lib/components/HealthRing.svelte';
++	import { n } from '#lib/format.ts';
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+ 	import AgencySetup from '#lib/components/AgencySetup.svelte';
+@@ -12,7 +14,7 @@
+ 	const clear = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update();
+ 	let finding = $state(false);
+ 	let customise = $state(false);
+-	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', tasks: 'Tasks', agenda: 'Agenda', clients: 'Clients', money: 'Revenue' };
++	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', tasks: 'Tasks', agenda: 'Agenda', clients: 'Clients', money: 'Revenue', analytics: 'Analytics' };
+ 	const SPAN: Record<string, string> = { s: 'lg:col-span-4', m: 'lg:col-span-6', l: 'lg:col-span-8', xl: 'lg:col-span-12' };
+ 	const SIZE_LABEL: Record<string, string> = { s: '⅓', m: '½', l: '⅔', xl: 'Full' };
+ 	type B = (typeof data.os.order)[number];
+@@ -272,6 +274,24 @@
+ 							<form method="POST" action={act('goal')} use:enhance={keep} class="mt-2 flex items-center gap-2 text-xs text-muted">Goal <input name="won" type="number" min="1" max="100" value={data.os.goal.wonPerMonth} class="input w-16 py-1 text-sm" /> per month <button class="pill text-xs">Save</button></form>
+ 						</div>
+ 					</section>
++				{:else if b === 'analytics'}
++					<section class="card flex flex-1 flex-col p-5 sm:p-6">
++						<div class="flex items-center justify-between gap-3"><p class="font-medium">Analytics <span class="text-sm font-normal text-muted">· your clients’ sites and apps</span></p><ArrowLink href="/app/analytics" label="All analytics" /></div>
++						{#if data.analytics.length}
++							<div class="mt-4 grid flex-1 gap-3 sm:grid-cols-3">
++								{#each data.analytics as r (r.client.id)}
++									<a href="/app/clients/{r.client.id}" class="flex flex-col rounded-[20px] bg-tile p-4 hover:bg-[#e6e6e1]">
++										<div class="flex items-center justify-between gap-3"><b class="truncate text-sm font-medium">{r.client.name}</b><HealthRing score={r.health.score} size={40} /></div>
++										{#if r.main && (r.main.value || r.main.prev)}<p class="mt-3 big text-3xl">{n(r.main.value)}</p><p class="text-xs text-muted">{r.main.label}, 28 days</p>{:else}<p class="mt-3 text-sm text-muted">No data yet: connect Google or the snippet.</p>{/if}
++										{#if r.tasks[0]}<p class="mt-auto truncate pt-3 text-xs text-ink-2">→ {r.tasks[0].title}</p>{/if}
++									</a>
++								{/each}
++							</div>
++						{:else}
++							<p class="mt-4 flex-1 text-sm text-muted">Track your clients’ websites and apps: visits, leads, Google, heatmaps, SEO fixes, app users. Real data only, from the tools you connect.</p>
++						{/if}
++						<a href="/app/clients/new" class="pill mt-4 self-start text-sm">+ Track a site or app</a>
++					</section>
+ 				{/if}
+ 				</div>
+ 			</div>
+diff --git a/src/routes/app/analytics/+page.server.ts b/src/routes/app/analytics/+page.server.ts
+new file mode 100644
+index 0000000..7f787a9
+--- /dev/null
++++ b/src/routes/app/analytics/+page.server.ts
+@@ -0,0 +1,3 @@
++import { analyticsRows } from '#lib/server/analytics-rows.ts';
++
++export const load = async () => ({ rows: await analyticsRows() });
+diff --git a/src/routes/app/analytics/+page.svelte b/src/routes/app/analytics/+page.svelte
+new file mode 100644
+index 0000000..c5139a6
+--- /dev/null
++++ b/src/routes/app/analytics/+page.svelte
+@@ -0,0 +1,70 @@
++<script lang="ts">
++	import Delta from '#lib/components/Delta.svelte';
++	import Sparkline from '#lib/components/Sparkline.svelte';
++	import HealthRing from '#lib/components/HealthRing.svelte';
++	import ArrowLink from '#lib/components/ArrowLink.svelte';
++	import { n, pct } from '#lib/format.ts';
++	let { data } = $props();
++	let filter = $state<'all' | 'attention' | 'apps'>('all');
++	const dot = { good: 'bg-good', warn: 'bg-[#E3A21A]', bad: 'bg-bad' };
++	const rows = $derived(data.rows.filter((r) => (filter === 'attention' ? r.health.level !== 'good' : filter === 'apps' ? r.client.type !== 'web' : true)));
++	const measured = (r: (typeof data.rows)[number]) => Boolean(r.main && (r.main.value || r.main.prev));
++</script>
++
++<svelte:head><title>Analytics · Undercut</title></svelte:head>
++
++<header class="flex flex-wrap items-end justify-between gap-4">
++	<div>
++		<h1 class="text-[34px] leading-tight font-medium tracking-tight sm:text-[44px]">Analytics</h1>
++		<p class="mt-1 max-w-xl text-sm text-ink-2">Your clients’ websites and apps: visits, leads, Google, heatmaps, SEO fixes, app users and reviews. Only real data from the tools you connect.</p>
++	</div>
++	<a href="/app/clients/new" class="btn btn-primary">+ Track a site or app</a>
++</header>
++
++{#if !data.rows.length}
++	<div class="card mt-6 p-8 text-center">
++		<p class="text-lg font-medium">Nothing tracked yet</p>
++		<p class="mx-auto mt-2 max-w-md text-sm text-ink-2">Add a client’s website or app, then connect Google Analytics, Search Console, or the Undercut snippet for leads and heatmaps. Numbers appear as soon as data comes in.</p>
++		<a href="/app/clients/new" class="btn btn-primary mt-5">Track my first site</a>
++	</div>
++{:else}
++	<div class="mt-6 flex gap-2">
++		{#each [['all', 'All', data.rows.length], ['attention', 'Needs attention', data.rows.filter((r) => r.health.level !== 'good').length], ['apps', 'Apps', data.rows.filter((r) => r.client.type !== 'web').length]] as [k, l, c] (k)}
++			<button class="pill {filter === k ? 'pill-active' : ''}" onclick={() => (filter = k as typeof filter)}>{l} <span class="opacity-50">{c}</span></button>
++		{/each}
++	</div>
++	<section class="mt-5 grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3">
++		{#each rows as r (r.client.id)}
++			<article class="card flex flex-col p-5 sm:p-6">
++				<div class="flex items-start justify-between gap-3">
++					<div class="flex min-w-0 items-center gap-3">
++						<span class="grid size-11 shrink-0 place-items-center rounded-full text-sm font-semibold text-white" style="background:{r.client.color}">{r.client.name.slice(0, 1)}</span>
++						<div class="min-w-0">
++							<h2 class="truncate font-medium">{r.client.name}</h2>
++							<p class="truncate text-xs text-muted">{r.client.type === 'app' ? 'App' : r.client.domain.replace(/^https?:\/\//, '')}{r.client.type === 'both' ? ' + app' : ''}</p>
++						</div>
++					</div>
++					<ArrowLink href="/app/clients/{r.client.id}" label="Open {r.client.name}" />
++				</div>
++				<div class="mt-6 flex items-end justify-between gap-4">
++					{#if r.main && measured(r)}
++						<div>
++							<p class="flex items-start gap-1.5"><span class="big text-5xl">{n(r.main.value)}</span>{#if r.main.prev}<Delta value={pct(r.main.value, r.main.prev)} />{/if}</p>
++							<p class="mt-1 text-xs text-muted">{r.main.label}, last 28 days</p>
++						</div>
++					{:else}
++						<div><p class="text-sm font-medium">No data yet</p><a href="/app/clients/{r.client.id}/settings" class="text-xs text-ink-2 underline">Connect Google or add the snippet</a></div>
++					{/if}
++					<HealthRing score={r.health.score} size={58} />
++				</div>
++				{#if r.main && measured(r)}<div class="mt-4"><Sparkline data={r.main.daily} color="var(--color-ink)" width={320} height={40} /></div>{/if}
++				<div class="mt-auto flex flex-wrap gap-1.5 border-t border-line pt-4">
++					{#each r.areas as a (a.key)}
++						<a href={a.href} class="inline-flex items-center gap-1.5 rounded-full bg-tile px-2.5 py-1 text-xs text-ink-2 hover:bg-[#e6e6e1]" title="{a.label}: {a.value} {a.sub}"><span class="size-1.5 rounded-full {dot[a.level]}"></span>{a.label.replace('Google ', '').replace(' health', '')}</a>
++					{/each}
++				</div>
++				{#if r.tasks[0]}<a href="/app/clients/{r.client.id}" class="mt-3 truncate text-xs text-ink-2 hover:underline">→ {r.tasks[0].title}{r.tasks.length > 1 ? ` · +${r.tasks.length - 1}` : ''}</a>{/if}
++			</article>
++		{/each}
++	</section>
++{/if}
+diff --git a/src/routes/app/crm/[id]/+page.server.ts b/src/routes/app/crm/[id]/+page.server.ts
+index 340b65a..30b28f9 100644
+--- a/src/routes/app/crm/[id]/+page.server.ts
++++ b/src/routes/app/crm/[id]/+page.server.ts
+@@ -1,13 +1,19 @@
+ import { error } from '@sveltejs/kit';
+ import { docTotal, getBiz, today } from '#lib/server/business.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
++import { listClients } from '#lib/server/store.ts';
++import { hostOf } from '#lib/server/analytics-rows.ts';
+ 
+ export const load = ({ params }) => {
+ 	const b = getBiz();
+ 	const client = b.clients.find((c) => c.id === params.id);
+ 	if (!client) error(404, 'Client not found');
++	// the same site tracked in Analytics (visits, leads, heatmaps, SEO)
++	const h = hostOf(client.website);
++	const tracked = h ? listClients().find((c) => !c.demo && hostOf(c.domain) === h) : undefined;
+ 	return {
+ 		client,
++		tracked: tracked ? { id: tracked.id } : null,
+ 		tasks: b.tasks.filter((t) => t.clientId === client.id).sort((a, z) => Number(a.done) - Number(z.done) || (a.due ?? '9').localeCompare(z.due ?? '9')),
+ 		meetings: b.meetings.filter((m) => m.clientId === client.id && m.date >= today()).sort((a, z) => a.date.localeCompare(z.date)),
+ 		docs: b.docs.filter((d) => d.clientId === client.id).sort((a, z) => z.date.localeCompare(a.date)).map((d) => ({ id: d.id, kind: d.kind, number: d.number, date: d.date, status: d.status, total: docTotal(d).total })),
+diff --git a/src/routes/app/crm/[id]/+page.svelte b/src/routes/app/crm/[id]/+page.svelte
+index 1a5580f..bd55b03 100644
+--- a/src/routes/app/crm/[id]/+page.svelte
++++ b/src/routes/app/crm/[id]/+page.svelte
+@@ -103,6 +103,16 @@
+ 			{/if}
+ 			{#if form?.siteError}<p class="mt-2 text-sm text-bad">{form.siteError}</p>{/if}
+ 		</div>
++		<div class="mt-auto border-t border-line pt-4">
++			<p class="label">Analytics</p>
++			{#if data.tracked}
++				<p class="mt-1 text-sm text-ink-2">Visits, leads, Google, heatmaps and SEO fixes for this site.</p>
++				<a href="/app/clients/{data.tracked.id}" class="btn btn-primary mt-3 text-sm">Open analytics →</a>
++			{:else}
++				<p class="mt-1 text-sm text-ink-2">Track visits, leads, Google, heatmaps and SEO for {c.name}.</p>
++				<a href="/app/clients/new?name={encodeURIComponent(c.name)}&domain={encodeURIComponent(c.website ?? '')}" class="pill mt-3 text-sm">Track this site or app</a>
++			{/if}
++		</div>
+ 	</section>
+ 
+ 	<!-- tasks -->
+diff --git a/src/routes/beta/+page.svelte b/src/routes/beta/+page.svelte
+index 913ac92..4da06be 100644
+--- a/src/routes/beta/+page.svelte
++++ b/src/routes/beta/+page.svelte
+@@ -70,7 +70,7 @@
+ 							{/each}
+ 						</div>
+ 					</fieldset>
+-					<label class="block"><span class="label">Your website or Instagram</span><input class="input mt-1.5" name="website" value={form?.website ?? ''} placeholder="youragency.com" inputmode="url" /></label>
++					<label class="block"><span class="label">Your website, Instagram, TikTok or LinkedIn</span><input class="input mt-1.5" name="website" value={form?.website ?? ''} placeholder="youragency.com" inputmode="url" /></label>
+ 					<label class="block"><span class="label">What would you want your dashboard to do for you? (optional)</span><textarea class="input mt-1.5 rounded-[20px]" rows="3" name="note" placeholder="Find me new clients, show what my clients need, keep my week organised…">{form?.note ?? ''}</textarea></label>
+ 					<button class="btn btn-primary w-full py-3 text-base">Request my invitation →</button>
+ 				<p class="text-center text-xs text-muted">By continuing you agree to the <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy policy</a>.</p>
+diff --git a/src/routes/prospects/+page.server.ts b/src/routes/prospects/+page.server.ts
+index 5b49d0a..2892afc 100644
+--- a/src/routes/prospects/+page.server.ts
++++ b/src/routes/prospects/+page.server.ts
+@@ -25,7 +25,7 @@ export const actions = {
+ 		const raw = String(f.get('url') ?? '').trim();
+ 		const city = String(f.get('city') ?? '').trim().slice(0, 60);
+ 		const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
+-		if (!raw) return fail(400, { error: 'Paste your agency’s website or Instagram.', url: raw });
++		if (!raw) return fail(400, { error: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.', url: raw });
+ 		if (!allow(getClientAddress())) return fail(429, { error: `That’s ${PER_DAY} searches today. Create a free account to keep going.`, url: raw, limit: true });
+ 
+ 		let profile: AgencyProfile;
+diff --git a/src/routes/prospects/+page.svelte b/src/routes/prospects/+page.svelte
+index 58a66e7..0095db2 100644
+--- a/src/routes/prospects/+page.svelte
++++ b/src/routes/prospects/+page.svelte
+@@ -62,7 +62,7 @@
+ 			}}
+ 		>
+ 			<div class="flex flex-col gap-2 rounded-[22px] border border-line bg-white p-1.5 shadow-[0_8px_30px_-12px_rgba(0,0,0,.15)] focus-within:border-ink/40 sm:flex-row">
+-				<input name="url" value={url} required autocomplete="url" inputmode="url" placeholder="youragency.com or instagram.com/youragency" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-muted" />
++				<input name="url" value={url} required autocomplete="url" inputmode="url" placeholder="youragency.com, or your Instagram, TikTok or LinkedIn" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-muted" />
+ 				<button class="btn btn-primary justify-center px-6 py-3" disabled={loading}>{loading ? 'Searching…' : 'Find my 5 clients →'}</button>
+ 			</div>
+ 
+-- 
+2.43.0
+

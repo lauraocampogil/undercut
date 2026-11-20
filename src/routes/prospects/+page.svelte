@@ -62,7 +62,7 @@
 			}}
 		>
 			<div class="flex flex-col gap-2 rounded-[22px] border border-line bg-white p-1.5 shadow-[0_8px_30px_-12px_rgba(0,0,0,.15)] focus-within:border-ink/40 sm:flex-row">
-				<input name="url" value={url} required autocomplete="url" inputmode="url" placeholder="youragency.com or instagram.com/youragency" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-muted" />
+				<input name="url" value={url} required autocomplete="url" inputmode="url" placeholder="youragency.com, or your Instagram, TikTok or LinkedIn" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-base outline-none placeholder:text-muted" />
 				<button class="btn btn-primary justify-center px-6 py-3" disabled={loading}>{loading ? 'Searching…' : 'Find my 5 clients →'}</button>
 			</div>
 

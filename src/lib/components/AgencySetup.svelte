@@ -38,8 +38,8 @@
 	class="grid gap-4"
 >
 	<label class="block text-sm">
-		<span class={dark ? 'text-white/60' : 'label'}>Your agency’s website or Instagram</span>
-		<input name="url" value={profile?.url ?? ''} required inputmode="url" placeholder="youragency.com" class="mt-1.5 w-full rounded-2xl px-4 py-3 text-base outline-none focus:ring-1 focus:ring-accent {field}" />
+		<span class={dark ? 'text-white/60' : 'label'}>Your agency’s website, Instagram, TikTok or LinkedIn</span>
+		<input name="url" value={profile?.url ?? ''} required inputmode="url" placeholder="youragency.com or instagram.com/youragency" class="mt-1.5 w-full rounded-2xl px-4 py-3 text-base outline-none focus:ring-1 focus:ring-accent {field}" />
 	</label>
 	{#if profile}
 		<div class="grid gap-4 sm:grid-cols-2">

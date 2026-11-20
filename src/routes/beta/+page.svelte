@@ -70,7 +70,7 @@
 							{/each}
 						</div>
 					</fieldset>
-					<label class="block"><span class="label">Your website or Instagram</span><input class="input mt-1.5" name="website" value={form?.website ?? ''} placeholder="youragency.com" inputmode="url" /></label>
+					<label class="block"><span class="label">Your website, Instagram, TikTok or LinkedIn</span><input class="input mt-1.5" name="website" value={form?.website ?? ''} placeholder="youragency.com" inputmode="url" /></label>
 					<label class="block"><span class="label">What would you want your dashboard to do for you? (optional)</span><textarea class="input mt-1.5 rounded-[20px]" rows="3" name="note" placeholder="Find me new clients, show what my clients need, keep my week organised…">{form?.note ?? ''}</textarea></label>
 					<button class="btn btn-primary w-full py-3 text-base">Request my invitation →</button>
 				<p class="text-center text-xs text-muted">By continuing you agree to the <a href="/terms" class="underline">Terms</a> and <a href="/privacy" class="underline">Privacy policy</a>.</p>

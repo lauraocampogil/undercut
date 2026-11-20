@@ -14,14 +14,15 @@
 	let list = $state<HTMLDivElement>();
 	let field = $state<HTMLTextAreaElement>();
 
-	const clientId = $derived(page.params.id ?? null);
+	// analytics client when on /app/clients/[id]; otherwise the agency's own business
+	const clientId = $derived(page.url.pathname.startsWith('/app/clients/') && page.params.id ? page.params.id : null);
 	const client = $derived(clients.find((c) => c.id === clientId) ?? null);
 	const key = $derived(clientId ?? '_all');
 	const messages = $derived(threads[key] ?? []);
 	const suggestions = $derived(
 		client
 			? ['What should I fix first?', 'Why did leads change?', 'Fix everything you can automatically', `Keywords for "${client.name.split(' ')[0].toLowerCase()} bruxelles"`, 'How do I make the site faster?']
-			: ['Which client needs me most?', 'Keywords for "site web restaurant"']
+			: ['What should I do today?', 'How much did I earn this month?', 'Who hasn’t paid yet?', 'Which prospects should I follow up?', 'Who are my biggest clients?']
 	);
 
 	async function send(text = input) {
@@ -92,7 +93,7 @@
 </script>
 
 {#if !open}
-	<button class="group no-print on-dark fixed right-4 bottom-4 z-40 grid size-14 place-items-center rounded-full bg-ink text-accent shadow-[0_12px_40px_-12px_rgba(0,0,0,.6)] transition-transform hover:-translate-y-0.5 sm:right-6 sm:bottom-6" onclick={() => (open = true)} aria-label="Ask Undercut AI (⌘J)" title="Ask Undercut AI (⌘J)">
+	<button class="group no-print on-dark fixed right-4 bottom-4 z-40 grid size-14 place-items-center rounded-full bg-ink text-white shadow-[0_12px_40px_-12px_rgba(0,0,0,.6)] transition-transform hover:-translate-y-0.5 sm:right-6 sm:bottom-6" onclick={() => (open = true)} aria-label="Ask Undercut AI (⌘J)" title="Ask Undercut AI (⌘J)">
 		<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
 		<span class="pointer-events-none absolute right-full mr-3 hidden rounded-full bg-ink px-3 py-1.5 text-xs whitespace-nowrap text-white group-hover:block">Ask Undercut AI · ⌘J</span>
 	</button>
@@ -100,12 +101,12 @@
 	<aside class="no-print fixed inset-0 z-50 flex flex-col bg-paper sm:inset-auto sm:top-3 sm:right-3 sm:bottom-3 sm:w-[420px] sm:rounded-[28px] sm:shadow-[0_30px_80px_-20px_rgba(0,0,0,.45)]" aria-label="Undercut AI">
 		<header class="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
 			<div class="flex items-center gap-2.5">
-				<span class="on-dark grid size-9 place-items-center rounded-full bg-ink text-accent">
+				<span class="on-dark grid size-9 place-items-center rounded-full bg-ink text-white">
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
 				</span>
 				<div>
 					<p class="font-medium leading-tight">Undercut AI</p>
-					<p class="text-xs text-muted">{client ? `Working on ${client.name}` : 'All clients'}</p>
+					<p class="text-xs text-muted">{client ? `Analytics of ${client.name}` : 'Your business'}</p>
 				</div>
 			</div>
 			<button class="icon-btn" onclick={() => (open = false)} aria-label="Close">✕</button>
@@ -115,7 +116,7 @@
 			{#if !messages.length}
 				<div class="pt-6 text-center">
 					<p class="display text-[34px] leading-tight">What do you want<br />to <em>do</em> today?</p>
-					<p class="mt-2 text-sm text-muted">Ask about {client ? client.name : 'your clients'} — or tell me what to fix.</p>
+					<p class="mt-2 text-sm text-muted">{client ? `Ask about ${client.name}, or tell me what to fix.` : 'Ask about your clients, money, invoices, tasks or prospects.'}</p>
 				</div>
 				<div class="flex flex-col gap-2 pt-2">
 					{#each suggestions as s (s)}
@@ -133,10 +134,10 @@
 							<div class="mt-2 flex flex-col gap-1.5">
 								{#each m.actions as a, ai (ai)}
 									{#if m.done?.[ai]}
-										<p class="rounded-full bg-accent-soft px-4 py-2 text-xs text-ink">{m.done[ai]}</p>
+										<p class="rounded-full bg-tile px-4 py-2 text-xs text-ink">{m.done[ai]}</p>
 									{:else}
-										<button class="flex items-center gap-2 rounded-full px-4 py-2 text-left text-sm font-medium {a.type === 'open' || a.type === 'mark_done' ? 'border border-line bg-white hover:border-ink' : 'bg-accent text-accent-ink hover:bg-[#b8e81f]'}" onclick={() => run(mi, ai, a)}>
-											<span>{a.type === 'open' ? '→' : a.type === 'mark_done' ? '✓' : '⚡'}</span>{a.label}
+										<button class="flex items-center gap-2 rounded-full px-4 py-2 text-left text-sm font-medium {a.type === 'open' || a.type === 'mark_done' ? 'border border-line bg-white hover:border-ink' : 'bg-ink text-white hover:bg-ink/85'}" onclick={() => run(mi, ai, a)}>
+											<span>{a.type === 'open' ? '→' : a.type === 'mark_done' ? '✓' : a.type === 'add_task' ? '+' : '⚡'}</span>{a.label}
 										</button>
 									{/if}
 								{/each}
@@ -158,13 +159,13 @@
 					bind:this={field}
 					bind:value={input}
 					rows="1"
-					placeholder={client ? `Ask or tell me what to do for ${client.name}…` : 'Ask anything about your clients…'}
+					placeholder={client ? `Ask or tell me what to do for ${client.name}…` : 'Ask anything about your business…'}
 					class="max-h-32 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
 					onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
 				></textarea>
 				<button class="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-white disabled:opacity-40" disabled={!input.trim() || busy} aria-label="Send">→</button>
 			</div>
-			<p class="mt-1.5 px-2 text-[11px] text-muted">The AI proposes; nothing changes on a site until you click.</p>
+			<p class="mt-1.5 px-2 text-[11px] text-muted">Undercut AI only reads your data and proposes. Nothing changes until you click.</p>
 		</form>
 	</aside>
 {/if}

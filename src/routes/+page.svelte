@@ -103,8 +103,8 @@
 {#snippet urlForm(id: string)}
 	<form method="POST" action="/prospects" class="w-full max-w-xl" onsubmit={() => (going = true)}>
 		<div class="card flex flex-col gap-2 rounded-[22px]! p-1.5 focus-within:shadow-[0_0_0_2px_rgba(13,13,13,.25)] sm:flex-row">
-			<label class="sr-only" for={id}>Your agency’s website or Instagram</label>
-			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.com" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-[15px] text-ink outline-none placeholder:text-muted" />
+			<label class="sr-only" for={id}>Your agency’s website, Instagram, TikTok or LinkedIn</label>
+			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="Your site, Instagram, TikTok or LinkedIn" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-[15px] text-ink outline-none placeholder:text-muted" />
 			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going}><span class="roll" data-t={going ? 'Searching…' : 'Find my 5 clients'}><span>{going ? 'Searching…' : 'Find my 5 clients'}</span></span><span class="transition-transform group-hover:translate-x-0.5">→</span></button>
 		</div>
 	</form>

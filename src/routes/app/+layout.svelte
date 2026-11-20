@@ -2,6 +2,7 @@
 	import { page } from '$app/state';
 	import Logo from '#lib/components/Logo.svelte';
 	import Icon from '#lib/components/Icon.svelte';
+	import Assistant from '#lib/components/Assistant.svelte';
 	let { data, children } = $props();
 
 	let drawer = $state(false); // mobile sidebar
@@ -25,7 +26,8 @@
 		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
 		{ href: '/app/crm', label: 'Clients', icon: 'team' },
 		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
-		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' }
+		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
+		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
 	] as Item[]);
 	const clientNav = $derived.by(() => {
 		if (!current) return [] as { group: string; items: Item[] }[];
@@ -61,7 +63,7 @@
 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
 			return path === hp && (hq === 'mode=app') === appMode;
 		}
-		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects'].includes(hp)) return path === hp || path.startsWith(hp + '/');
+		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics'].includes(hp)) return path === hp || path.startsWith(hp + '/');
 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
 	};
 
@@ -116,6 +118,11 @@
 		{/if}
 
 		<div class="mt-auto flex flex-col gap-2 pt-4">
+			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+				<span class="flex-1 text-left">Ask Undercut AI</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
+			</button>
+
 			<!-- account & settings -->
 			<div class="relative">
 				{#if menu === 'account'}
@@ -152,4 +159,5 @@
 			{@render children()}
 		</div>
 	</main>
+	<Assistant clients={data.clients} />
 </div>

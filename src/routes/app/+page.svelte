@@ -1,5 +1,7 @@
 <script lang="ts">
 	import ArrowLink from '#lib/components/ArrowLink.svelte';
+	import HealthRing from '#lib/components/HealthRing.svelte';
+	import { n } from '#lib/format.ts';
 	import { enhance } from '$app/forms';
 	import { act } from '#lib/act.ts';
 	import AgencySetup from '#lib/components/AgencySetup.svelte';
@@ -12,7 +14,7 @@
 	const clear = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update();
 	let finding = $state(false);
 	let customise = $state(false);
-	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', tasks: 'Tasks', agenda: 'Agenda', clients: 'Clients', money: 'Revenue' };
+	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', tasks: 'Tasks', agenda: 'Agenda', clients: 'Clients', money: 'Revenue', analytics: 'Analytics' };
 	const SPAN: Record<string, string> = { s: 'lg:col-span-4', m: 'lg:col-span-6', l: 'lg:col-span-8', xl: 'lg:col-span-12' };
 	const SIZE_LABEL: Record<string, string> = { s: '⅓', m: '½', l: '⅔', xl: 'Full' };
 	type B = (typeof data.os.order)[number];
@@ -271,6 +273,24 @@
 							<div class="mt-2 h-2 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full bg-ink" style="width:{Math.min(100, (data.stats.wonMonth / data.os.goal.wonPerMonth) * 100)}%"></div></div>
 							<form method="POST" action={act('goal')} use:enhance={keep} class="mt-2 flex items-center gap-2 text-xs text-muted">Goal <input name="won" type="number" min="1" max="100" value={data.os.goal.wonPerMonth} class="input w-16 py-1 text-sm" /> per month <button class="pill text-xs">Save</button></form>
 						</div>
+					</section>
+				{:else if b === 'analytics'}
+					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+						<div class="flex items-center justify-between gap-3"><p class="font-medium">Analytics <span class="text-sm font-normal text-muted">· your clients’ sites and apps</span></p><ArrowLink href="/app/analytics" label="All analytics" /></div>
+						{#if data.analytics.length}
+							<div class="mt-4 grid flex-1 gap-3 sm:grid-cols-3">
+								{#each data.analytics as r (r.client.id)}
+									<a href="/app/clients/{r.client.id}" class="flex flex-col rounded-[20px] bg-tile p-4 hover:bg-[#e6e6e1]">
+										<div class="flex items-center justify-between gap-3"><b class="truncate text-sm font-medium">{r.client.name}</b><HealthRing score={r.health.score} size={40} /></div>
+										{#if r.main && (r.main.value || r.main.prev)}<p class="mt-3 big text-3xl">{n(r.main.value)}</p><p class="text-xs text-muted">{r.main.label}, 28 days</p>{:else}<p class="mt-3 text-sm text-muted">No data yet: connect Google or the snippet.</p>{/if}
+										{#if r.tasks[0]}<p class="mt-auto truncate pt-3 text-xs text-ink-2">→ {r.tasks[0].title}</p>{/if}
+									</a>
+								{/each}
+							</div>
+						{:else}
+							<p class="mt-4 flex-1 text-sm text-muted">Track your clients’ websites and apps: visits, leads, Google, heatmaps, SEO fixes, app users. Real data only, from the tools you connect.</p>
+						{/if}
+						<a href="/app/clients/new" class="pill mt-4 self-start text-sm">+ Track a site or app</a>
 					</section>
 				{/if}
 				</div>

@@ -25,7 +25,7 @@ export const actions = {
 		const raw = String(f.get('url') ?? '').trim();
 		const city = String(f.get('city') ?? '').trim().slice(0, 60);
 		const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
-		if (!raw) return fail(400, { error: 'Paste your agency’s website or Instagram.', url: raw });
+		if (!raw) return fail(400, { error: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.', url: raw });
 		if (!allow(getClientAddress())) return fail(429, { error: `That’s ${PER_DAY} searches today. Create a free account to keep going.`, url: raw, limit: true });
 
 		let profile: AgencyProfile;

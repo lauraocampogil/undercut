@@ -24,7 +24,7 @@ export const agencyActions = {
 				return fail(400, { setupError: 'That doesn’t look like a web address.' });
 			}
 		} else if (current) p = { ...current };
-		else return fail(400, { setupError: 'Paste your agency’s website or Instagram.' });
+		else return fail(400, { setupError: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.' });
 		// what the user typed always wins over what we detected (only when the form sent those fields)
 		if (f.has('city')) p.city = city || p.city;
 		if (f.has('name') && name) p.name = name;

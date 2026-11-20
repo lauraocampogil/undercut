@@ -2,8 +2,9 @@ import { getOS, monthlyQuota, pipelineStats, usedThisMonth } from '#lib/server/a
 import { agencyActions } from '#lib/server/agency-actions.ts';
 import { businessActions } from '#lib/server/business-actions.ts';
 import { agenda, getBiz, money } from '#lib/server/business.ts';
+import { analyticsRows } from '#lib/server/analytics-rows.ts';
 
-export const load = () => {
+export const load = async () => {
 	const os = getOS();
 	const b = getBiz();
 	const stats = pipelineStats(os);
@@ -20,7 +21,9 @@ export const load = () => {
 		clientCount: b.clients.length,
 		clientOptions: b.clients.filter((c) => c.status !== 'ended').map((c) => ({ id: c.id, name: c.name })),
 		money: money(b),
-		currency: b.details.currency
+		currency: b.details.currency,
+		// analytics block: only read the tracked sites when the block is shown
+		analytics: os.blocks.analytics ? (await analyticsRows()).slice(0, 3) : []
 	};
 };
 

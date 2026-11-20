@@ -15,6 +15,7 @@ export type AgencyProfile = {
 	source: 'site' | 'manual' | 'ai';
 	needs?: string; // what could not be detected
 	color?: string; // brand colour found on the site (#rrggbb)
+	platform?: string; // when built from a social profile: Instagram, TikTok, LinkedIn…
 };
 
 export const SERVICE_LABEL: Record<Service, string> = { web: 'Websites', app: 'Mobile apps', social: 'Social media', seo: 'SEO', branding: 'Branding & design', ads: 'Ads' };
@@ -40,6 +41,8 @@ export function isSocialUrl(u: string) {
 
 export function normaliseUrl(input: string) {
 	let s = input.trim();
+	// "@unixstudio" on its own: an Instagram handle
+	if (/^@[\w.]{2,30}$/.test(s)) s = `instagram.com/${s.slice(1)}`;
 	if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
 	const u = new URL(s);
 	if (!u.hostname.includes('.')) throw new Error('invalid');
@@ -111,11 +114,58 @@ async function aiRefine(p: AgencyProfile, text: string): Promise<AgencyProfile |
 	}
 }
 
+const PLATFORM: [RegExp, string][] = [
+	[/instagram\.com/i, 'Instagram'],
+	[/tiktok\.com/i, 'TikTok'],
+	[/linkedin\.com/i, 'LinkedIn'],
+	[/facebook\.com/i, 'Facebook'],
+	[/behance\.net/i, 'Behance'],
+	[/(x|twitter)\.com/i, 'X']
+];
+/** Name from the handle in a social URL: instagram.com/unix.studio → "Unix Studio", linkedin.com/company/acme-agency → "Acme Agency". */
+const handleName = (url: string) => {
+	const parts = new URL(url).pathname.split('/').filter(Boolean).filter((x) => !['company', 'in', 'school', 'showcase', 'pages'].includes(x));
+	const h = (parts[0] ?? '').replace(/^@/, '');
+	return h.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim();
+};
+/** Instagram, TikTok, LinkedIn…: read the public preview (name + bio) that these sites share with link previews. */
+async function fromSocial(url: string, base: AgencyProfile): Promise<AgencyProfile> {
+	const platform = PLATFORM.find(([re]) => re.test(url))?.[1] ?? 'Social';
+	const name = handleName(url) || base.name;
+	let title = '';
+	let bio = '';
+	for (const ua of ['facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Mozilla/5.0 (compatible; UndercutBot/1.0; +https://getundercut.app)']) {
+		try {
+			const r = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'follow', headers: { 'user-agent': ua, 'accept-language': 'en,fr;q=0.8' } });
+			const html = (await r.text()).slice(0, 400_000);
+			const meta = (prop: string) => clean(new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]*content=["']([^"']*)`, 'i').exec(html)?.[1] ?? new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${prop}["']`, 'i').exec(html)?.[1] ?? '');
+			title = meta('og:title') || clean(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '');
+			bio = meta('og:description') || meta('description');
+			if (bio || (title && !/log ?in|sign ?up|instagram$|tiktok$/i.test(title))) break;
+		} catch {
+			/* try the next way */
+		}
+	}
+	// "Unix Studio (@unix.studio) • Instagram photos and videos" → "Unix Studio"
+	const cleanTitle = title.replace(/\s*(\(@|•|·|\|| - | – | on TikTok).*$/i, '').replace(/\s*\|\s*LinkedIn$/i, '').trim();
+	const text = `${title} ${bio}`;
+	const services = (Object.keys(DICT) as Service[]).filter((x) => DICT[x].test(text));
+	if (!services.includes('social') && /Instagram|TikTok/.test(platform)) services.push('social');
+	const city = KNOWN_CITIES.find((c) => new RegExp(`\\b${c}\\b`, 'i').test(text)) ?? [...text.matchAll(BE_CITY)].map((x) => x[2])[0] ?? '';
+	let p: AgencyProfile = { ...base, name: (cleanTitle && cleanTitle.length <= 60 ? cleanTitle : name).slice(0, 60), services: services.length ? services : ['social'], city, summary: bio.slice(0, 200), source: 'site', platform };
+	if (bio) {
+		const ai = await aiRefine(p, `${platform} profile of an agency. ${text}`);
+		if (ai) p = { ...ai, platform };
+	}
+	p.needs = !p.city ? `We read your ${platform} profile. Which city do you look for clients in? Check what you sell too.` : bio ? undefined : `We could only read your ${platform} name. Tell us what you sell and where.`;
+	return p;
+}
+
 export async function profileFromUrl(raw: string): Promise<AgencyProfile> {
 	const url = normaliseUrl(raw);
 	const host = new URL(url).hostname.replace(/^www\./, '');
 	const base: AgencyProfile = { url, name: host.split('.')[0].replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()), services: [], city: '', country: host.endsWith('.be') ? 'BE' : host.endsWith('.fr') ? 'FR' : host.endsWith('.nl') ? 'NL' : host.endsWith('.lu') ? 'LU' : '', lang: 'fr', summary: '', source: 'site' };
-	if (isSocialUrl(url)) return { ...base, source: 'manual', needs: 'Social profiles cannot be read automatically — tell us what you sell and where.' };
+	if (isSocialUrl(url)) return fromSocial(url, base);
 	let html = '';
 	try {
 		const r = await fetch(url, { signal: AbortSignal.timeout(9000), redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (compatible; UndercutBot/1.0; +https://getundercut.app)', 'accept-language': 'fr,nl;q=0.8,en;q=0.6' } });

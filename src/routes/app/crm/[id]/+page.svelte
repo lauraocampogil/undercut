@@ -103,6 +103,16 @@
 			{/if}
 			{#if form?.siteError}<p class="mt-2 text-sm text-bad">{form.siteError}</p>{/if}
 		</div>
+		<div class="mt-auto border-t border-line pt-4">
+			<p class="label">Analytics</p>
+			{#if data.tracked}
+				<p class="mt-1 text-sm text-ink-2">Visits, leads, Google, heatmaps and SEO fixes for this site.</p>
+				<a href="/app/clients/{data.tracked.id}" class="btn btn-primary mt-3 text-sm">Open analytics →</a>
+			{:else}
+				<p class="mt-1 text-sm text-ink-2">Track visits, leads, Google, heatmaps and SEO for {c.name}.</p>
+				<a href="/app/clients/new?name={encodeURIComponent(c.name)}&domain={encodeURIComponent(c.website ?? '')}" class="pill mt-3 text-sm">Track this site or app</a>
+			{/if}
+		</div>
 	</section>
 
 	<!-- tasks -->
