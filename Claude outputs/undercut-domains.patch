@@ -1,0 +1,66 @@
+From 26534ba82130db6da81b2900aa3374de993abc83 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 11:19:50 +0100
+Subject: [PATCH] Two domains behind the proxy: trust forwarded host, www to
+ apex, CSRF trusted origins for marketing forms
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/hooks.server.ts | 13 ++++++++-----
+ vite.config.ts      |  4 +++-
+ 2 files changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/src/hooks.server.ts b/src/hooks.server.ts
+index 6894d26..00c5873 100644
+--- a/src/hooks.server.ts
++++ b/src/hooks.server.ts
+@@ -16,14 +16,17 @@ const hostOf = (u?: string) => {
+ 		return '';
+ 	}
+ };
+-function domainRedirect(url: URL): string | null {
++function domainRedirect(url: URL, reqHost: string): string | null {
+ 	const site = hostOf(env.SITE_URL);
+ 	const app = hostOf(env.PUBLIC_BASE_URL);
+ 	if (!site || !app || site === app) return null;
++	// behind a proxy with ORIGIN set, url.host is always the app host: trust the forwarded host instead
++	const host = reqHost || url.host;
+ 	const path = url.pathname + url.search;
+-	if (url.host === site && !MARKETING.test(url.pathname) && !url.pathname.startsWith('/_app/') && !/\.[a-z0-9]+$/i.test(url.pathname)) return `${env.PUBLIC_BASE_URL!.replace(/\/$/, '')}${path}`;
+-	if (url.host === app && url.pathname === '/') return '/app';
+-	if (url.host === app && /^\/(prospects|privacy|terms|dpa)(\/|$)/.test(url.pathname)) return `${env.SITE_URL!.replace(/\/$/, '')}${path}`;
++	if (host === `www.${site}`) return `${env.SITE_URL!.replace(/\/$/, '')}${path}`;
++	if (host === site && !MARKETING.test(url.pathname) && !url.pathname.startsWith('/_app/') && !/\.[a-z0-9]+$/i.test(url.pathname)) return `${env.PUBLIC_BASE_URL!.replace(/\/$/, '')}${path}`;
++	if (host === app && url.pathname === '/') return '/app';
++	if (host === app && /^\/(prospects|privacy|terms|dpa)(\/|$)/.test(url.pathname)) return `${env.SITE_URL!.replace(/\/$/, '')}${path}`;
+ 	return null;
+ }
+ 
+@@ -46,7 +49,7 @@ function guard(event: Parameters<Handle>[0]['event'], user: User | null) {
+ 
+ export const handle: Handle = async ({ event, resolve }) => {
+ 	startScheduler(event.url.origin);
+-	const to = event.request.method === 'GET' ? domainRedirect(event.url) : null;
++	const to = event.request.method === 'GET' ? domainRedirect(event.url, (event.request.headers.get('x-forwarded-host') ?? event.request.headers.get('host') ?? '').split(',')[0].trim()) : null;
+ 	if (to) redirect(308, to);
+ 
+ 	// ---- multi-agency mode (Supabase): the session says which workspace this request runs in ----
+diff --git a/vite.config.ts b/vite.config.ts
+index 0fffd9f..f4e375a 100644
+--- a/vite.config.ts
++++ b/vite.config.ts
+@@ -14,7 +14,9 @@ export default defineConfig({
+ 			},
+ 
+ 			// Node server: runs anywhere with a disk (Coolify / Docker / any VPS). Data lives in ./.data (mount a volume).
+-			adapter: adapter()
++			adapter: adapter(),
++			// forms on the marketing domain (beta, free tool) post to the same app
++			csrf: { trustedOrigins: ['https://getundercut.app', 'https://www.getundercut.app'] }
+ 		})
+ 	]
+ });
+-- 
+2.43.0
+

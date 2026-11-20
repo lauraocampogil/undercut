@@ -14,7 +14,9 @@ export default defineConfig({
 			},
 
 			// Node server: runs anywhere with a disk (Coolify / Docker / any VPS). Data lives in ./.data (mount a volume).
-			adapter: adapter()
+			adapter: adapter(),
+			// forms on the marketing domain (beta, free tool) post to the same app
+			csrf: { trustedOrigins: ['https://getundercut.app', 'https://www.getundercut.app'] }
 		})
 	]
 });

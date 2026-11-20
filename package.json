@@ -35,6 +35,7 @@
 		"fast-xml-parser": "^5.12.0",
 		"lighthouse": "^13.6.0",
 		"node-html-parser": "^9.0.7",
-		"puppeteer-core": "^25.17.0"
+		"puppeteer-core": "^25.17.0",
+		"simple-icons": "^16.38.0"
 	}
 }

@@ -5,6 +5,14 @@
 	type Profile = { url: string; name: string; services: string[]; city: string; needs?: string } | null;
 	let { profile, error = '', dark = true, onsaved }: { profile: Profile; error?: string; dark?: boolean; onsaved?: () => void } = $props();
 	let busy = $state(false);
+	const steps = ['Reading your website…', 'Understanding what you sell…', 'Finding your city and language…', 'Choosing the blocks you need…', 'Building your dashboard…'];
+	let si = $state(0);
+	$effect(() => {
+		if (!busy) return;
+		si = 0;
+		const t = setInterval(() => (si = Math.min(steps.length - 1, si + 1)), 1100);
+		return () => clearInterval(t);
+	});
 	const SERVICES = [
 		['web', 'Websites'],
 		['app', 'Apps'],
@@ -50,7 +58,7 @@
 		{#if profile.needs}<p class="text-sm {dark ? 'text-accent' : 'text-warn'}">{profile.needs}</p>{/if}
 	{/if}
 	<div class="flex items-center gap-3">
-		<button class="btn btn-accent" disabled={busy}>{busy ? 'Reading your site…' : profile ? 'Save' : 'Build my dashboard →'}</button>
+		<button class="btn btn-accent" disabled={busy}>{busy ? steps[si] : profile ? 'Save' : 'Build my dashboard →'}</button>
 		{#if error}<p class="text-sm text-bad">{error}</p>{/if}
 	</div>
 </form>

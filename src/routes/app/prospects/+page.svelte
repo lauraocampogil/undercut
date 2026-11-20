@@ -120,5 +120,5 @@
 			<p class="card p-6 text-sm text-muted">{tab === 'new' ? 'Nobody to contact right now — find 5 new prospects above.' : 'Nobody here yet.'}</p>
 		{/each}
 	</section>
-	<p class="mt-6 text-xs text-muted">Business data © <a href="https://www.openstreetmap.org/copyright" class="underline" target="_blank" rel="noopener">OpenStreetMap contributors</a>. Websites checked live by Undercut. You review and send every message yourself.</p>
+	<p class="mt-6 text-xs text-muted">Business data © <a href="https://www.openstreetmap.org/copyright" class="underline" target="_blank" rel="noopener">OpenStreetMap contributors</a>, via <a href="https://www.geoapify.com/" class="underline" target="_blank" rel="noopener">Geoapify</a>. Websites checked live by Undercut. You review and send every message yourself.</p>
 {/if}

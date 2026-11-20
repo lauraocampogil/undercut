@@ -1,0 +1,79 @@
+From 82999986dbe3da9fdfafccfe0901a56b5e4999b4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 11:33:45 +0100
+Subject: [PATCH] =?UTF-8?q?Dashboard=20build=20merges=20agency=20types=20(?=
+ =?UTF-8?q?web=20+=20social=20+=20apps=E2=80=A6)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/server/agency-os.ts | 44 ++++++++++++++++++++++---------------
+ 1 file changed, 26 insertions(+), 18 deletions(-)
+
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index 55905d2..e45ae57 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -86,30 +86,38 @@ export function removeItem(id: string) {
+ 	saveOS(s);
+ }
+ 
+-/** The dashboard Undercut builds from what it read on the agency's site. */
++/** The dashboard Undercut builds from what it read on the agency's site.
++ *  Agencies often do several things (web + social, web + apps…): the blocks of each are merged. */
+ export function layoutFor(p: AgencyProfile) {
+ 	const has = (x: string) => p.services.includes(x as never);
+-	const social = has('social') && !has('web') && !has('seo');
+-	const app = has('app') && !has('web');
+-	const kind = social ? 'Social media & communication agency' : app ? 'App studio' : has('branding') && !has('web') ? 'Branding studio' : 'Web agency';
+-	let order: BlockId[];
+-	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;
++	const web = has('web') || has('seo') || has('ads');
++	const social = has('social');
++	const app = has('app');
++	const brand = has('branding');
++	const parts = [web && 'Web', social && 'Social media', app && 'Apps', brand && !web && 'Branding'].filter(Boolean) as string[];
++	const kind = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} & ${parts.at(-1)} agency` : parts[0] === 'Apps' ? 'App studio' : `${parts[0] ?? 'Web'} agency`;
++
++	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, false])) as Record<BlockId, boolean>;
+ 	const sizes: Partial<Record<BlockId, Size>> = { ...DEFAULT_SIZE };
+ 	const why: string[] = [];
++	// everyone: prospects, pipeline, this week, agenda, clients, goal
++	for (const b of ['prospects', 'pipeline', 'todo', 'calendar', 'clients', 'goals'] as BlockId[]) blocks[b] = true;
++	const looks = [web && 'a weak website', social && 'weak Instagram / TikTok', app && 'no app or online booking'].filter(Boolean).join(', ');
++	why.push(`Prospects nearby with ${looks || 'a weak online presence'}`, 'Pipeline and agenda');
++	if (web || brand) {
++		blocks.site = true;
++		why.push('Your clients’ sites: leads, Google, one-click fixes', 'Your own site’s health');
++	}
++	if (app) why.push('Your clients’ apps: users, crashes, reviews');
+ 	if (social) {
+-		order = ['prospects', 'content', 'pipeline', 'todo', 'clients', 'calendar', 'goals', 'site'];
+-		sizes.content = 's';
+-		blocks.site = false;
+-		why.push('Prospects with weak Instagram / TikTok', 'What to post this week', 'Pipeline and agenda', 'Your clients’ results');
+-	} else if (app) {
+-		order = ['clients', 'prospects', 'pipeline', 'todo', 'calendar', 'goals', 'site', 'content'];
+-		blocks.content = false;
+-		why.push('Your clients’ apps first: users, crashes, reviews', 'Businesses without an app or online booking', 'Pipeline and agenda');
+-	} else {
+-		order = ['prospects', 'pipeline', 'todo', 'calendar', 'clients', 'site', 'goals', 'content'];
+-		blocks.content = false;
+-		why.push('Businesses whose website needs you', 'Pipeline and agenda', 'Your clients’ sites: leads, Google, fixes', 'Your own site’s health');
++		blocks.content = true;
++		why.push('What to post this week');
+ 	}
++	// order: what matters most for this mix comes first
++	let order: BlockId[];
++	if (app && !web && !social) order = ['clients', 'prospects', 'pipeline', 'todo', 'calendar', 'goals', 'site', 'content'];
++	else if (social && !web) order = ['prospects', 'content', 'pipeline', 'todo', 'clients', 'calendar', 'goals', 'site'];
++	else order = ['prospects', 'pipeline', 'todo', 'calendar', 'clients', 'content', 'site', 'goals'];
+ 	return { kind, order, blocks, sizes, why };
+ }
+ 
+-- 
+2.43.0
+

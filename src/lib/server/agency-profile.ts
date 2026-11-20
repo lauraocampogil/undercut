@@ -149,7 +149,7 @@ export async function profileFromUrl(raw: string): Promise<AgencyProfile> {
 		name,
 		services: services.length ? services : ['web'],
 		city,
-		country: country || 'BE',
+		country: country || '',
 		lang: lang === 'nl' ? 'nl' : lang === 'en' ? 'en' : 'fr',
 		summary: (desc || headings.split(' · ')[0] || '').slice(0, 200)
 	};

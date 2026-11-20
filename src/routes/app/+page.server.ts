@@ -52,7 +52,7 @@ export const load = async () => {
 
 	return {
 		rows,
-		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
+		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, built: os.built && !os.built.seen ? os.built : null, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
 		stats: { ...stats, due: stats.due.slice(0, 6) },
 		quota: monthlyQuota(),
 		used: usedThisMonth(os),

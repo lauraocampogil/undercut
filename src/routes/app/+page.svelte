@@ -113,6 +113,28 @@
 		</div>
 	</section>
 
+	{#if data.os.built}
+		{@const p = data.os.profile}
+		<section class="card-dark relative mt-6 overflow-hidden p-6 sm:p-8">
+			<p class="text-sm text-white/60">✦ Built from {p.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</p>
+			<h2 class="mt-2 text-[28px] leading-tight font-medium tracking-[-0.03em] sm:text-[34px]">We built this dashboard for {p.name}.</h2>
+			<div class="mt-5 flex flex-wrap gap-2 text-sm">
+				{#each [data.os.built.kind, p.city, p.services.map((x) => ({ web: 'Websites', app: 'Apps', social: 'Social media', seo: 'SEO', branding: 'Branding', ads: 'Ads' })[x] ?? x).join(', '), { fr: 'Français', nl: 'Nederlands', en: 'English' }[p.lang]].filter(Boolean) as t, i (i)}
+					<span class="rounded-full bg-white/10 px-3 py-1.5 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{i * 120}ms">{t}</span>
+				{/each}
+				{#if data.accent}<span class="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5"><span class="size-3 rounded-full" style="background:{data.accent}"></span>Your colour</span>{/if}
+			</div>
+			<ul class="mt-5 grid gap-1.5 text-sm text-white/75 sm:grid-cols-2">
+				{#each data.os.built.why as w, i (w)}<li class="flex items-center gap-2 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{500 + i * 120}ms"><span class="text-white">✓</span>{w}</li>{/each}
+			</ul>
+			<div class="mt-6 flex flex-wrap items-center gap-3">
+				<form method="POST" action={act('built')} use:enhance={keep}><button class="btn bg-white text-ink hover:bg-white/90">Looks good</button></form>
+				<button type="button" class="btn btn-ghost border-white/20 text-white" onclick={() => (customise = true)}>Change it</button>
+				<span class="text-xs text-white/50">Or type below: “clients first”, “hide agenda”…</span>
+			</div>
+		</section>
+	{/if}
+
 	<!-- ask to change: plain-language edits to the dashboard -->
 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
 		<span class="hidden pl-3 text-muted sm:block">✦</span>

@@ -1,0 +1,120 @@
+From 15f132e58f4e60092436cc1b5454eddf7ba08c73 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 11:35:09 +0100
+Subject: [PATCH] Buttons: label rolls up on hover instead of the whole button
+ moving; remove the hero build demo
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/routes/+page.svelte | 26 +++-----------------------
+ src/routes/layout.css   | 31 +++++++++++++++++++++++++++++++
+ 2 files changed, 34 insertions(+), 23 deletions(-)
+
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index d5dcfa5..0d92701 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -6,7 +6,7 @@
+ 	import DotGlobe from '#lib/components/DotGlobe.svelte';
+ 	import CutText from '#lib/components/CutText.svelte';
+ 	import ToolWall from '#lib/components/ToolWall.svelte';
+-	import { reveal, inview, pointer, scrub, countUp, spotlight, magnetic, nightZone } from '#lib/motion.ts';
++	import { reveal, inview, pointer, scrub, countUp, spotlight, nightZone } from '#lib/motion.ts';
+ 	import { PLANS } from '#lib/plans.ts';
+ 	import { themeStyle } from '#lib/theme.ts';
+ 
+@@ -60,17 +60,6 @@
+ 			return w;
+ 		});
+ 	})();
+-	// hero demo: what Undercut builds from a URL
+-	const build = ['youragency.com', 'Web agency · Lyon', 'Your dashboard', 'Prospects', 'Pipeline', 'Clients', 'Reports'];
+-	let buildStep = $state(0);
+-	$effect(() => {
+-		if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+-			buildStep = build.length - 1;
+-			return;
+-		}
+-		const t = setInterval(() => (buildStep = buildStep >= build.length + 2 ? 0 : buildStep + 1), 650);
+-		return () => clearInterval(t);
+-	});
+ 	const jobs = [
+ 		{ k: 'Prospects', t: 'Finds you clients', d: 'Every week, local businesses that need what you sell — no website, a slow site, no Instagram — with the first message written. You send it yourself.' },
+ 		{ k: 'Pipeline', t: 'Keeps you on track', d: 'Who you contacted, who answered, who signed, and when to call back. A simple CRM and agenda, already set up.' },
+@@ -116,7 +105,7 @@
+ 		<div class="card flex flex-col gap-2 rounded-[22px]! p-1.5 focus-within:shadow-[0_0_0_2px_rgba(13,13,13,.25)] sm:flex-row">
+ 			<label class="sr-only" for={id}>Your agency’s website or Instagram</label>
+ 			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.com" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-[15px] text-ink outline-none placeholder:text-muted" />
+-			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going} use:magnetic={0.15}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-0.5">→</span></button>
++			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going}><span class="roll" data-t={going ? 'Searching…' : 'Find my 5 clients'}><span>{going ? 'Searching…' : 'Find my 5 clients'}</span></span><span class="transition-transform group-hover:translate-x-0.5">→</span></button>
+ 		</div>
+ 	</form>
+ {/snippet}
+@@ -248,7 +237,7 @@
+ 			</nav>
+ 			<div class="flex items-center gap-1">
+ 				<a href="/login" class="dock-link hidden rounded-full px-4 py-2.5 text-[15px] text-ink-2 hover:text-ink sm:block">Log in</a>
+-				<a href="/prospects" class="group hidden items-center gap-3 rounded-[16px] bg-ink py-2 pr-2 pl-5 text-[15px] font-medium text-white sm:flex" use:magnetic={0.12}>Find my clients<span class="grid size-8 place-items-center rounded-[11px] bg-white/15 transition-transform duration-300 group-hover:translate-x-0.5">→</span></a>
++				<a href="/prospects" class="group hidden items-center gap-3 rounded-[16px] bg-ink py-2 pr-2 pl-5 text-[15px] font-medium text-white sm:flex"><span class="roll" data-t="Find my clients"><span>Find my clients</span></span><span class="grid size-8 place-items-center rounded-[11px] bg-white/15 transition-transform duration-300 group-hover:translate-x-0.5">→</span></a>
+ 				<button class="grid size-11 place-items-center rounded-[14px] lg:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>
+ 					<span class="relative block h-3 w-4"><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 rotate-45' : 'top-0'}"></span><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 -rotate-45' : 'top-3'}"></span></span>
+ 				</button>
+@@ -281,15 +270,6 @@
+ 				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut reads your website and builds the dashboard your agency needs — businesses nearby that need what you sell, your pipeline, and how your clients’ sites and apps are doing. Then shape it by typing or dragging.</p>
+ 				<div class="mt-10" use:reveal={{ delay: 1250 }}>
+ 					{@render urlForm('hero-url')}
+-					<!-- what happens when you paste your URL -->
+-					<div class="mt-5 flex min-h-8 flex-wrap items-center gap-1.5 text-[13px]" aria-label="Example: youragency.com becomes a web agency dashboard with prospects, pipeline, clients and reports">
+-						{#each build.slice(0, buildStep + 1) as b, i (i)}
+-							<span class="flex items-center gap-1.5 [animation:fade-up_.4s_var(--ease-out)_both]">
+-								{#if i}<span class="text-muted">{i === 1 || i === 2 ? '→' : '+'}</span>{/if}
+-								<span class="rounded-full px-3 py-1 {i === 0 ? 'bg-black/[.05] text-ink-2' : i < 3 ? 'bg-ink text-white' : 'glass-btn'}">{b}</span>
+-							</span>
+-						{/each}
+-					</div>
+ 					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free preview: your first 5 prospects · no account</p>
+ 				</div>
+ 			</div>
+diff --git a/src/routes/layout.css b/src/routes/layout.css
+index eb01c34..0fdea40 100644
+--- a/src/routes/layout.css
++++ b/src/routes/layout.css
+@@ -644,3 +644,34 @@ html {
+ .night .dock a.bg-ink span {
+ 	background: rgb(0 0 0 / 0.08);
+ }
++
++/* button hover: the label rolls up and the same label comes in from below (the button itself stays still) */
++.roll {
++	position: relative;
++	display: inline-block;
++	overflow: hidden;
++	vertical-align: top;
++	line-height: 1.25;
++}
++.roll > span {
++	display: inline-block;
++	transition: transform 0.45s cubic-bezier(0.2, 0.75, 0.15, 1);
++}
++.roll::after {
++	content: attr(data-t);
++	position: absolute;
++	left: 0;
++	top: 100%;
++	white-space: nowrap;
++	transition: transform 0.45s cubic-bezier(0.2, 0.75, 0.15, 1);
++}
++:is(a, button):hover .roll > span,
++:is(a, button):hover .roll::after {
++	transform: translateY(-100%);
++}
++@media (prefers-reduced-motion: reduce) {
++	.roll > span,
++	.roll::after {
++		transition: none;
++	}
++}
+-- 
+2.43.0
+

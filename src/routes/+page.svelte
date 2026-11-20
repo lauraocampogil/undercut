@@ -5,7 +5,8 @@
 	import SplitChars from '#lib/components/SplitChars.svelte';
 	import DotGlobe from '#lib/components/DotGlobe.svelte';
 	import CutText from '#lib/components/CutText.svelte';
-	import { reveal, inview, pointer, scrub, countUp, spotlight, magnetic, nightZone } from '#lib/motion.ts';
+	import ToolWall from '#lib/components/ToolWall.svelte';
+	import { reveal, inview, pointer, scrub, countUp, spotlight, nightZone } from '#lib/motion.ts';
 	import { PLANS } from '#lib/plans.ts';
 	import { themeStyle } from '#lib/theme.ts';
 
@@ -14,16 +15,6 @@
 	let y = $state(0);
 	let going = $state(false);
 
-	// the dock hides while you scroll down and comes back when you scroll up
-	let hide = $state(false);
-	let lastY = 0;
-	$effect(() => {
-		const d = y - lastY;
-		if (Math.abs(d) > 6) {
-			hide = d > 0 && y > 200 && !menu;
-			lastY = y;
-		}
-	});
 	// lock the page behind the mobile menu
 	$effect(() => {
 		document.documentElement.style.overflow = menu ? 'hidden' : '';
@@ -69,6 +60,11 @@
 			return w;
 		});
 	})();
+	const jobs = [
+		{ k: 'Prospects', t: 'Finds you clients', d: 'Every week, local businesses that need what you sell — no website, a slow site, no Instagram — with the first message written. You send it yourself.' },
+		{ k: 'Pipeline', t: 'Keeps you on track', d: 'Who you contacted, who answered, who signed, and when to call back. A simple CRM and agenda, already set up.' },
+		{ k: 'Clients', t: 'Helps you keep them', d: 'Their website or app at a glance: leads, Google, speed, crashes. Fix issues in one click and send a Monday report with your logo.' }
+	];
 	const faqs = [
 		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
 		{ q: 'Do you send the messages for me?', a: 'No, on purpose. Undercut writes the first message from what it found; you read it, change it and send it yourself. No spam, no burnt domain.' },
@@ -109,7 +105,7 @@
 		<div class="card flex flex-col gap-2 rounded-[22px]! p-1.5 focus-within:shadow-[0_0_0_2px_rgba(13,13,13,.25)] sm:flex-row">
 			<label class="sr-only" for={id}>Your agency’s website or Instagram</label>
 			<input {id} name="url" required inputmode="url" autocomplete="url" placeholder="youragency.com" class="min-w-0 flex-1 bg-transparent px-4 py-3 text-[15px] text-ink outline-none placeholder:text-muted" />
-			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going} use:magnetic={0.15}>{going ? 'Searching…' : 'Find my 5 clients'}<span class="transition-transform group-hover:translate-x-0.5">→</span></button>
+			<button class="btn btn-primary group justify-center px-5 py-3 text-[15px]" disabled={going}><span class="roll" data-t={going ? 'Searching…' : 'Find my 5 clients'}><span>{going ? 'Searching…' : 'Find my 5 clients'}</span></span><span class="transition-transform group-hover:translate-x-0.5">→</span></button>
 		</div>
 	</form>
 {/snippet}
@@ -231,25 +227,25 @@
 		<div class="absolute inset-y-0 left-1/2 border-l border-dashed border-black/[.04]"></div>
 	</div>
 
-	<!-- ================= NAV: a floating glass dock ================= -->
-	<header class="fixed inset-x-0 top-4 z-50 flex justify-center px-3 transition-transform duration-500 ease-[cubic-bezier(.2,.75,.15,1)] {hide ? '-translate-y-28' : ''}">
-		<div class="dock flex items-center gap-1 rounded-full p-1.5">
-			<a href="/" aria-label="Undercut home" class="grid size-10 place-items-center rounded-full transition-transform hover:rotate-[-8deg]"><Logo size={30} wordmark={false} /></a>
-			<span class="mx-1 hidden h-5 w-px bg-current opacity-15 md:block"></span>
-			<nav class="relative hidden items-center md:flex" onpointerleave={() => (ind = { ...ind, on: false })}>
-				<span class="dock-ind absolute inset-y-0 rounded-full bg-black/[.06] transition-all duration-300 ease-[cubic-bezier(.2,.75,.15,1)]" style="left:{ind.x}px;width:{ind.w}px;opacity:{ind.on ? 1 : 0}" aria-hidden="true"></span>
-				{#each nav as [h, l] (h)}<a href={h} onpointerenter={over} class="dock-link relative rounded-full px-4 py-2.5 text-[13px] text-ink-2">{l}</a>{/each}
+	<!-- ================= NAV: a wide glass bar ================= -->
+	<header class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4">
+		<div class="dock mx-auto flex max-w-[1200px] items-center justify-between gap-4 rounded-[22px] py-2 pr-2 pl-5 transition-all duration-500 {y > 40 ? 'shadow-[0_14px_40px_-18px_rgba(0,0,0,.35)]' : ''}">
+			<a href="/" aria-label="Undercut home" class="shrink-0"><Logo size={28} /></a>
+			<nav class="relative hidden items-center lg:flex" onpointerleave={() => (ind = { ...ind, on: false })}>
+				<span class="dock-ind absolute inset-y-0 rounded-full bg-black/[.05] transition-all duration-300 ease-[cubic-bezier(.2,.75,.15,1)]" style="left:{ind.x}px;width:{ind.w}px;opacity:{ind.on ? 1 : 0}" aria-hidden="true"></span>
+				{#each nav as [h, l] (h)}<a href={h} onpointerenter={over} class="dock-link relative rounded-full px-4 py-2.5 text-[15px] text-ink-2 transition-colors hover:text-ink">{l}</a>{/each}
 			</nav>
-			<span class="mx-1 hidden h-5 w-px bg-current opacity-15 md:block"></span>
-			<a href="/login" class="dock-link hidden rounded-full px-3 py-2.5 text-[13px] text-ink-2 sm:block">Log in</a>
-			<a href="/beta" class="group flex items-center gap-2 rounded-full bg-ink py-1.5 pr-1.5 pl-4 text-sm font-medium text-white" use:magnetic={0.2}>Start free<span class="grid size-7 place-items-center rounded-full bg-white text-ink transition-transform duration-300 group-hover:rotate-[-45deg]">→</span></a>
-			<button class="grid size-10 place-items-center rounded-full md:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>
-				<span class="relative block h-3 w-4"><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 rotate-45' : 'top-0'}"></span><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 -rotate-45' : 'top-3'}"></span></span>
-			</button>
+			<div class="flex items-center gap-1">
+				<a href="/login" class="dock-link hidden rounded-full px-4 py-2.5 text-[15px] text-ink-2 hover:text-ink sm:block">Log in</a>
+				<a href="/prospects" class="group hidden items-center gap-3 rounded-[16px] bg-ink py-2 pr-2 pl-5 text-[15px] font-medium text-white sm:flex"><span class="roll" data-t="Find my clients"><span>Find my clients</span></span><span class="grid size-8 place-items-center rounded-[11px] bg-white/15 transition-transform duration-300 group-hover:translate-x-0.5">→</span></a>
+				<button class="grid size-11 place-items-center rounded-[14px] lg:hidden" onclick={() => (menu = !menu)} aria-label="Menu" aria-expanded={menu}>
+					<span class="relative block h-3 w-4"><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 rotate-45' : 'top-0'}"></span><span class="absolute left-0 h-px w-4 bg-current transition-all duration-300 {menu ? 'top-1.5 -rotate-45' : 'top-3'}"></span></span>
+				</button>
+			</div>
 		</div>
 	</header>
 	{#if menu}
-		<div class="fixed inset-0 z-40 flex flex-col justify-end bg-paper/90 p-6 pb-10 backdrop-blur-2xl md:hidden" transition:slide={{ duration: 350 }}>
+		<div class="fixed inset-0 z-40 flex flex-col justify-end bg-paper/90 p-6 pb-10 backdrop-blur-2xl lg:hidden" transition:slide={{ duration: 350 }}>
 			<nav class="grid gap-2">
 				{#each [...nav, ['/login', 'Log in']] as [h, l], i (h)}
 					<a href={h} class="flex items-baseline gap-4 border-b border-black/[.08] py-3 text-[40px] leading-none font-medium tracking-[-0.04em] [animation:fade-up_.6s_var(--ease-out)_both]" style="animation-delay:{i * 60}ms" onclick={() => (menu = false)}><span class="text-xs text-muted">0{i + 1}</span>{l}</a>
@@ -266,15 +262,15 @@
 		</div>
 		<div class="mt-10 grid flex-1 items-center gap-10 lg:mt-6 lg:grid-cols-[1.15fr_1fr]">
 			<div class="relative z-10">
-				<h1 class="text-[clamp(40px,5.4vw,80px)] leading-[1.04] font-medium tracking-[-0.04em]">
-					<SplitChars as="span" class="block" text="Find your next" delay={150} />
-					<span class="block" use:reveal={{ delay: 550 }}><CutText words={["clients.", "projects.", "leads."]} shift={0.035} /></span>
-					<SplitChars as="span" class="block font-serif font-normal tracking-[-0.02em] text-ink/40 italic" text="Keep them." delay={800} step={40} />
+				<h1 class="text-[clamp(38px,4.7vw,72px)] leading-[1.05] font-medium tracking-[-0.04em]">
+					<SplitChars as="span" class="block text-ink/40" text="Paste your URL." delay={150} step={30} />
+					<SplitChars as="span" class="block" text="Get your agency’s" delay={500} />
+					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['dashboard.', 'clients.', 'pipeline.', 'reports.']} shift={0.035} /></span>
 				</h1>
-				<p class="mt-12 max-w-[30rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1000 }}>Paste your agency’s URL. Your dashboard builds itself — businesses near you that need what you sell, a simple pipeline, and your clients’ sites and apps.</p>
-				<div class="mt-10" use:reveal={{ delay: 1150 }}>
+				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut reads your website and builds the dashboard your agency needs — businesses nearby that need what you sell, your pipeline, and how your clients’ sites and apps are doing. Then shape it by typing or dragging.</p>
+				<div class="mt-10" use:reveal={{ delay: 1250 }}>
 					{@render urlForm('hero-url')}
-					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free · no account · ~30 seconds</p>
+					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free preview: your first 5 prospects · no account</p>
 				</div>
 			</div>
 			<div class="relative mx-auto w-full max-w-[600px]" use:reveal={{ delay: 400 }} style="transform:translate(calc(var(--mx,0) * -12px), calc(var(--my,0) * -10px))">
@@ -293,6 +289,16 @@
 			<line x1="-5" y1="78" x2="105" y2="44" stroke="rgb(13 13 13 / .14)" stroke-width="1" vector-effect="non-scaling-stroke" pathLength="1" class="cut-line" />
 		</svg>
 		<div class="h-16"></div>
+	</section>
+
+	<!-- ================= TOOLS ================= -->
+	<section class="relative mx-auto max-w-[1280px] px-5 py-24 sm:px-10 sm:py-36">
+		<div class="text-center">
+			<p class="tag" use:reveal>Plugs into your tools</p>
+			<SplitText text={'Keep your tools.\n*Undercut brings them together.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+			<p class="mx-auto mt-6 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 150 }}>Connect once. Your numbers, leads and clients land in one dashboard that understands your agency.</p>
+		</div>
+		<div class="mt-16"><ToolWall /></div>
 	</section>
 
 	<!-- ================= LIVE SCAN STRIP ================= -->
@@ -317,10 +323,50 @@
 			</div>
 		</section>
 
-		<!-- giant words that slide sideways with the scroll -->
-		<section class="relative overflow-hidden py-16 sm:py-24" use:scrub={{ start: 1, end: 0 }} aria-hidden="true">
-			<p class="text-[clamp(64px,13vw,190px)] leading-[0.9] font-medium tracking-[-0.06em] whitespace-nowrap" style="transform:translateX(calc(10% - var(--p,0) * 60%))">Find clients <span class="font-serif font-normal italic opacity-50">—</span> Sign them <span class="font-serif font-normal italic opacity-50">—</span> <CutText text="Keep them" shift={0.1} /></p>
-			<p class="mt-2 text-[clamp(28px,5vw,72px)] leading-none tracking-[-0.04em] whitespace-nowrap opacity-40" style="transform:translateX(calc(-50% + var(--p,0) * 45%))">[ prospects ] [ pipeline ] [ clients ] [ fixes ] [ reports ] [ prospects ] [ pipeline ]</p>
+		<!-- what Undercut does, in three jobs -->
+		<section class="relative mx-auto max-w-[1280px] px-5 pt-10 pb-20 sm:px-10">
+			<div class="flex flex-wrap items-end justify-between gap-8">
+				<div>
+					<p class="tag zone-muted">What your dashboard does</p>
+					<h2 class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" use:reveal>One dashboard.<br /><span class="zone-muted">Three jobs.</span></h2>
+				</div>
+				<p class="zone-muted max-w-sm leading-[1.75]" use:reveal={{ delay: 150 }}>Everything a small agency does to grow, in one place — built from your website, in your language.</p>
+			</div>
+			<ol class="mt-16 grid gap-3 lg:grid-cols-3" use:reveal>
+				{#each jobs as j, i (j.t)}
+					<li class="job group flex min-h-[420px] flex-col rounded-[28px] p-7 sm:p-8" data-stagger use:inview use:spotlight>
+						<div class="flex items-center justify-between">
+							<span class="text-sm font-medium opacity-50">0{i + 1}</span>
+							<span class="rounded-full border border-current/15 px-3 py-1 text-xs opacity-70">{j.k}</span>
+						</div>
+						<div class="mt-8 rounded-[20px] bg-white/[.06] p-4">
+							{#if i === 0}
+								{#each [[92, 'Lumen Hair Studio', 'not mobile · no https'], [78, 'Corner Bakery', 'no website']] as [sc, nm, w], k (nm)}
+									<div class="flex items-center gap-3 py-1.5 opacity-0 transition-all duration-500 group-[.in]:opacity-100" style="transition-delay:{400 + k * 200}ms">
+										<span class="grid size-8 shrink-0 place-items-center rounded-full bg-white text-[11px] font-semibold text-ink">{sc}</span>
+										<span class="min-w-0"><b class="block truncate text-sm font-medium">{nm}</b><span class="block truncate text-xs opacity-50">{w}</span></span>
+										<span class="ml-auto rounded-full bg-white/10 px-2.5 py-1 text-[11px]">Write</span>
+									</div>
+								{/each}
+							{:else if i === 1}
+								<div class="grid grid-cols-4 gap-1.5 text-center">
+									{#each [['To contact', 12], ['Contacted', 7], ['Talking', 4], ['Won', 2]] as [l, n], k (l)}
+										<div class="rounded-[12px] py-3 transition-colors duration-500 {k === 3 ? 'group-[.in]:bg-white group-[.in]:text-ink' : 'bg-white/[.06]'}" style="transition-delay:{600 + k * 120}ms"><p class="text-xl leading-none font-medium">{n}</p><p class="mt-1 text-[10px] opacity-60">{l}</p></div>
+									{/each}
+								</div>
+								<p class="mt-3 flex items-center gap-2 text-xs opacity-70"><span class="size-1.5 rounded-full bg-white"></span>Follow up with Harper Law · today</p>
+							{:else}
+								<div class="flex items-center gap-4">
+									<svg viewBox="0 0 36 36" class="size-16 -rotate-90"><circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="3" /><circle cx="18" cy="18" r="15" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" class="transition-[stroke-dashoffset] delay-500 duration-[1400ms] ease-out group-[.in]:[stroke-dashoffset:18]" /></svg>
+									<div><p class="text-2xl leading-none font-medium">46 leads</p><p class="mt-1 text-xs opacity-60">Motion Physio · ↑ 24% · 1 fix ready</p></div>
+								</div>
+							{/if}
+						</div>
+						<h3 class="mt-auto pt-10 text-[26px] leading-tight font-medium tracking-[-0.03em]">{j.t}</h3>
+						<p class="mt-3 text-[15px] leading-[1.7] opacity-65">{j.d}</p>
+					</li>
+				{/each}
+			</ol>
 		</section>
 
 		<section class="relative mx-auto max-w-[1280px] px-5 pt-8 pb-40 sm:px-10">
@@ -364,8 +410,8 @@
 	<section id="how" class="relative mx-auto grid max-w-[1280px] scroll-mt-24 gap-16 px-5 py-24 sm:px-10 sm:py-40 lg:grid-cols-[1fr_1.2fr]">
 		<div class="lg:sticky lg:top-32 lg:self-start">
 			<p class="tag" use:reveal>How it works</p>
-			<SplitText text={'Four steps.\n*One morning.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
-			<p class="mt-8 max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>No CRM to set up, no list to buy, no ten open tabs. From your URL to your first call before lunch.</p>
+			<SplitText text={'How it works,\n*step by step.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+			<p class="mt-8 max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>What happens after you paste your website — from finding a business to signing it and keeping it happy.</p>
 		</div>
 		<ol class="relative" use:scrub={{ start: 0.8, end: 0.5 }}>
 			<span class="absolute top-2 bottom-2 left-[11px] w-px origin-top bg-[linear-gradient(to_bottom,rgba(13,13,13,.5)_50%,transparent_50%)] bg-[length:1px_6px]" style="transform:scaleY(var(--p,0))" aria-hidden="true"></span>
@@ -534,6 +580,17 @@
 </div>
 
 <style>
+	.job {
+		background: rgb(255 255 255 / 0.55);
+		box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06);
+		transition:
+			background 0.8s,
+			box-shadow 0.8s;
+	}
+	:global(.night) .job {
+		background: linear-gradient(180deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0.02));
+		box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), inset 0 0 0 1px rgb(255 255 255 / 0.08);
+	}
 	.cut-line {
 		stroke-dasharray: 1;
 		stroke-dashoffset: 1;

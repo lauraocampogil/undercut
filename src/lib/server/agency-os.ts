@@ -27,6 +27,8 @@ export type AgencyOS = {
 	goal: { wonPerMonth: number };
 	theme: { accent: string | null; picked?: boolean }; // null = neutral; picked = chosen by the user (not from the site)
 	sizes: Partial<Record<BlockId, Size>>; // width of each block on the dashboard grid
+	custom?: boolean; // the user rearranged the dashboard: don't rebuild it automatically
+	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
 };
 export type Size = 's' | 'm' | 'l' | 'xl';
 export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', clients: 'xl', todo: 'm', calendar: 'm', site: 's', goals: 's', content: 's' };
@@ -84,9 +86,53 @@ export function removeItem(id: string) {
 	saveOS(s);
 }
 
+/** The dashboard Undercut builds from what it read on the agency's site.
+ *  Agencies often do several things (web + social, web + apps…): the blocks of each are merged. */
+export function layoutFor(p: AgencyProfile) {
+	const has = (x: string) => p.services.includes(x as never);
+	const web = has('web') || has('seo') || has('ads');
+	const social = has('social');
+	const app = has('app');
+	const brand = has('branding');
+	const parts = [web && 'Web', social && 'Social media', app && 'Apps', brand && !web && 'Branding'].filter(Boolean) as string[];
+	const kind = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} & ${parts.at(-1)} agency` : parts[0] === 'Apps' ? 'App studio' : `${parts[0] ?? 'Web'} agency`;
+
+	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, false])) as Record<BlockId, boolean>;
+	const sizes: Partial<Record<BlockId, Size>> = { ...DEFAULT_SIZE };
+	const why: string[] = [];
+	// everyone: prospects, pipeline, this week, agenda, clients, goal
+	for (const b of ['prospects', 'pipeline', 'todo', 'calendar', 'clients', 'goals'] as BlockId[]) blocks[b] = true;
+	const looks = [web && 'a weak website', social && 'weak Instagram / TikTok', app && 'no app or online booking'].filter(Boolean).join(', ');
+	why.push(`Prospects nearby with ${looks || 'a weak online presence'}`, 'Pipeline and agenda');
+	if (web || brand) {
+		blocks.site = true;
+		why.push('Your clients’ sites: leads, Google, one-click fixes', 'Your own site’s health');
+	}
+	if (app) why.push('Your clients’ apps: users, crashes, reviews');
+	if (social) {
+		blocks.content = true;
+		why.push('What to post this week');
+	}
+	// order: what matters most for this mix comes first
+	let order: BlockId[];
+	if (app && !web && !social) order = ['clients', 'prospects', 'pipeline', 'todo', 'calendar', 'goals', 'site', 'content'];
+	else if (social && !web) order = ['prospects', 'content', 'pipeline', 'todo', 'clients', 'calendar', 'goals', 'site'];
+	else order = ['prospects', 'pipeline', 'todo', 'calendar', 'clients', 'content', 'site', 'goals'];
+	return { kind, order, blocks, sizes, why };
+}
+
 export function setProfile(profile: AgencyProfile) {
 	const s = getOS();
+	const first = !s.profile;
 	s.profile = profile;
+	// build (or rebuild) the dashboard for this agency, unless the user already arranged it
+	if (!s.custom) {
+		const l = layoutFor(profile);
+		s.order = l.order;
+		s.blocks = l.blocks;
+		s.sizes = l.sizes;
+		s.built = { at: new Date().toISOString(), kind: l.kind, why: l.why, seen: first ? false : s.built?.seen };
+	}
 	// the dashboard takes the colour of the agency's site, unless the user picked one
 	if (profile.color && !s.theme.picked) s.theme = { accent: profile.color };
 	saveOS(s);
@@ -146,6 +192,7 @@ export function applyAsk(text: string): string {
 	else if (show || first) s.blocks[match.id] = true;
 	if (first) s.order = [match.id, ...s.order.filter((b) => b !== match.id)];
 	if (!hide && !show && !first) s.blocks[match.id] = !s.blocks[match.id];
+	s.custom = true;
 	saveOS(s);
 	return `${s.blocks[match.id] ? 'Showing' : 'Hiding'} “${match.label}”${first ? ' at the top' : ''}.`;
 }
@@ -170,5 +217,12 @@ export function setLayout(order: string[], sizes: Record<string, string>, visibl
 	s.order = [...new Set([...order.filter(ok), ...ids])];
 	for (const [k, v] of Object.entries(sizes)) if (ok(k) && ['s', 'm', 'l', 'xl'].includes(v)) s.sizes[k] = v as Size;
 	if (visible.length) for (const id of ids) s.blocks[id] = visible.includes(id);
+	s.custom = true;
+	saveOS(s);
+}
+
+export function dismissBuilt() {
+	const s = getOS();
+	if (s.built) s.built.seen = true;
 	saveOS(s);
 }

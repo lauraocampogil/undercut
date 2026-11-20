@@ -158,7 +158,7 @@
 					<a href="/beta?from=prospects" class="btn shrink-0 bg-white text-ink hover:bg-white/90">Build my dashboard →</a>
 				</div>
 			{/if}
-			<p class="mt-6 text-xs text-muted">Business data © <a href="https://www.openstreetmap.org/copyright" class="underline" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL). Websites checked live by Undercut. You send every message yourself.</p>
+			<p class="mt-6 text-xs text-muted">Business data © <a href="https://www.openstreetmap.org/copyright" class="underline" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL), via <a href="https://www.geoapify.com/" class="underline" target="_blank" rel="noopener">Geoapify</a>. Websites checked live by Undercut. You send every message yourself.</p>
 		</section>
 	{/if}
 </div>

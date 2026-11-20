@@ -1,7 +1,7 @@
 // Form actions shared by the cockpit (/app) and the prospects page (/app/prospects).
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import { profileFromUrl, type Service } from './agency-profile.ts';
-import { applyAsk, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
+import { applyAsk, dismissBuilt, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
 import { isHex } from '#lib/theme.ts';
 
 const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
@@ -69,6 +69,10 @@ export const agencyActions = {
 		} catch {
 			return fail(400, { error: 'Could not save the layout.' });
 		}
+		return { ok: true };
+	},
+	built: async () => {
+		dismissBuilt();
 		return { ok: true };
 	},
 	theme: async ({ request }: E) => {

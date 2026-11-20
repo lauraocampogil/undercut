@@ -1,0 +1,266 @@
+From e31eebcd2df70475e9a1e8123e5f14928b3ac3a0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 11:29:05 +0100
+Subject: [PATCH] The URL builds the dashboard: layout chosen per agency type,
+ 'we built this for you' summary, landing says it plainly
+
+- layoutFor(profile): web agency / social & communication / app studio / branding get their own blocks, order and sizes; rebuilt when the profile changes unless the user rearranged it
+- Cockpit: 'We built this dashboard for <agency>' card with what was detected and what was added; Looks good / Change it
+- Setup shows the build steps while it reads the site
+- Hero: 'Paste your URL. Get your agency's dashboard.' with a live example of what gets built
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/AgencySetup.svelte | 10 +++++-
+ src/lib/server/agency-actions.ts      |  6 +++-
+ src/lib/server/agency-os.ts           | 46 +++++++++++++++++++++++++++
+ src/routes/+page.svelte               | 36 ++++++++++++++++-----
+ src/routes/app/+page.server.ts        |  2 +-
+ src/routes/app/+page.svelte           | 22 +++++++++++++
+ 6 files changed, 111 insertions(+), 11 deletions(-)
+
+diff --git a/src/lib/components/AgencySetup.svelte b/src/lib/components/AgencySetup.svelte
+index bf1c992..5718ca8 100644
+--- a/src/lib/components/AgencySetup.svelte
++++ b/src/lib/components/AgencySetup.svelte
+@@ -5,6 +5,14 @@
+ 	type Profile = { url: string; name: string; services: string[]; city: string; needs?: string } | null;
+ 	let { profile, error = '', dark = true, onsaved }: { profile: Profile; error?: string; dark?: boolean; onsaved?: () => void } = $props();
+ 	let busy = $state(false);
++	const steps = ['Reading your website…', 'Understanding what you sell…', 'Finding your city and language…', 'Choosing the blocks you need…', 'Building your dashboard…'];
++	let si = $state(0);
++	$effect(() => {
++		if (!busy) return;
++		si = 0;
++		const t = setInterval(() => (si = Math.min(steps.length - 1, si + 1)), 1100);
++		return () => clearInterval(t);
++	});
+ 	const SERVICES = [
+ 		['web', 'Websites'],
+ 		['app', 'Apps'],
+@@ -50,7 +58,7 @@
+ 		{#if profile.needs}<p class="text-sm {dark ? 'text-accent' : 'text-warn'}">{profile.needs}</p>{/if}
+ 	{/if}
+ 	<div class="flex items-center gap-3">
+-		<button class="btn btn-accent" disabled={busy}>{busy ? 'Reading your site…' : profile ? 'Save' : 'Build my dashboard →'}</button>
++		<button class="btn btn-accent" disabled={busy}>{busy ? steps[si] : profile ? 'Save' : 'Build my dashboard →'}</button>
+ 		{#if error}<p class="text-sm text-bad">{error}</p>{/if}
+ 	</div>
+ </form>
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index bebf76a..80cbc15 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -1,7 +1,7 @@
+ // Form actions shared by the cockpit (/app) and the prospects page (/app/prospects).
+ import { fail, type RequestEvent } from '@sveltejs/kit';
+ import { profileFromUrl, type Service } from './agency-profile.ts';
+-import { applyAsk, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
++import { applyAsk, dismissBuilt, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
+ import { isHex } from '#lib/theme.ts';
+ 
+ const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
+@@ -71,6 +71,10 @@ export const agencyActions = {
+ 		}
+ 		return { ok: true };
+ 	},
++	built: async () => {
++		dismissBuilt();
++		return { ok: true };
++	},
+ 	theme: async ({ request }: E) => {
+ 		const f = await request.formData();
+ 		const v = String(f.get('accent') ?? '');
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index 333f9ee..55905d2 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -27,6 +27,8 @@ export type AgencyOS = {
+ 	goal: { wonPerMonth: number };
+ 	theme: { accent: string | null; picked?: boolean }; // null = neutral; picked = chosen by the user (not from the site)
+ 	sizes: Partial<Record<BlockId, Size>>; // width of each block on the dashboard grid
++	custom?: boolean; // the user rearranged the dashboard: don't rebuild it automatically
++	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
+ };
+ export type Size = 's' | 'm' | 'l' | 'xl';
+ export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', clients: 'xl', todo: 'm', calendar: 'm', site: 's', goals: 's', content: 's' };
+@@ -84,9 +86,45 @@ export function removeItem(id: string) {
+ 	saveOS(s);
+ }
+ 
++/** The dashboard Undercut builds from what it read on the agency's site. */
++export function layoutFor(p: AgencyProfile) {
++	const has = (x: string) => p.services.includes(x as never);
++	const social = has('social') && !has('web') && !has('seo');
++	const app = has('app') && !has('web');
++	const kind = social ? 'Social media & communication agency' : app ? 'App studio' : has('branding') && !has('web') ? 'Branding studio' : 'Web agency';
++	let order: BlockId[];
++	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;
++	const sizes: Partial<Record<BlockId, Size>> = { ...DEFAULT_SIZE };
++	const why: string[] = [];
++	if (social) {
++		order = ['prospects', 'content', 'pipeline', 'todo', 'clients', 'calendar', 'goals', 'site'];
++		sizes.content = 's';
++		blocks.site = false;
++		why.push('Prospects with weak Instagram / TikTok', 'What to post this week', 'Pipeline and agenda', 'Your clients’ results');
++	} else if (app) {
++		order = ['clients', 'prospects', 'pipeline', 'todo', 'calendar', 'goals', 'site', 'content'];
++		blocks.content = false;
++		why.push('Your clients’ apps first: users, crashes, reviews', 'Businesses without an app or online booking', 'Pipeline and agenda');
++	} else {
++		order = ['prospects', 'pipeline', 'todo', 'calendar', 'clients', 'site', 'goals', 'content'];
++		blocks.content = false;
++		why.push('Businesses whose website needs you', 'Pipeline and agenda', 'Your clients’ sites: leads, Google, fixes', 'Your own site’s health');
++	}
++	return { kind, order, blocks, sizes, why };
++}
++
+ export function setProfile(profile: AgencyProfile) {
+ 	const s = getOS();
++	const first = !s.profile;
+ 	s.profile = profile;
++	// build (or rebuild) the dashboard for this agency, unless the user already arranged it
++	if (!s.custom) {
++		const l = layoutFor(profile);
++		s.order = l.order;
++		s.blocks = l.blocks;
++		s.sizes = l.sizes;
++		s.built = { at: new Date().toISOString(), kind: l.kind, why: l.why, seen: first ? false : s.built?.seen };
++	}
+ 	// the dashboard takes the colour of the agency's site, unless the user picked one
+ 	if (profile.color && !s.theme.picked) s.theme = { accent: profile.color };
+ 	saveOS(s);
+@@ -146,6 +184,7 @@ export function applyAsk(text: string): string {
+ 	else if (show || first) s.blocks[match.id] = true;
+ 	if (first) s.order = [match.id, ...s.order.filter((b) => b !== match.id)];
+ 	if (!hide && !show && !first) s.blocks[match.id] = !s.blocks[match.id];
++	s.custom = true;
+ 	saveOS(s);
+ 	return `${s.blocks[match.id] ? 'Showing' : 'Hiding'} “${match.label}”${first ? ' at the top' : ''}.`;
+ }
+@@ -170,5 +209,12 @@ export function setLayout(order: string[], sizes: Record<string, string>, visibl
+ 	s.order = [...new Set([...order.filter(ok), ...ids])];
+ 	for (const [k, v] of Object.entries(sizes)) if (ok(k) && ['s', 'm', 'l', 'xl'].includes(v)) s.sizes[k] = v as Size;
+ 	if (visible.length) for (const id of ids) s.blocks[id] = visible.includes(id);
++	s.custom = true;
++	saveOS(s);
++}
++
++export function dismissBuilt() {
++	const s = getOS();
++	if (s.built) s.built.seen = true;
+ 	saveOS(s);
+ }
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 99f2db3..d5dcfa5 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -60,6 +60,17 @@
+ 			return w;
+ 		});
+ 	})();
++	// hero demo: what Undercut builds from a URL
++	const build = ['youragency.com', 'Web agency · Lyon', 'Your dashboard', 'Prospects', 'Pipeline', 'Clients', 'Reports'];
++	let buildStep = $state(0);
++	$effect(() => {
++		if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
++			buildStep = build.length - 1;
++			return;
++		}
++		const t = setInterval(() => (buildStep = buildStep >= build.length + 2 ? 0 : buildStep + 1), 650);
++		return () => clearInterval(t);
++	});
+ 	const jobs = [
+ 		{ k: 'Prospects', t: 'Finds you clients', d: 'Every week, local businesses that need what you sell — no website, a slow site, no Instagram — with the first message written. You send it yourself.' },
+ 		{ k: 'Pipeline', t: 'Keeps you on track', d: 'Who you contacted, who answered, who signed, and when to call back. A simple CRM and agenda, already set up.' },
+@@ -262,15 +273,24 @@
+ 		</div>
+ 		<div class="mt-10 grid flex-1 items-center gap-10 lg:mt-6 lg:grid-cols-[1.15fr_1fr]">
+ 			<div class="relative z-10">
+-				<h1 class="text-[clamp(40px,5.4vw,80px)] leading-[1.04] font-medium tracking-[-0.04em]">
+-					<SplitChars as="span" class="block" text="Find your next" delay={150} />
+-					<span class="block" use:reveal={{ delay: 550 }}><CutText words={["clients.", "projects.", "leads."]} shift={0.035} /></span>
+-					<SplitChars as="span" class="block font-serif font-normal tracking-[-0.02em] text-ink/40 italic" text="Keep them." delay={800} step={40} />
++				<h1 class="text-[clamp(38px,4.7vw,72px)] leading-[1.05] font-medium tracking-[-0.04em]">
++					<SplitChars as="span" class="block text-ink/40" text="Paste your URL." delay={150} step={30} />
++					<SplitChars as="span" class="block" text="Get your agency’s" delay={500} />
++					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['dashboard.', 'clients.', 'pipeline.', 'reports.']} shift={0.035} /></span>
+ 				</h1>
+-				<p class="mt-12 max-w-[30rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1000 }}>Undercut is the dashboard for small agencies and freelancers. Paste your website: it finds local businesses that need what you sell, tracks who you contacted, and shows how your clients’ sites and apps are doing.</p>
+-				<div class="mt-10" use:reveal={{ delay: 1150 }}>
++				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut reads your website and builds the dashboard your agency needs — businesses nearby that need what you sell, your pipeline, and how your clients’ sites and apps are doing. Then shape it by typing or dragging.</p>
++				<div class="mt-10" use:reveal={{ delay: 1250 }}>
+ 					{@render urlForm('hero-url')}
+-					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free · no account · ~30 seconds</p>
++					<!-- what happens when you paste your URL -->
++					<div class="mt-5 flex min-h-8 flex-wrap items-center gap-1.5 text-[13px]" aria-label="Example: youragency.com becomes a web agency dashboard with prospects, pipeline, clients and reports">
++						{#each build.slice(0, buildStep + 1) as b, i (i)}
++							<span class="flex items-center gap-1.5 [animation:fade-up_.4s_var(--ease-out)_both]">
++								{#if i}<span class="text-muted">{i === 1 || i === 2 ? '→' : '+'}</span>{/if}
++								<span class="rounded-full px-3 py-1 {i === 0 ? 'bg-black/[.05] text-ink-2' : i < 3 ? 'bg-ink text-white' : 'glass-btn'}">{b}</span>
++							</span>
++						{/each}
++					</div>
++					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free preview: your first 5 prospects · no account</p>
+ 				</div>
+ 			</div>
+ 			<div class="relative mx-auto w-full max-w-[600px]" use:reveal={{ delay: 400 }} style="transform:translate(calc(var(--mx,0) * -12px), calc(var(--my,0) * -10px))">
+@@ -327,7 +347,7 @@
+ 		<section class="relative mx-auto max-w-[1280px] px-5 pt-10 pb-20 sm:px-10">
+ 			<div class="flex flex-wrap items-end justify-between gap-8">
+ 				<div>
+-					<p class="tag zone-muted">What Undercut does</p>
++					<p class="tag zone-muted">What your dashboard does</p>
+ 					<h2 class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" use:reveal>One dashboard.<br /><span class="zone-muted">Three jobs.</span></h2>
+ 				</div>
+ 				<p class="zone-muted max-w-sm leading-[1.75]" use:reveal={{ delay: 150 }}>Everything a small agency does to grow, in one place — built from your website, in your language.</p>
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index b429214..5f9d3e6 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -52,7 +52,7 @@ export const load = async () => {
+ 
+ 	return {
+ 		rows,
+-		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
++		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, built: os.built && !os.built.seen ? os.built : null, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
+ 		stats: { ...stats, due: stats.due.slice(0, 6) },
+ 		quota: monthlyQuota(),
+ 		used: usedThisMonth(os),
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index 277cc1b..e6dd1c7 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -113,6 +113,28 @@
+ 		</div>
+ 	</section>
+ 
++	{#if data.os.built}
++		{@const p = data.os.profile}
++		<section class="card-dark relative mt-6 overflow-hidden p-6 sm:p-8">
++			<p class="text-sm text-white/60">✦ Built from {p.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</p>
++			<h2 class="mt-2 text-[28px] leading-tight font-medium tracking-[-0.03em] sm:text-[34px]">We built this dashboard for {p.name}.</h2>
++			<div class="mt-5 flex flex-wrap gap-2 text-sm">
++				{#each [data.os.built.kind, p.city, p.services.map((x) => ({ web: 'Websites', app: 'Apps', social: 'Social media', seo: 'SEO', branding: 'Branding', ads: 'Ads' })[x] ?? x).join(', '), { fr: 'Français', nl: 'Nederlands', en: 'English' }[p.lang]].filter(Boolean) as t, i (i)}
++					<span class="rounded-full bg-white/10 px-3 py-1.5 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{i * 120}ms">{t}</span>
++				{/each}
++				{#if data.accent}<span class="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5"><span class="size-3 rounded-full" style="background:{data.accent}"></span>Your colour</span>{/if}
++			</div>
++			<ul class="mt-5 grid gap-1.5 text-sm text-white/75 sm:grid-cols-2">
++				{#each data.os.built.why as w, i (w)}<li class="flex items-center gap-2 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{500 + i * 120}ms"><span class="text-white">✓</span>{w}</li>{/each}
++			</ul>
++			<div class="mt-6 flex flex-wrap items-center gap-3">
++				<form method="POST" action={act('built')} use:enhance={keep}><button class="btn bg-white text-ink hover:bg-white/90">Looks good</button></form>
++				<button type="button" class="btn btn-ghost border-white/20 text-white" onclick={() => (customise = true)}>Change it</button>
++				<span class="text-xs text-white/50">Or type below: “clients first”, “hide agenda”…</span>
++			</div>
++		</section>
++	{/if}
++
+ 	<!-- ask to change: plain-language edits to the dashboard -->
+ 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
+ 		<span class="hidden pl-3 text-muted sm:block">✦</span>
+-- 
+2.43.0
+
