@@ -50,7 +50,8 @@ function guard(event: Parameters<Handle>[0]['event'], user: User | null) {
 export const handle: Handle = async ({ event, resolve }) => {
 	startScheduler(event.url.origin);
 	const to = event.request.method === 'GET' ? domainRedirect(event.url, (event.request.headers.get('x-forwarded-host') ?? event.request.headers.get('host') ?? '').split(',')[0].trim()) : null;
-	if (to) redirect(308, to);
+	// a Response, not redirect(): SvelteKit refuses redirect() to another domain
+	if (to) return new Response(null, { status: 308, headers: { location: to } });
 
 	// ---- multi-agency mode (Supabase): the session says which workspace this request runs in ----
 	if (dbOn()) {

@@ -1,0 +1,29 @@
+From 89a56809e00982daa33b6a35efc469be4e5c0130 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 14:08:22 +0100
+Subject: [PATCH] Domain redirects: return a 308 Response (redirect() refuses
+ external URLs)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/hooks.server.ts | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/hooks.server.ts b/src/hooks.server.ts
+index 00c5873..19697d2 100644
+--- a/src/hooks.server.ts
++++ b/src/hooks.server.ts
+@@ -50,7 +50,8 @@ function guard(event: Parameters<Handle>[0]['event'], user: User | null) {
+ export const handle: Handle = async ({ event, resolve }) => {
+ 	startScheduler(event.url.origin);
+ 	const to = event.request.method === 'GET' ? domainRedirect(event.url, (event.request.headers.get('x-forwarded-host') ?? event.request.headers.get('host') ?? '').split(',')[0].trim()) : null;
+-	if (to) redirect(308, to);
++	// a Response, not redirect(): SvelteKit refuses redirect() to another domain
++	if (to) return new Response(null, { status: 308, headers: { location: to } });
+ 
+ 	// ---- multi-agency mode (Supabase): the session says which workspace this request runs in ----
+ 	if (dbOn()) {
+-- 
+2.43.0
+
