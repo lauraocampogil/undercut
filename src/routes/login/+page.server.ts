@@ -10,7 +10,7 @@ const safeNext = (n: string | null) => (n && n.startsWith('/') && !n.startsWith(
 export const load = ({ url, locals }) => {
 	if (!authEnabled()) redirect(303, safeNext(url.searchParams.get('next')));
 	if (locals.user) redirect(303, safeNext(url.searchParams.get('next')));
-	const errors: Record<string, string> = { unknown: 'This Google account has no Undercut workspace yet. Ask for a beta invitation at /beta — or ask your agency to invite you.', google: 'Google sign-in failed. Try again.', state: 'The sign-in took too long. Try again.', not_configured: 'Google sign-in is not set up on this server yet.', access_denied: 'Google sign-in was cancelled.' };
+	const errors: Record<string, string> = { unknown: 'We could not find an account for this Google address. Create one at /signup.', google: 'Google sign-in failed. Try again.', state: 'The sign-in took too long. Try again.', not_configured: 'Google sign-in is not set up on this server yet.', access_denied: 'Google sign-in was cancelled.' };
 	const e = url.searchParams.get('error');
 	return { next: safeNext(url.searchParams.get('next')), google: googleConfigured(), googleError: e ? (errors[e] ?? 'Google sign-in failed.') : null };
 };

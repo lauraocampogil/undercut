@@ -54,18 +54,18 @@ export const GET = async ({ url, cookies, locals }) => {
 				if (!u) redirect(303, back('error=unknown'));
 				redirect(303, u.role === 'client' && u.clientId ? `/app/clients/${u.clientId}` : next);
 			}
-			// c) new agency with a beta invitation
-			const row = beta ? await rowByCode(beta) : null;
-			if (!row || row.status === 'joined') redirect(303, back('error=unknown'));
-			const nws = await createWorkspace(row.agency || `${id.name}’s agency`);
+			// c) new agency: open sign-up (a beta invitation only pre-fills the agency name)
+			const r = beta ? await rowByCode(beta) : null;
+			const row = r && r.status !== 'joined' ? r : null;
+			const nws = await createWorkspace(row?.agency || `${id.name}’s agency`);
 			await addLogin(id.email, nws);
 			await inWorkspace(nws, () => {
 				saveAccount({ name: id.name, email: id.email, language: 'en', googleLogin: true });
-				saveAgency({ ...getAgency(), name: row.agency || `${id.name}’s agency` });
+				saveAgency({ ...getAgency(), name: row?.agency || `${id.name}’s agency` });
 				writeData('clients.json', []);
 				startSession(cookies, id.email, secure);
 			});
-			await markJoined(beta!, nws);
+			if (row) await markJoined(beta!, nws);
 			redirect(303, '/onboarding');
 		}
 		// 1) accepting an invitation

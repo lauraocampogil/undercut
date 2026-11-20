@@ -9,12 +9,12 @@ import { markJoined, rowByCode } from '#lib/server/beta.ts';
 
 export const load = async ({ url, locals }) => {
 	if (locals.user && locals.ws) redirect(303, '/app');
-	// Multi-agency beta: a personal invitation code is needed
+	// Multi-agency mode: open sign-up. A beta invitation code only pre-fills the form.
 	if (dbOn()) {
 		const code = url.searchParams.get('code') ?? '';
-		const row = await rowByCode(code);
-		if (!row || row.status === 'joined') redirect(303, row?.status === 'joined' ? '/login' : '/beta');
-		return { plan: 'beta', google: googleConfigured(), code, beta: true, prefill: { name: row.name, email: row.email, agency: row.agency } };
+		const row = code ? await rowByCode(code) : null;
+		if (row?.status === 'joined') redirect(303, '/login');
+		return { plan: 'beta', google: googleConfigured(), code: row ? code : '', beta: true, prefill: row ? { name: row.name, email: row.email, agency: row.agency } : null };
 	}
 	// Local mode: one workspace per install — once protected, new visitors log in instead.
 	if (authEnabled()) redirect(303, locals.user ? '/app' : '/login');
@@ -35,8 +35,7 @@ export const actions = {
 
 		if (dbOn()) {
 			const code = String(f.get('code') ?? '');
-			const row = await rowByCode(code);
-			if (!row || row.status === 'joined') return fail(400, { name, email, agency, error: 'This invitation is not valid anymore. Ask for a new one.' });
+			const row = code ? await rowByCode(code) : null;
 			if (await lookupLogin(email)) return fail(400, { name, email, agency, error: 'An account with this email already exists — log in instead.' });
 			const ws = await createWorkspace(agency);
 			await addLogin(email, ws);
@@ -46,7 +45,7 @@ export const actions = {
 				writeData('clients.json', []);
 				startSession(cookies, email, secure);
 			});
-			await markJoined(code, ws);
+			if (row && row.status !== 'joined') await markJoined(code, ws);
 			redirect(303, '/onboarding');
 		}
 
