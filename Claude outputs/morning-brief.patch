@@ -1,0 +1,225 @@
+From f1848616271c4b77ae801ade3492fc00bf4b444d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 00:23:02 +0100
+Subject: [PATCH] Morning brief: weekday email at 7:00 with what to approve,
+ today's agenda and Friday numbers; on/off and 'send me today's' in the inbox
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Inbox.svelte    |  8 +++++-
+ src/lib/server/agency-os.ts        |  7 +++++
+ src/lib/server/brief.ts            | 45 ++++++++++++++++++++++++++++++
+ src/lib/server/business-actions.ts | 18 +++++++++++-
+ src/lib/server/scheduler.ts        |  8 +++++-
+ src/routes/app/+page.server.ts     |  2 ++
+ src/routes/app/+page.svelte        |  2 +-
+ 7 files changed, 86 insertions(+), 4 deletions(-)
+ create mode 100644 src/lib/server/brief.ts
+
+diff --git a/src/lib/components/Inbox.svelte b/src/lib/components/Inbox.svelte
+index 5fe286f..a4bf0df 100644
+--- a/src/lib/components/Inbox.svelte
++++ b/src/lib/components/Inbox.svelte
+@@ -3,7 +3,7 @@
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+ 	type Item = { key: string; kind: 'first' | 'followup' | 'payment'; id: string; title: string; why: string; to?: string; phone?: string; subject: string; message: string; step?: number; late?: boolean };
+-	let { items, clients, error = '' }: { items: Item[]; clients: { id: string; name: string }[]; error?: string } = $props();
++	let { items, clients, error = '', brief, briefMsg = '' }: { items: Item[]; clients: { id: string; name: string }[]; error?: string; brief: { on: boolean; ready: boolean }; briefMsg?: string } = $props();
+ 
+ 	let edited = $state<Record<string, string>>({});
+ 	let open = $state<string | null>(null);
+@@ -28,6 +28,12 @@
+ 		</div>
+ 		<button type="button" class="pill text-sm" onclick={() => (adding = !adding)}>{adding ? 'Close' : '+ Someone owes me money'}</button>
+ 	</div>
++	<div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
++		<span>Morning email (weekdays, 7:00):</span>
++		<form method="POST" action={act('brief')} use:enhance={() => async ({ update }) => update({ reset: false })}><input type="hidden" name="on" value={brief.on ? '0' : '1'} /><button class="rounded-full px-2.5 py-1 {brief.on ? 'bg-ink text-white' : 'bg-tile text-ink'}">{brief.on ? 'On' : 'Off'}</button></form>
++		{#if brief.ready}<form method="POST" action={act('briefTest')} use:enhance={() => async ({ update }) => update({ reset: false })}><button class="underline">Send me today’s now</button></form>{:else}<span>· starts once email is set up</span>{/if}
++		{#if briefMsg}<span class="text-ink">{briefMsg}</span>{/if}
++	</div>
+ 
+ 	{#if adding}
+ 		<form method="POST" action={act('payment')} use:enhance={() => async ({ update, result }) => { await update(); if (result.type === 'success') adding = false; }} class="mt-4 grid gap-3 rounded-[18px] bg-tile p-4 sm:grid-cols-2">
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index cb5a504..e706516 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -29,6 +29,7 @@ export type AgencyOS = {
+ 	custom?: boolean; // the user rearranged the dashboard: don't rebuild it automatically
+ 	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
+ 	layoutV?: number; // version of the block set the saved layout was made for
++	brief?: boolean; // morning email (on unless turned off)
+ };
+ const LAYOUT_V = 4; // v4: the sales loop first; tasks, agenda and analytics off by default (add them in Customise)
+ export type Size = 's' | 'm' | 'l' | 'xl';
+@@ -226,6 +227,12 @@ export function setLayout(order: string[], sizes: Record<string, string>, visibl
+ 	saveOS(s);
+ }
+ 
++export function setBrief(on: boolean) {
++	const s = getOS();
++	s.brief = on;
++	saveOS(s);
++}
++
+ export function dismissBuilt() {
+ 	const s = getOS();
+ 	if (s.built) s.built.seen = true;
+diff --git a/src/lib/server/brief.ts b/src/lib/server/brief.ts
+new file mode 100644
+index 0000000..fc1b899
+--- /dev/null
++++ b/src/lib/server/brief.ts
+@@ -0,0 +1,45 @@
++// The morning brief: one short email on weekdays with what Undercut prepared for today.
++// It only goes out when there is something to do, and links straight to the "To approve" inbox.
++import { getAccount } from './store.ts';
++import { getOS } from './agency-os.ts';
++import { agenda, getBiz, money, today } from './business.ts';
++import { inboxItems } from './inbox.ts';
++import { sendEmail } from './email.ts';
++
++const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
++const eur = (n: number) => new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
++
++export function briefContent(base: string) {
++	const os = getOS();
++	const b = getBiz();
++	const items = inboxItems();
++	const t = today();
++	const plan = agenda(b, [], 0).filter((a) => a.kind === 'meeting' || a.kind === 'task'); // follow-ups and invoices are already in the inbox
++	const m = money(b);
++	const friday = new Date().getDay() === 5;
++	const count = (k: string) => items.filter((i) => i.kind === k).length;
++	const lines = [count('first') && `${count('first')} new prospect${count('first') > 1 ? 's' : ''} to write to`, count('followup') && `${count('followup')} follow-up${count('followup') > 1 ? 's' : ''} due`, count('payment') && `${count('payment')} payment reminder${count('payment') > 1 ? 's' : ''}`].filter(Boolean) as string[];
++	const subject = items.length ? `Today: ${lines.join(', ')}` : plan.length ? `Today: ${plan.length} thing${plan.length > 1 ? 's' : ''} in your agenda` : '';
++	const link = `${base.replace(/\/$/, '')}/app`;
++	const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#0d0d0d">
++<p style="color:#6b6b6b;font-size:13px;margin:0 0 4px">${esc(os.profile?.name ?? 'Undercut')} · ${t}</p>
++<h1 style="font-size:24px;font-weight:600;margin:0 0 16px">Good morning. ${items.length ? `${items.length} thing${items.length > 1 ? 's' : ''} to approve.` : 'Your day.'}</h1>
++${items.length ? `<table style="width:100%;border-collapse:collapse">${items.slice(0, 8).map((i) => `<tr><td style="padding:10px 0;border-bottom:1px solid #eee"><b style="font-weight:600">${esc(i.title)}</b><br><span style="color:#6b6b6b;font-size:13px">${esc(i.why)}</span></td></tr>`).join('')}</table>` : ''}
++${plan.length ? `<p style="margin:20px 0 6px;font-weight:600">In your agenda</p>${plan.map((a) => `<p style="margin:4px 0">${a.time ? esc(a.time) + ' · ' : ''}${esc(a.title)}${a.sub ? ` <span style="color:#6b6b6b">· ${esc(a.sub)}</span>` : ''}</p>`).join('')}` : ''}
++${friday ? `<p style="margin:20px 0 6px;font-weight:600">Your week in numbers</p><p style="margin:4px 0">Paid this month: ${eur(m.paidMonth)} · Monthly retainers: ${eur(m.mrr)} · Waiting: ${eur(m.unpaid)}${m.overdue ? ` (${m.overdue} late)` : ''}</p>` : ''}
++<p style="margin:24px 0"><a href="${link}" style="background:#0d0d0d;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;display:inline-block">Open and approve</a></p>
++<p style="color:#9a9a9a;font-size:12px">Nothing is sent without your click. Turn this email off in Undercut → Today.</p></div>`;
++	return { subject, html, items: items.length, plan: plan.length };
++}
++
++/** Weekdays, once a day, only when there is something to do and the brief is on. */
++export async function sendMorningBrief(base: string) {
++	const day = new Date().getDay();
++	if (day === 0 || day === 6) return false;
++	if (getOS().brief === false) return false;
++	const to = getAccount().email;
++	if (!to) return false;
++	const c = briefContent(base);
++	if (!c.subject) return false;
++	return sendEmail(to, c.subject, c.html);
++}
+diff --git a/src/lib/server/business-actions.ts b/src/lib/server/business-actions.ts
+index 24b3ccf..76b20fe 100644
+--- a/src/lib/server/business-actions.ts
++++ b/src/lib/server/business-actions.ts
+@@ -1,7 +1,10 @@
+ // Form actions for clients, tasks, meetings, quotes and invoices (dashboard + their own pages).
+ import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
+ import { addMeeting, addTask, checkWebsite, createDoc, deleteClient, deleteDoc, deleteMeeting, deleteTask, getBiz, saveClient, saveDetails, saveDoc, setSiteCheck, toggleTask, updateTask, type ClientStatus, type DocLine, type DocStatus } from './business.ts';
+-import { getOS, updateItem } from './agency-os.ts';
++import { getOS, setBrief, updateItem } from './agency-os.ts';
++import { briefContent } from './brief.ts';
++import { sendEmail, emailReady } from './email.ts';
++import { getAccount } from './store.ts';
+ import { addPayment, deletePayment, markPaymentPaid } from './business.ts';
+ import { resolveItem, type InboxKind } from './inbox.ts';
+ 
+@@ -152,6 +155,19 @@ export const businessActions = {
+ 		resolveItem(kind, str(f, 'id'), f.get('sent') === '1');
+ 		return { resolved: str(f, 'id') };
+ 	},
++	brief: async ({ request }: E) => {
++		setBrief(String((await request.formData()).get('on')) === '1');
++		return { ok: true };
++	},
++	/** Send today's brief now, to check what it looks like. */
++	briefTest: async ({ url }: E) => {
++		const to = getAccount().email;
++		if (!emailReady()) return fail(400, { briefMsg: 'Email is not set up on the server yet (Resend).' });
++		if (!to) return fail(400, { briefMsg: 'Add your email in My account first.' });
++		const c = briefContent(url.origin);
++		const ok = await sendEmail(to, c.subject || 'Today: nothing to approve', c.html);
++		return { briefMsg: ok ? `Sent to ${to}.` : 'Could not send it. Check the Resend set-up.' };
++	},
+ 	payment: async ({ request }: E) => {
+ 		const f = await request.formData();
+ 		const amount = num(f, 'amount');
+diff --git a/src/lib/server/scheduler.ts b/src/lib/server/scheduler.ts
+index b5f4620..c40dc54 100644
+--- a/src/lib/server/scheduler.ts
++++ b/src/lib/server/scheduler.ts
+@@ -7,13 +7,14 @@ import { runAlerts, weeklyDigest } from './alerts.ts';
+ import { snapshotAllApps } from './appstore.ts';
+ import { inWorkspace } from './context.ts';
+ import { dbOn } from './db.ts';
++import { sendMorningBrief } from './brief.ts';
+ 
+ let started = false;
+ 
+ async function runFor(base: string) {
+ 	const now = new Date();
+ 	const today = now.toLocaleDateString('sv-SE'); // YYYY-MM-DD in server time zone
+-	const state = readData<{ alerts?: string; digest?: string; store?: string }>('scheduler.json', {});
++	const state = readData<{ alerts?: string; digest?: string; store?: string; brief?: string }>('scheduler.json', {});
+ 	if (state.store !== today) {
+ 		// App Store positions, ratings and competitors: one snapshot per day
+ 		state.store = today;
+@@ -25,6 +26,11 @@ async function runFor(base: string) {
+ 		writeData('scheduler.json', state);
+ 		await runAlerts(base);
+ 	}
++	if (now.getHours() >= 7 && state.brief !== today) {
++		state.brief = today;
++		writeData('scheduler.json', state);
++		await sendMorningBrief(base).catch((e) => console.error('[scheduler] brief', e));
++	}
+ 	if (now.getDay() === 1 && now.getHours() >= 6 && state.digest !== today) {
+ 		state.digest = today;
+ 		writeData('scheduler.json', state);
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index 3a0b90e..45580f4 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -4,6 +4,7 @@ import { businessActions } from '#lib/server/business-actions.ts';
+ import { agenda, getBiz, money } from '#lib/server/business.ts';
+ import { analyticsRows } from '#lib/server/analytics-rows.ts';
+ import { inboxItems } from '#lib/server/inbox.ts';
++import { emailReady } from '#lib/server/email.ts';
+ 
+ export const load = async () => {
+ 	const os = getOS();
+@@ -12,6 +13,7 @@ export const load = async () => {
+ 	const names = Object.fromEntries(b.clients.map((c) => [c.id, c.name]));
+ 	return {
+ 		inbox: os.profile ? inboxItems() : [],
++		brief: { on: os.brief !== false, ready: emailReady() },
+ 		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, built: os.built && !os.built.seen ? os.built : null, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
+ 		stats: { counts: stats.counts, wonMonth: stats.wonMonth, wonValue: stats.wonValue, replyRate: stats.replyRate },
+ 		quota: monthlyQuota(),
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index d160d43..8c26fe2 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -110,7 +110,7 @@
+ 		</section>
+ 	{/if}
+ 
+-	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} /></div>
++	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} brief={data.brief} briefMsg={form?.briefMsg ?? ''} /></div>
+ 
+ 	<!-- ask to change: plain-language edits to the dashboard -->
+ 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
+-- 
+2.43.0
+

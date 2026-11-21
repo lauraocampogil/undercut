@@ -87,6 +87,8 @@
 								{#if p.phone}<div><dt class="inline text-muted">Phone</dt> <dd class="inline"><a class="underline" href="tel:{p.phone}">{p.phone}</a></dd></div>{/if}
 								{#if p.email}<div><dt class="inline text-muted">Email</dt> <dd class="inline">{p.email}</dd></div>{/if}
 								{#if p.instagram}<div><dt class="inline text-muted">Instagram</dt> <dd class="inline">{p.instagram}</dd></div>{/if}
+								{#if p.budget}<div><dt class="inline text-muted">Can afford you</dt> <dd class="inline">{p.budget === 'high' ? 'Likely yes' : p.budget === 'medium' ? 'Probably' : 'Small budget'}</dd></div>{/if}
+								{#if p.proof?.length}<div class="pt-1"><dt class="text-muted">Check it yourself, then show the owner</dt>{#each p.proof as pr (pr.url)}<dd><a class="underline" href={pr.url} target="_blank" rel="noopener nofollow">{pr.label} ↗</a></dd>{/each}</div>{/if}
 								<div><a class="text-xs text-muted underline" href={p.osmUrl} target="_blank" rel="noopener">See on the map</a></div>
 							</dl>
 							<div class="mt-4 flex flex-wrap gap-2">

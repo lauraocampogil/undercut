@@ -7,13 +7,14 @@ import { runAlerts, weeklyDigest } from './alerts.ts';
 import { snapshotAllApps } from './appstore.ts';
 import { inWorkspace } from './context.ts';
 import { dbOn } from './db.ts';
+import { sendMorningBrief } from './brief.ts';
 
 let started = false;
 
 async function runFor(base: string) {
 	const now = new Date();
 	const today = now.toLocaleDateString('sv-SE'); // YYYY-MM-DD in server time zone
-	const state = readData<{ alerts?: string; digest?: string; store?: string }>('scheduler.json', {});
+	const state = readData<{ alerts?: string; digest?: string; store?: string; brief?: string }>('scheduler.json', {});
 	if (state.store !== today) {
 		// App Store positions, ratings and competitors: one snapshot per day
 		state.store = today;
@@ -24,6 +25,11 @@ async function runFor(base: string) {
 		state.alerts = today;
 		writeData('scheduler.json', state);
 		await runAlerts(base);
+	}
+	if (now.getHours() >= 7 && state.brief !== today) {
+		state.brief = today;
+		writeData('scheduler.json', state);
+		await sendMorningBrief(base).catch((e) => console.error('[scheduler] brief', e));
 	}
 	if (now.getDay() === 1 && now.getHours() >= 6 && state.digest !== today) {
 		state.digest = today;

@@ -1,0 +1,201 @@
+From 245518439f34dacba42cdd9b0f85d6bb53f300dd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 00:21:17 +0100
+Subject: [PATCH] Better leads: drop closed places, chains by repeated name and
+ unreachable businesses; contacts from their site; budget signal; proof links
+ to check and show the owner
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/server/inbox.ts               |  2 +-
+ src/lib/server/prospects.ts           | 66 +++++++++++++++++++++++----
+ src/routes/app/prospects/+page.svelte |  2 +
+ src/routes/prospects/+page.svelte     |  6 ++-
+ 4 files changed, 64 insertions(+), 12 deletions(-)
+
+diff --git a/src/lib/server/inbox.ts b/src/lib/server/inbox.ts
+index 244d889..70615e3 100644
+--- a/src/lib/server/inbox.ts
++++ b/src/lib/server/inbox.ts
+@@ -96,7 +96,7 @@ export function inboxItems(): InboxItem[] {
+ 
+ 	// 3) first messages: the best new prospects, a few a day
+ 	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, FIRST_PER_DAY);
+-	for (const p of fresh) items.push({ key: `first:${p.id}`, kind: 'first', id: p.id, title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}`, to: p.email, phone: p.phone, subject: p.name, message: p.message });
++	for (const p of fresh) items.push({ key: `first:${p.id}`, kind: 'first', id: p.id, title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.budget === 'high' ? ' · can afford you' : ''}`, to: p.email, phone: p.phone, subject: p.name, message: p.message });
+ 
+ 	return items;
+ }
+diff --git a/src/lib/server/prospects.ts b/src/lib/server/prospects.ts
+index ee83f0b..1fcfeeb 100644
+--- a/src/lib/server/prospects.ts
++++ b/src/lib/server/prospects.ts
+@@ -31,13 +31,15 @@ export type Prospect = {
+ 	issues: Issue[];
+ 	checked: { https?: boolean; mobile?: boolean; ms?: number; title?: string; year?: number; builder?: string; status?: number };
+ 	pitch: string; // one-line reason
++	budget?: 'high' | 'medium' | 'low'; // can they afford an agency? from the kind of business and what they already invest
++	proof?: { label: string; url: string }[]; // links the agency can open (and show the owner) to check the problem
+ 	message: string;
+ 	osmUrl: string;
+ };
+ export type ProspectRun = { center: { lat: number; lon: number; label: string } | null; prospects: Prospect[]; scanned: number; error?: string; source?: 'geoapify' | 'overpass' };
+ 
+ // A place from any source, normalised
+-type Place = { id: string; name: string; kind: string; lat: number; lon: number; website: string; phone: string; email: string; insta: string; fb: string; tiktok: string; brand: string; address: string; city: string; osmUrl: string };
++type Place = { id: string; name: string; kind: string; lat: number; lon: number; website: string; phone: string; email: string; insta: string; fb: string; tiktok: string; brand: string; address: string; city: string; osmUrl: string; closed?: boolean; hours?: boolean };
+ 
+ // ---------- categories per service ----------
+ // Geoapify category ids (verified against their API enum) and the equivalent OSM tags for Overpass.
+@@ -115,6 +117,8 @@ export async function geocode(city: string, country = '') {
+ // ---------- places ----------
+ const insta = (t: Record<string, string>) => t['contact:instagram'] || t.instagram || (/(instagram\.com\/[^\s"'?]+)/i.exec(Object.values(t).join(' '))?.[1] ?? '');
+ const kindOf = (t: Record<string, string>) => t.amenity || t.shop || t.craft || t.office || t.healthcare || t.leisure || t.tourism || 'business';
++// signs in OpenStreetMap that a place no longer trades
++const closedOf = (t: Record<string, string>, name: string) => Object.keys(t).some((k) => /^(disused|was|abandoned|demolished|removed):/.test(k)) || /^(closed|off)$/i.test(t.opening_hours ?? '') || /\b(ferm[ée]|closed|gesloten|cessation)\b/i.test(name);
+ const addrOf = (t: Record<string, string>) => [t['addr:street'] && `${t['addr:street']} ${t['addr:housenumber'] ?? ''}`.trim(), t['addr:postcode'], t['addr:city']].filter(Boolean).join(', ');
+ 
+ async function fromGeoapify(lat: number, lon: number, services: Service[], radius: number): Promise<Place[]> {
+@@ -146,7 +150,9 @@ async function fromGeoapify(lat: number, lon: number, services: Service[], radiu
+ 				brand: pr.brand || t.brand || '',
+ 				address: pr.address_line2 || addrOf(t),
+ 				city: pr.city || t['addr:city'] || '',
+-				osmUrl: t.osm_id ? `https://www.openstreetmap.org/${osmType}/${t.osm_id}` : ''
++				osmUrl: t.osm_id ? `https://www.openstreetmap.org/${osmType}/${t.osm_id}` : '',
++				closed: closedOf(t, name),
++				hours: Boolean(pr.opening_hours || t.opening_hours)
+ 			};
+ 		})
+ 		.filter(Boolean) as Place[];
+@@ -168,7 +174,7 @@ async function fromOverpass(lat: number, lon: number, services: Service[], radiu
+ 				.filter((e) => e.tags?.name)
+ 				.map((e): Place => {
+ 					const t = e.tags;
+-					return { id: `${e.type}/${e.id}`, name: t.name, kind: kindOf(t), lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, website: (t.website || t['contact:website'] || t.url || '').trim(), phone: t.phone || t['contact:phone'] || '', email: t.email || t['contact:email'] || '', insta: insta(t), fb: t['contact:facebook'] || '', tiktok: t['contact:tiktok'] || '', brand: t.brand || '', address: addrOf(t), city: t['addr:city'] || '', osmUrl: `https://www.openstreetmap.org/${e.type}/${e.id}` };
++					return { id: `${e.type}/${e.id}`, name: t.name, kind: kindOf(t), lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, website: (t.website || t['contact:website'] || t.url || '').trim(), phone: t.phone || t['contact:phone'] || '', email: t.email || t['contact:email'] || '', insta: insta(t), fb: t['contact:facebook'] || '', tiktok: t['contact:tiktok'] || '', brand: t.brand || '', address: addrOf(t), city: t['addr:city'] || '', osmUrl: `https://www.openstreetmap.org/${e.type}/${e.id}`, closed: closedOf(t, t.name), hours: Boolean(t.opening_hours) };
+ 				});
+ 		} catch (e) {
+ 			lastErr = e;
+@@ -222,6 +228,32 @@ function hash(s: string) {
+ const BOOKING_KINDS = /fitness|sports_centre|restaurant|clinic|dentist|driving_school|language_school|hairdresser|beauty|hotel|guest_house/;
+ 
+ /** Find up to `limit` prospects for this agency. `exclude` = ids already seen (pipeline), so each run brings new ones. */
++// ---------- can they pay? ----------
++// Kinds of business that usually have the margin for an agency retainer vs. very small shops.
++const HIGH = /^(lawyer|notary|accountant|architect|estate_agent|insurance|dentist|clinic|clinic_or_praxis|doctors|veterinary|hotel|guest_house|optician|jewelry|furniture|furniture_and_interior|fitness_centre|sports_centre|driving_school|language_school)$/;
++const LOW = /^(ice_cream|kiosk|convenience|takeaway|fast_food)$/;
++function budgetOf(pl: Place, checked: Prospect['checked']): 'high' | 'medium' | 'low' {
++	let pts = HIGH.test(pl.kind) ? 2 : LOW.test(pl.kind) ? -1 : 1;
++	if (pl.website && checked.status && checked.status < 400) pts += 1; // they already pay for a site
++	if (pl.hours) pts += 0.5;
++	if (pl.insta || pl.fb) pts += 0.5;
++	return pts >= 3 ? 'high' : pts >= 1.5 ? 'medium' : 'low';
++}
++const BUDGET_WEIGHT = { high: 1.15, medium: 1, low: 0.75 };
++
++/** Proof links the agency can open itself and show the owner. */
++function proofOf(pl: Place, checked: Prospect['checked'], issues: Issue[]): { label: string; url: string }[] {
++	const out: { label: string; url: string }[] = [];
++	const site = pl.website ? (/^https?:/i.test(pl.website) ? pl.website : `https://${pl.website}`) : '';
++	const has = (k: string) => issues.some((x) => x.key === k);
++	if (site && (has('slow') || has('mobile') || has('title'))) out.push({ label: 'Google PageSpeed test (mobile)', url: `https://pagespeed.web.dev/analysis?url=${encodeURIComponent(site)}&form_factor=mobile` });
++	if (site && has('http')) out.push({ label: 'Open the site: Chrome shows “Not secure”', url: site.replace(/^https:/i, 'http:') });
++	if (site && (has('down') || has('old') || has('builder'))) out.push({ label: 'Open their website', url: site });
++	if (!site || has('no-site')) out.push({ label: 'Search them on Google: no website comes up', url: `https://www.google.com/search?q=${encodeURIComponent(`${pl.name} ${pl.city}`)}` });
++	if (has('no-social') || has('no-insta')) out.push({ label: 'Search them on Instagram', url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(pl.name)}` });
++	return out.slice(0, 3);
++}
++
+ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: Set<string> = new Set()): Promise<ProspectRun> {
+ 	const lang: Lang = profile.lang ?? 'en';
+ 	const center = profile.city ? await geocode(profile.city, profile.country || '') : null;
+@@ -242,8 +274,11 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 	const T = L[lang];
+ 
+ 	// candidates: no chains, not seen before, deterministic shuffle per agency so two agencies don't get the same list
++	// a name seen 3+ times around here = a chain, even without a brand tag
++	const seen = new Map<string, number>();
++	for (const p of places) seen.set(p.name.toLowerCase(), (seen.get(p.name.toLowerCase()) ?? 0) + 1);
+ 	const cands = places
+-		.filter((p) => !p.brand && !exclude.has(p.id))
++		.filter((p) => !p.brand && !p.closed && (seen.get(p.name.toLowerCase()) ?? 0) < 3 && !exclude.has(p.id))
+ 		.map((p) => ({ p, r: hash(profile.url + p.id) }))
+ 		.sort((a, b) => a.r - b.r)
+ 		.map((x) => x.p)
+@@ -287,7 +322,16 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 				}
+ 				if (sells.has('app') && BOOKING_KINDS.test(pl.kind) && !/(apps\.apple\.com|play\.google\.com|calendly|planity|treatwell|resengo|booksy|fresha|zenchef|thefork|opentable|booking\.com|reserv|book now|rendez-vous|boeken)/i.test(html)) add('no-app', 30);
+ 
+-				const score = Math.min(100, issues.reduce((s, x) => s + x.weight, 0));
++				// contacts the map doesn't have, from their own site
++				const email = pl.email || (/mailto:([^"'?\s>]+@[^"'?\s>]+\.[a-z]{2,})/i.exec(html)?.[1] ?? '');
++				const phone = pl.phone || (/href=["']tel:([+\d][\d\s./-]{6,})["']/i.exec(html)?.[1]?.trim() ?? '');
++				const instaUrl = pl.insta || (/((?:https?:\/\/)?(?:www\.)?instagram\.com\/(?!p\/|reel\/|explore\/)[A-Za-z0-9_.]+)/i.exec(html)?.[1] ?? '');
++				// no way to reach them = not a lead; a dead site and no phone usually means the place closed
++				if (!email && !phone && !instaUrl && !pl.fb) return null;
++				if (pl.website && (!checked.status || checked.status >= 400) && !phone && !email) return null;
++
++				const budget = budgetOf(pl, checked);
++				const score = Math.min(100, Math.round(issues.reduce((s, x) => s + x.weight, 0) * BUDGET_WEIGHT[budget]));
+ 				if (score < 15) return null;
+ 				const top = [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => x.label);
+ 				return {
+@@ -299,9 +343,11 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 					lat: pl.lat,
+ 					lon: pl.lon,
+ 					website: pl.website || undefined,
+-					phone: pl.phone || undefined,
+-					email: pl.email || undefined,
+-					instagram: pl.insta || undefined,
++					phone: phone || undefined,
++					email: email || undefined,
++					instagram: instaUrl || undefined,
++					budget,
++					proof: proofOf(pl, checked, issues),
+ 					facebook: pl.fb || undefined,
+ 					score,
+ 					issues,
+@@ -314,7 +360,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 		);
+ 		out.push(...(batch.filter(Boolean) as Prospect[]));
+ 	}
+-	// most in need first; reachable ones (phone/email) before the rest
+-	out.sort((a, b) => b.score - a.score || (b.phone || b.email ? 1 : 0) - (a.phone || a.email ? 1 : 0));
++	// most in need (weighted by budget) first; those you can email before the rest
++	out.sort((a, b) => b.score - a.score || (b.email ? 1 : 0) - (a.email ? 1 : 0) || (b.phone ? 1 : 0) - (a.phone ? 1 : 0));
+ 	return { center, prospects: out.slice(0, limit), scanned: places.length, source };
+ }
+diff --git a/src/routes/app/prospects/+page.svelte b/src/routes/app/prospects/+page.svelte
+index 42e62e5..63ea6b5 100644
+--- a/src/routes/app/prospects/+page.svelte
++++ b/src/routes/app/prospects/+page.svelte
+@@ -87,6 +87,8 @@
+ 								{#if p.phone}<div><dt class="inline text-muted">Phone</dt> <dd class="inline"><a class="underline" href="tel:{p.phone}">{p.phone}</a></dd></div>{/if}
+ 								{#if p.email}<div><dt class="inline text-muted">Email</dt> <dd class="inline">{p.email}</dd></div>{/if}
+ 								{#if p.instagram}<div><dt class="inline text-muted">Instagram</dt> <dd class="inline">{p.instagram}</dd></div>{/if}
++								{#if p.budget}<div><dt class="inline text-muted">Can afford you</dt> <dd class="inline">{p.budget === 'high' ? 'Likely yes' : p.budget === 'medium' ? 'Probably' : 'Small budget'}</dd></div>{/if}
++								{#if p.proof?.length}<div class="pt-1"><dt class="text-muted">Check it yourself, then show the owner</dt>{#each p.proof as pr (pr.url)}<dd><a class="underline" href={pr.url} target="_blank" rel="noopener nofollow">{pr.label} ↗</a></dd>{/each}</div>{/if}
+ 								<div><a class="text-xs text-muted underline" href={p.osmUrl} target="_blank" rel="noopener">See on the map</a></div>
+ 							</dl>
+ 							<div class="mt-4 flex flex-wrap gap-2">
+diff --git a/src/routes/prospects/+page.svelte b/src/routes/prospects/+page.svelte
+index 0095db2..4ed6f8c 100644
+--- a/src/routes/prospects/+page.svelte
++++ b/src/routes/prospects/+page.svelte
+@@ -127,7 +127,11 @@
+ 							</div>
+ 							<ul class="mt-4 flex flex-wrap gap-1.5">
+ 								{#each p.issues as x (x.key)}<li class="rounded-full border border-line px-3 py-1 text-xs text-ink-2">{x.label}</li>{/each}
+-							</ul>
++									{#if p.budget === 'high'}<li class="rounded-full bg-ink px-3 py-1 text-xs text-white">can afford an agency</li>{/if}
++								</ul>
++								{#if p.proof?.length}
++									<p class="mt-3 text-xs text-muted">Check it yourself: {#each p.proof as pr, k (pr.url)}{k ? ' · ' : ''}<a class="underline hover:text-ink" href={pr.url} target="_blank" rel="noopener nofollow">{pr.label}</a>{/each}</p>
++								{/if}
+ 							<div class="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-2">
+ 								{#if p.website}<a href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener nofollow" class="hover:text-ink">↗ Website</a>{/if}
+ 								{#if p.phone}<a href="tel:{p.phone}" class="hover:text-ink">☎ {p.phone}</a>{/if}
+-- 
+2.43.0
+

@@ -31,13 +31,15 @@ export type Prospect = {
 	issues: Issue[];
 	checked: { https?: boolean; mobile?: boolean; ms?: number; title?: string; year?: number; builder?: string; status?: number };
 	pitch: string; // one-line reason
+	budget?: 'high' | 'medium' | 'low'; // can they afford an agency? from the kind of business and what they already invest
+	proof?: { label: string; url: string }[]; // links the agency can open (and show the owner) to check the problem
 	message: string;
 	osmUrl: string;
 };
 export type ProspectRun = { center: { lat: number; lon: number; label: string } | null; prospects: Prospect[]; scanned: number; error?: string; source?: 'geoapify' | 'overpass' };
 
 // A place from any source, normalised
-type Place = { id: string; name: string; kind: string; lat: number; lon: number; website: string; phone: string; email: string; insta: string; fb: string; tiktok: string; brand: string; address: string; city: string; osmUrl: string };
+type Place = { id: string; name: string; kind: string; lat: number; lon: number; website: string; phone: string; email: string; insta: string; fb: string; tiktok: string; brand: string; address: string; city: string; osmUrl: string; closed?: boolean; hours?: boolean };
 
 // ---------- categories per service ----------
 // Geoapify category ids (verified against their API enum) and the equivalent OSM tags for Overpass.
@@ -115,6 +117,8 @@ export async function geocode(city: string, country = '') {
 // ---------- places ----------
 const insta = (t: Record<string, string>) => t['contact:instagram'] || t.instagram || (/(instagram\.com\/[^\s"'?]+)/i.exec(Object.values(t).join(' '))?.[1] ?? '');
 const kindOf = (t: Record<string, string>) => t.amenity || t.shop || t.craft || t.office || t.healthcare || t.leisure || t.tourism || 'business';
+// signs in OpenStreetMap that a place no longer trades
+const closedOf = (t: Record<string, string>, name: string) => Object.keys(t).some((k) => /^(disused|was|abandoned|demolished|removed):/.test(k)) || /^(closed|off)$/i.test(t.opening_hours ?? '') || /\b(ferm[ée]|closed|gesloten|cessation)\b/i.test(name);
 const addrOf = (t: Record<string, string>) => [t['addr:street'] && `${t['addr:street']} ${t['addr:housenumber'] ?? ''}`.trim(), t['addr:postcode'], t['addr:city']].filter(Boolean).join(', ');
 
 async function fromGeoapify(lat: number, lon: number, services: Service[], radius: number): Promise<Place[]> {
@@ -146,7 +150,9 @@ async function fromGeoapify(lat: number, lon: number, services: Service[], radiu
 				brand: pr.brand || t.brand || '',
 				address: pr.address_line2 || addrOf(t),
 				city: pr.city || t['addr:city'] || '',
-				osmUrl: t.osm_id ? `https://www.openstreetmap.org/${osmType}/${t.osm_id}` : ''
+				osmUrl: t.osm_id ? `https://www.openstreetmap.org/${osmType}/${t.osm_id}` : '',
+				closed: closedOf(t, name),
+				hours: Boolean(pr.opening_hours || t.opening_hours)
 			};
 		})
 		.filter(Boolean) as Place[];
@@ -168,7 +174,7 @@ async function fromOverpass(lat: number, lon: number, services: Service[], radiu
 				.filter((e) => e.tags?.name)
 				.map((e): Place => {
 					const t = e.tags;
-					return { id: `${e.type}/${e.id}`, name: t.name, kind: kindOf(t), lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, website: (t.website || t['contact:website'] || t.url || '').trim(), phone: t.phone || t['contact:phone'] || '', email: t.email || t['contact:email'] || '', insta: insta(t), fb: t['contact:facebook'] || '', tiktok: t['contact:tiktok'] || '', brand: t.brand || '', address: addrOf(t), city: t['addr:city'] || '', osmUrl: `https://www.openstreetmap.org/${e.type}/${e.id}` };
+					return { id: `${e.type}/${e.id}`, name: t.name, kind: kindOf(t), lat: e.lat ?? e.center?.lat, lon: e.lon ?? e.center?.lon, website: (t.website || t['contact:website'] || t.url || '').trim(), phone: t.phone || t['contact:phone'] || '', email: t.email || t['contact:email'] || '', insta: insta(t), fb: t['contact:facebook'] || '', tiktok: t['contact:tiktok'] || '', brand: t.brand || '', address: addrOf(t), city: t['addr:city'] || '', osmUrl: `https://www.openstreetmap.org/${e.type}/${e.id}`, closed: closedOf(t, t.name), hours: Boolean(t.opening_hours) };
 				});
 		} catch (e) {
 			lastErr = e;
@@ -222,6 +228,32 @@ function hash(s: string) {
 const BOOKING_KINDS = /fitness|sports_centre|restaurant|clinic|dentist|driving_school|language_school|hairdresser|beauty|hotel|guest_house/;
 
 /** Find up to `limit` prospects for this agency. `exclude` = ids already seen (pipeline), so each run brings new ones. */
+// ---------- can they pay? ----------
+// Kinds of business that usually have the margin for an agency retainer vs. very small shops.
+const HIGH = /^(lawyer|notary|accountant|architect|estate_agent|insurance|dentist|clinic|clinic_or_praxis|doctors|veterinary|hotel|guest_house|optician|jewelry|furniture|furniture_and_interior|fitness_centre|sports_centre|driving_school|language_school)$/;
+const LOW = /^(ice_cream|kiosk|convenience|takeaway|fast_food)$/;
+function budgetOf(pl: Place, checked: Prospect['checked']): 'high' | 'medium' | 'low' {
+	let pts = HIGH.test(pl.kind) ? 2 : LOW.test(pl.kind) ? -1 : 1;
+	if (pl.website && checked.status && checked.status < 400) pts += 1; // they already pay for a site
+	if (pl.hours) pts += 0.5;
+	if (pl.insta || pl.fb) pts += 0.5;
+	return pts >= 3 ? 'high' : pts >= 1.5 ? 'medium' : 'low';
+}
+const BUDGET_WEIGHT = { high: 1.15, medium: 1, low: 0.75 };
+
+/** Proof links the agency can open itself and show the owner. */
+function proofOf(pl: Place, checked: Prospect['checked'], issues: Issue[]): { label: string; url: string }[] {
+	const out: { label: string; url: string }[] = [];
+	const site = pl.website ? (/^https?:/i.test(pl.website) ? pl.website : `https://${pl.website}`) : '';
+	const has = (k: string) => issues.some((x) => x.key === k);
+	if (site && (has('slow') || has('mobile') || has('title'))) out.push({ label: 'Google PageSpeed test (mobile)', url: `https://pagespeed.web.dev/analysis?url=${encodeURIComponent(site)}&form_factor=mobile` });
+	if (site && has('http')) out.push({ label: 'Open the site: Chrome shows “Not secure”', url: site.replace(/^https:/i, 'http:') });
+	if (site && (has('down') || has('old') || has('builder'))) out.push({ label: 'Open their website', url: site });
+	if (!site || has('no-site')) out.push({ label: 'Search them on Google: no website comes up', url: `https://www.google.com/search?q=${encodeURIComponent(`${pl.name} ${pl.city}`)}` });
+	if (has('no-social') || has('no-insta')) out.push({ label: 'Search them on Instagram', url: `https://www.instagram.com/explore/search/keyword/?q=${encodeURIComponent(pl.name)}` });
+	return out.slice(0, 3);
+}
+
 export async function findProspects(profile: AgencyProfile, limit = 5, exclude: Set<string> = new Set()): Promise<ProspectRun> {
 	const lang: Lang = profile.lang ?? 'en';
 	const center = profile.city ? await geocode(profile.city, profile.country || '') : null;
@@ -242,8 +274,11 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: 
 	const T = L[lang];
 
 	// candidates: no chains, not seen before, deterministic shuffle per agency so two agencies don't get the same list
+	// a name seen 3+ times around here = a chain, even without a brand tag
+	const seen = new Map<string, number>();
+	for (const p of places) seen.set(p.name.toLowerCase(), (seen.get(p.name.toLowerCase()) ?? 0) + 1);
 	const cands = places
-		.filter((p) => !p.brand && !exclude.has(p.id))
+		.filter((p) => !p.brand && !p.closed && (seen.get(p.name.toLowerCase()) ?? 0) < 3 && !exclude.has(p.id))
 		.map((p) => ({ p, r: hash(profile.url + p.id) }))
 		.sort((a, b) => a.r - b.r)
 		.map((x) => x.p)
@@ -287,7 +322,16 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: 
 				}
 				if (sells.has('app') && BOOKING_KINDS.test(pl.kind) && !/(apps\.apple\.com|play\.google\.com|calendly|planity|treatwell|resengo|booksy|fresha|zenchef|thefork|opentable|booking\.com|reserv|book now|rendez-vous|boeken)/i.test(html)) add('no-app', 30);
 
-				const score = Math.min(100, issues.reduce((s, x) => s + x.weight, 0));
+				// contacts the map doesn't have, from their own site
+				const email = pl.email || (/mailto:([^"'?\s>]+@[^"'?\s>]+\.[a-z]{2,})/i.exec(html)?.[1] ?? '');
+				const phone = pl.phone || (/href=["']tel:([+\d][\d\s./-]{6,})["']/i.exec(html)?.[1]?.trim() ?? '');
+				const instaUrl = pl.insta || (/((?:https?:\/\/)?(?:www\.)?instagram\.com\/(?!p\/|reel\/|explore\/)[A-Za-z0-9_.]+)/i.exec(html)?.[1] ?? '');
+				// no way to reach them = not a lead; a dead site and no phone usually means the place closed
+				if (!email && !phone && !instaUrl && !pl.fb) return null;
+				if (pl.website && (!checked.status || checked.status >= 400) && !phone && !email) return null;
+
+				const budget = budgetOf(pl, checked);
+				const score = Math.min(100, Math.round(issues.reduce((s, x) => s + x.weight, 0) * BUDGET_WEIGHT[budget]));
 				if (score < 15) return null;
 				const top = [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => x.label);
 				return {
@@ -299,9 +343,11 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: 
 					lat: pl.lat,
 					lon: pl.lon,
 					website: pl.website || undefined,
-					phone: pl.phone || undefined,
-					email: pl.email || undefined,
-					instagram: pl.insta || undefined,
+					phone: phone || undefined,
+					email: email || undefined,
+					instagram: instaUrl || undefined,
+					budget,
+					proof: proofOf(pl, checked, issues),
 					facebook: pl.fb || undefined,
 					score,
 					issues,
@@ -314,7 +360,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: 
 		);
 		out.push(...(batch.filter(Boolean) as Prospect[]));
 	}
-	// most in need first; reachable ones (phone/email) before the rest
-	out.sort((a, b) => b.score - a.score || (b.phone || b.email ? 1 : 0) - (a.phone || a.email ? 1 : 0));
+	// most in need (weighted by budget) first; those you can email before the rest
+	out.sort((a, b) => b.score - a.score || (b.email ? 1 : 0) - (a.email ? 1 : 0) || (b.phone ? 1 : 0) - (a.phone ? 1 : 0));
 	return { center, prospects: out.slice(0, limit), scanned: places.length, source };
 }

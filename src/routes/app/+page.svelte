@@ -5,6 +5,7 @@
 	import { enhance } from '$app/forms';
 	import { act } from '#lib/act.ts';
 	import AgencySetup from '#lib/components/AgencySetup.svelte';
+	import Inbox from '#lib/components/Inbox.svelte';
 	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
 	import { eur, dayLabel, todayIso } from '#lib/biz-format.ts';
 	import { flip } from 'svelte/animate';
@@ -61,7 +62,7 @@
 	const cur = $derived(data.currency);
 	const STAGE_LABEL = { new: 'To contact', contacted: 'Contacted', talking: 'Talking', won: 'Won' } as const;
 	const KIND: Record<string, string> = { meeting: 'Meeting', task: 'Task', followup: 'Follow-up', invoice: 'Invoice' };
-	const todayCount = $derived(data.agenda.filter((a) => a.date <= t).length);
+	const todayCount = $derived(data.inbox.length);
 </script>
 
 <svelte:head><title>Dashboard · Undercut</title></svelte:head>
@@ -78,10 +79,10 @@
 	<section class="flex flex-wrap items-end justify-between gap-6">
 		<div>
 			<p class="label">{hello} · {data.os.profile.name}</p>
-			<h1 class="display mt-2 text-[48px] sm:text-[76px]">Your <em>week</em></h1>
+			<h1 class="display mt-2 text-[48px] sm:text-[76px]"><em>Today</em></h1>
 		</div>
 		<div class="flex flex-wrap gap-x-10 gap-y-4">
-			<div><p class="big text-5xl">{todayCount}</p><p class="mt-1 text-sm text-muted">for today</p></div>
+			<div><p class="big text-5xl">{todayCount}</p><p class="mt-1 text-sm text-muted">to approve</p></div>
 			<div><p class="big text-5xl">{data.openTasks}</p><p class="mt-1 text-sm text-muted">open tasks</p></div>
 			<div><p class="big text-5xl">{eur(data.money.mrr, cur)}</p><p class="mt-1 text-sm text-muted">per month</p></div>
 		</div>
@@ -108,6 +109,8 @@
 			</div>
 		</section>
 	{/if}
+
+	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} brief={data.brief} briefMsg={form?.briefMsg ?? ''} /></div>
 
 	<!-- ask to change: plain-language edits to the dashboard -->
 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">

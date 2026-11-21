@@ -28,19 +28,21 @@ export type Meeting = { id: string; title: string; date: string; time?: string; 
 export type DocLine = { desc: string; qty: number; price: number };
 export type DocKind = 'quote' | 'invoice';
 export type DocStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'paid';
-export type Doc = { id: string; kind: DocKind; number: string; clientId: string; date: string; due?: string; lines: DocLine[]; vat: number; status: DocStatus; notes?: string; paidAt?: string; fromQuote?: string; createdAt: string };
+export type Doc = { id: string; kind: DocKind; number: string; clientId: string; date: string; due?: string; lines: DocLine[]; vat: number; status: DocStatus; notes?: string; paidAt?: string; fromQuote?: string; createdAt: string; reminders?: number; lastReminder?: string };
+/** Money someone owes you, without making the invoice in Undercut (your invoicing tool keeps doing that). */
+export type Payment = { id: string; clientId?: string; who: string; email?: string; label: string; amount: number; due: string; paidAt?: string; reminders: number; lastReminder?: string; createdAt: string };
 export type BizDetails = { legalName?: string; address?: string; vatNumber?: string; iban?: string; email?: string; phone?: string; currency: string; vat: number; payDays: number; footer?: string };
-export type Business = { clients: BizClient[]; tasks: Task[]; meetings: Meeting[]; docs: Doc[]; details: BizDetails };
+export type Business = { clients: BizClient[]; tasks: Task[]; meetings: Meeting[]; docs: Doc[]; payments: Payment[]; details: BizDetails };
 
 const FILE = 'business.json';
-const EMPTY: Business = { clients: [], tasks: [], meetings: [], docs: [], details: { currency: 'EUR', vat: 21, payDays: 30 } };
+const EMPTY: Business = { clients: [], tasks: [], meetings: [], docs: [], payments: [], details: { currency: 'EUR', vat: 21, payDays: 30 } };
 export const uid = () => randomBytes(6).toString('base64url');
 export const today = () => new Date().toISOString().slice(0, 10);
 export const addDays = (d: string, n: number) => new Date(Date.parse(d + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
 
 export function getBiz(): Business {
 	const b = readData<Business>(FILE, EMPTY);
-	return { clients: b.clients ?? [], tasks: b.tasks ?? [], meetings: b.meetings ?? [], docs: b.docs ?? [], details: { ...EMPTY.details, ...(b.details ?? {}) } };
+	return { clients: b.clients ?? [], tasks: b.tasks ?? [], meetings: b.meetings ?? [], docs: b.docs ?? [], payments: b.payments ?? [], details: { ...EMPTY.details, ...(b.details ?? {}) } };
 }
 function save(b: Business) {
 	writeData(FILE, b);
@@ -192,19 +194,54 @@ export function saveDetails(d: Partial<BizDetails>) {
 	});
 }
 
+// ---------- payments waiting (no invoicing needed) ----------
+export function addPayment(p: Omit<Payment, 'id' | 'reminders' | 'createdAt'>) {
+	return edit((b) => {
+		const n: Payment = { ...p, id: uid(), reminders: 0, createdAt: new Date().toISOString() };
+		b.payments.push(n);
+		return n;
+	});
+}
+export function markPaymentPaid(id: string) {
+	edit((b) => {
+		const p = b.payments.find((x) => x.id === id);
+		if (p) p.paidAt = new Date().toISOString();
+		const d = b.docs.find((x) => x.id === id);
+		if (d) {
+			d.status = 'paid';
+			d.paidAt = new Date().toISOString();
+		}
+	});
+}
+export function deletePayment(id: string) {
+	edit((b) => {
+		b.payments = b.payments.filter((p) => p.id !== id);
+	});
+}
+/** A reminder was sent (or skipped for now) for a payment or an invoice. */
+export function remindPayment(id: string, sent: boolean) {
+	edit((b) => {
+		const x = b.payments.find((p) => p.id === id) ?? b.docs.find((d) => d.id === id);
+		if (!x) return;
+		x.lastReminder = today();
+		if (sent) x.reminders = (x.reminders ?? 0) + 1;
+	});
+}
+
 // ---------- numbers for the dashboard ----------
 export function money(b: Business) {
 	const month = today().slice(0, 7);
 	const inv = b.docs.filter((d) => d.kind === 'invoice');
 	const unpaid = inv.filter((d) => d.status === 'sent');
 	const overdue = unpaid.filter((d) => d.due && d.due < today());
+	const waiting = b.payments.filter((p) => !p.paidAt);
 	return {
 		mrr: b.clients.filter((c) => c.status === 'active').reduce((t, c) => t + (c.fee ?? 0), 0),
 		active: b.clients.filter((c) => c.status === 'active').length,
 		paidMonth: inv.filter((d) => d.status === 'paid' && (d.paidAt ?? d.date).startsWith(month)).reduce((t, d) => t + docTotal(d).total, 0),
-		unpaid: unpaid.reduce((t, d) => t + docTotal(d).total, 0),
-		unpaidCount: unpaid.length,
-		overdue: overdue.length,
+		unpaid: unpaid.reduce((t, d) => t + docTotal(d).total, 0) + waiting.reduce((t, p) => t + p.amount, 0),
+		unpaidCount: unpaid.length + waiting.length,
+		overdue: overdue.length + waiting.filter((p) => p.due < today()).length,
 		openQuotes: b.docs.filter((d) => d.kind === 'quote' && d.status === 'sent').reduce((t, d) => t + docTotal(d).net, 0)
 	};
 }

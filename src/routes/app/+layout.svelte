@@ -22,13 +22,15 @@
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	type Item = { href: string; label: string; icon: any; badge?: number };
 	const agencyNav = $derived([
-		{ href: '/app', label: 'Dashboard', icon: 'grid' },
+		{ href: '/app', label: 'Today', icon: 'grid', badge: data.toApprove },
 		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
-		{ href: '/app/crm', label: 'Clients', icon: 'team' },
+		{ href: '/app/crm', label: 'Clients', icon: 'team' }
+	] as Item[]);
+	const moreNav = [
 		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
 		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
 		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
-	] as Item[]);
+	] as Item[];
 	const clientNav = $derived.by(() => {
 		if (!current) return [] as { group: string; items: Item[] }[];
 		const b = `/app/clients/${current.id}`;
@@ -81,7 +83,7 @@
 	>
 		<Icon name={it.icon} />
 		<span class="flex-1 truncate">{it.label}</span>
-		{#if it.badge}<span class="rounded-full bg-bad px-1.5 text-[10px] font-semibold text-white">{it.badge}</span>{/if}
+		{#if it.badge}<span class="rounded-full px-1.5 text-[10px] font-semibold {isActive(it.href) ? 'bg-white text-ink' : 'bg-ink text-white'}">{it.badge}</span>{/if}
 	</a>
 {/snippet}
 
@@ -105,6 +107,10 @@
 
 		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Agency">
 			{#each agencyNav as it (it.href)}{@render link(it)}{/each}
+		</nav>
+		<nav class="mt-4 flex flex-col gap-0.5" aria-label="More">
+			<p class="px-3 pb-1 text-[10px] font-medium tracking-wider text-muted uppercase">More</p>
+			{#each moreNav as it (it.href)}{@render link(it)}{/each}
 		</nav>
 
 		{#if current}

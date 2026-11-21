@@ -5,6 +5,7 @@ import { isAdmin } from '#lib/server/beta.ts';
 import { dbOn } from '#lib/server/db.ts';
 import { getOS } from '#lib/server/agency-os.ts';
 import { themeStyle } from '#lib/theme.ts';
+import { inboxItems } from '#lib/server/inbox.ts';
 
 export const load = ({ locals }) => {
 	const t = getTokens();
@@ -19,6 +20,7 @@ export const load = ({ locals }) => {
 		account: { name: u?.name || 'Agency owner', email: u?.email ?? '', role: u?.role ?? 'owner' },
 		billing: getBilling(),
 		unread: unreadCount(),
+		toApprove: os.profile ? inboxItems().length : 0,
 		beta: dbOn(),
 		isAdmin: dbOn() ? isAdmin(u?.email) : u?.role === 'owner',
 		clients: listClients()

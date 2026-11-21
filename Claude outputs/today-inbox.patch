@@ -1,0 +1,568 @@
+From e49577419d2c6fb06c2982ec7fd9c418c7ac108f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 00:11:01 +0100
+Subject: [PATCH] Today: the 'To approve' inbox (first messages, follow-ups,
+ payment reminders written in the agency's language); payments waiting without
+ invoicing; menu focused on the sales loop
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Inbox.svelte    |  88 ++++++++++++++++++++
+ src/lib/server/agency-os.ts        |  21 +++--
+ src/lib/server/business-actions.ts |  29 +++++++
+ src/lib/server/business.ts         |  51 ++++++++++--
+ src/lib/server/inbox.ts            | 124 +++++++++++++++++++++++++++++
+ src/routes/app/+layout.server.ts   |   2 +
+ src/routes/app/+layout.svelte      |  14 +++-
+ src/routes/app/+page.server.ts     |   2 +
+ src/routes/app/+page.svelte        |   9 ++-
+ 9 files changed, 318 insertions(+), 22 deletions(-)
+ create mode 100644 src/lib/components/Inbox.svelte
+ create mode 100644 src/lib/server/inbox.ts
+
+diff --git a/src/lib/components/Inbox.svelte b/src/lib/components/Inbox.svelte
+new file mode 100644
+index 0000000..5fe286f
+--- /dev/null
++++ b/src/lib/components/Inbox.svelte
+@@ -0,0 +1,88 @@
++<script lang="ts">
++	// "To approve": what Undercut prepared today. Each message can be edited, then sent from the user's own email or copied to a DM.
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	type Item = { key: string; kind: 'first' | 'followup' | 'payment'; id: string; title: string; why: string; to?: string; phone?: string; subject: string; message: string; step?: number; late?: boolean };
++	let { items, clients, error = '' }: { items: Item[]; clients: { id: string; name: string }[]; error?: string } = $props();
++
++	let edited = $state<Record<string, string>>({});
++	let open = $state<string | null>(null);
++	let adding = $state(false);
++	let done = $state<Record<string, string>>({});
++	const text = (it: Item) => edited[it.key] ?? it.message;
++	const TAG: Record<string, (it: Item) => string> = {
++		first: () => 'First message',
++		followup: (it) => `Follow-up ${it.step}`,
++		payment: (it) => (it.step === 2 ? 'Payment reminder 2' : 'Payment reminder')
++	};
++	const mailto = (it: Item) => `mailto:${it.to ?? ''}?subject=${encodeURIComponent(it.subject)}&body=${encodeURIComponent(text(it))}`;
++	const visible = $derived(items.filter((it) => !done[it.key]));
++	const today = new Date().toISOString().slice(0, 10);
++</script>
++
++<section class="card p-5 sm:p-6">
++	<div class="flex flex-wrap items-center justify-between gap-3">
++		<div>
++			<p class="font-medium">To approve <span class="text-sm font-normal text-muted">· {visible.length} for today</span></p>
++			<p class="mt-0.5 text-xs text-muted">Undercut wrote these from your prospects, follow-ups and payments. Read, edit if you want, then send. Nothing goes out without you.</p>
++		</div>
++		<button type="button" class="pill text-sm" onclick={() => (adding = !adding)}>{adding ? 'Close' : '+ Someone owes me money'}</button>
++	</div>
++
++	{#if adding}
++		<form method="POST" action={act('payment')} use:enhance={() => async ({ update, result }) => { await update(); if (result.type === 'success') adding = false; }} class="mt-4 grid gap-3 rounded-[18px] bg-tile p-4 sm:grid-cols-2">
++			<label class="text-sm"><span class="label">Who</span>
++				<select name="clientId" class="input mt-1.5"><option value="">Someone else (type below)</option>{#each clients as c (c.id)}<option value={c.id}>{c.name}</option>{/each}</select>
++			</label>
++			<label class="text-sm"><span class="label">Or their name</span><input name="who" class="input mt-1.5" placeholder="Corner Bakery" /></label>
++			<label class="text-sm"><span class="label">Amount (€)</span><input name="amount" inputmode="decimal" required class="input mt-1.5" placeholder="450" /></label>
++			<label class="text-sm"><span class="label">Due on</span><input name="due" type="date" required value={today} class="input mt-1.5" /></label>
++			<label class="text-sm"><span class="label">What for</span><input name="label" class="input mt-1.5" placeholder="e.g. facture 2026-014 (written in the message)" /></label>
++			<label class="text-sm"><span class="label">Their email (optional)</span><input name="email" type="email" class="input mt-1.5" /></label>
++			{#if error}<p class="text-sm text-bad sm:col-span-2">{error}</p>{/if}
++			<p class="text-xs text-muted sm:col-span-2">Keep invoicing in your usual tool. When the date passes, Undercut writes the reminder for you.</p>
++			<div class="sm:col-span-2"><button class="btn btn-primary text-sm">Save</button></div>
++		</form>
++	{/if}
++
++	<ul class="mt-4 grid gap-2">
++		{#each visible as it (it.key)}
++			<li class="rounded-[18px] border border-line bg-white">
++				<button type="button" class="flex w-full items-center gap-3 p-3.5 text-left" onclick={() => (open = open === it.key ? null : it.key)} aria-expanded={open === it.key}>
++					<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] {it.kind === 'payment' ? 'bg-bad-bg text-bad' : it.kind === 'followup' ? 'bg-tile text-ink' : 'bg-ink text-white'}">{TAG[it.kind](it)}</span>
++					<span class="min-w-0 flex-1"><b class="block truncate text-sm font-medium">{it.title}</b><span class="block truncate text-xs text-muted">{it.why}</span></span>
++					<span class="text-muted">{open === it.key ? '−' : '+'}</span>
++				</button>
++				{#if open === it.key}
++					<div class="border-t border-line p-3.5">
++						<textarea rows="7" class="input text-sm" value={text(it)} oninput={(e) => (edited[it.key] = e.currentTarget.value)} aria-label="Message"></textarea>
++						<form
++							method="POST"
++							action={act('inbox')}
++							class="mt-3 flex flex-wrap items-center gap-2"
++							use:enhance={({ submitter }) => {
++								const how = (submitter as HTMLButtonElement | null)?.dataset.how;
++								if (how === 'mail') window.location.href = mailto(it);
++								if (how === 'copy') navigator.clipboard.writeText(text(it));
++								done[it.key] = how === 'skip' ? 'Skipped' : how === 'copy' ? 'Copied, marked as sent' : 'Marked as sent';
++								return async ({ update }) => update({ reset: false });
++							}}
++						>
++							<input type="hidden" name="kind" value={it.kind} /><input type="hidden" name="id" value={it.id} />
++							{#if it.to}<button name="sent" value="1" data-how="mail" class="btn btn-primary text-sm">Send from my email</button>{/if}
++							<button name="sent" value="1" data-how="copy" class="{it.to ? 'pill' : 'btn btn-primary'} text-sm">Copy {it.kind === 'payment' ? '' : 'for a DM '}& mark sent</button>
++							{#if it.phone}<a href="tel:{it.phone}" class="pill text-sm">Call {it.phone}</a>{/if}
++							<button name="sent" value="0" data-how="skip" class="text-sm text-muted underline">{it.kind === 'first' ? 'Not a fit' : 'Later'}</button>
++						</form>
++						{#if it.kind === 'payment'}
++							<form method="POST" action={act('paid')} use:enhance={() => { done[it.key] = 'Paid'; return async ({ update }) => update({ reset: false }); }} class="mt-2"><input type="hidden" name="id" value={it.id} /><button class="text-xs text-good underline">They paid</button></form>
++						{/if}
++					</div>
++				{/if}
++			</li>
++		{:else}
++			<li class="rounded-[18px] bg-tile p-4 text-sm text-ink-2">All done for today. New prospects, follow-ups and payment reminders appear here when they are due.</li>
++		{/each}
++	</ul>
++	{#if Object.keys(done).length}<p class="mt-3 text-xs text-muted">{Object.values(done).length} handled today. Follow-ups come back here in 4 days if nobody answers.</p>{/if}
++</section>
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index 1b8a393..cb5a504 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -5,7 +5,7 @@ import type { AgencyProfile } from './agency-profile.ts';
+ import { findProspects, type Prospect } from './prospects.ts';
+ 
+ export type Stage = 'new' | 'contacted' | 'talking' | 'won' | 'lost';
+-export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */ };
++export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */; followups?: number /* follow-ups sent after the first message */; contactedAt?: string };
+ export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'tasks' | 'agenda' | 'money' | 'analytics';
+ export const BLOCKS: { id: BlockId; label: string; help: string }[] = [
+ 	{ id: 'prospects', label: 'New prospects', help: 'Local businesses that need what you sell' },
+@@ -30,7 +30,7 @@ export type AgencyOS = {
+ 	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
+ 	layoutV?: number; // version of the block set the saved layout was made for
+ };
+-const LAYOUT_V = 3; // v3: prospects, pipeline, tasks, agenda, clients, revenue, analytics
++const LAYOUT_V = 4; // v4: the sales loop first; tasks, agenda and analytics off by default (add them in Customise)
+ export type Size = 's' | 'm' | 'l' | 'xl';
+ export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', tasks: 'm', agenda: 'm', clients: 'l', money: 's', analytics: 'xl' };
+ const IDS = new Set<string>(['prospects', 'pipeline', 'clients', 'tasks', 'agenda', 'money', 'analytics']);
+@@ -83,11 +83,14 @@ export function setStage(id: string, stage: Stage, note?: string) {
+ }
+ 
+ /** Change a pipeline item (stage, note, follow-up date, value). Contacting someone sets a follow-up in 4 days by default. */
+-export function updateItem(id: string, patch: Partial<Pick<PipelineItem, 'stage' | 'note' | 'next' | 'value'>>) {
++export function updateItem(id: string, patch: Partial<Pick<PipelineItem, 'stage' | 'note' | 'next' | 'value' | 'followups' | 'contactedAt'>>) {
+ 	const s = getOS();
+ 	const p = s.pipeline.find((x) => x.id === id);
+ 	if (!p) return;
+-	if (patch.stage === 'contacted' && p.stage === 'new' && patch.next === undefined && !p.next) patch.next = new Date(Date.now() + 4 * 864e5).toISOString().slice(0, 10);
++	if (patch.stage === 'contacted' && p.stage === 'new') {
++		if (patch.next === undefined && !p.next) patch.next = new Date(Date.now() + 4 * 864e5).toISOString().slice(0, 10);
++		patch.contactedAt = patch.contactedAt ?? new Date().toISOString().slice(0, 10);
++	}
+ 	if (patch.stage === 'won' || patch.stage === 'lost') patch.next = patch.next ?? '';
+ 	Object.assign(p, patch, { updatedAt: new Date().toISOString() });
+ 	if (p.next === '') delete p.next;
+@@ -114,11 +117,13 @@ export function layoutFor(p: AgencyProfile) {
+ 	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;
+ 	const sizes: Partial<Record<BlockId, Size>> = { ...DEFAULT_SIZE };
+ 	const looks = [web && 'a weak website', social && 'weak Instagram / TikTok', app && 'no app or online booking'].filter(Boolean).join(', ');
+-	const why: string[] = [`Prospects around ${p.city || 'you'} with ${looks || 'a weak online presence'}, first message written`, 'Pipeline from first message to signed client', 'Tasks and agenda: meetings, deadlines, follow-ups', 'Clients, quotes and invoices, monthly revenue'];
++	const why: string[] = [`Prospects around ${p.city || 'you'} with ${looks || 'a weak online presence'}, first message written`, 'Every morning: first messages, follow-ups and payment reminders ready to approve', 'Pipeline from first message to signed client', 'Clients and monthly revenue'];
+ 	// rows of 12 columns: what matters most for this mix comes first
+-	blocks.analytics = web || app || brand;
+-	if (blocks.analytics) why.push(app && !web ? 'Your clients’ apps: users, crashes, reviews' : 'Your clients’ sites: visits, leads, heatmaps, SEO fixes');
+-	const order: BlockId[] = app && !web && !social ? ['clients', 'money', 'analytics', 'tasks', 'agenda', 'prospects', 'pipeline'] : ['prospects', 'pipeline', 'tasks', 'agenda', 'clients', 'money', 'analytics'];
++	// v1 focus: the sales loop. Tasks, agenda and analytics stay one click away in Customise.
++	blocks.tasks = false;
++	blocks.agenda = false;
++	blocks.analytics = false;
++	const order: BlockId[] = app && !web && !social ? ['clients', 'money', 'prospects', 'pipeline', 'tasks', 'agenda', 'analytics'] : ['prospects', 'pipeline', 'clients', 'money', 'tasks', 'agenda', 'analytics'];
+ 	return { kind, order, blocks, sizes, why };
+ }
+ 
+diff --git a/src/lib/server/business-actions.ts b/src/lib/server/business-actions.ts
+index a647f3d..24b3ccf 100644
+--- a/src/lib/server/business-actions.ts
++++ b/src/lib/server/business-actions.ts
+@@ -2,6 +2,8 @@
+ import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
+ import { addMeeting, addTask, checkWebsite, createDoc, deleteClient, deleteDoc, deleteMeeting, deleteTask, getBiz, saveClient, saveDetails, saveDoc, setSiteCheck, toggleTask, updateTask, type ClientStatus, type DocLine, type DocStatus } from './business.ts';
+ import { getOS, updateItem } from './agency-os.ts';
++import { addPayment, deletePayment, markPaymentPaid } from './business.ts';
++import { resolveItem, type InboxKind } from './inbox.ts';
+ 
+ type E = RequestEvent;
+ const str = (f: FormData, k: string, n = 200) => String(f.get(k) ?? '').trim().slice(0, n);
+@@ -142,6 +144,33 @@ export const businessActions = {
+ 		deleteDoc(str(await request.formData(), 'id'));
+ 		redirect(303, '/app/invoices');
+ 	},
++	/** "To approve": sent (or skipped) → move the prospect / payment forward. */
++	inbox: async ({ request }: E) => {
++		const f = await request.formData();
++		const kind = str(f, 'kind') as InboxKind;
++		if (!['first', 'followup', 'payment'].includes(kind)) return fail(400, { error: 'Unknown item' });
++		resolveItem(kind, str(f, 'id'), f.get('sent') === '1');
++		return { resolved: str(f, 'id') };
++	},
++	payment: async ({ request }: E) => {
++		const f = await request.formData();
++		const amount = num(f, 'amount');
++		const due = date(f, 'due');
++		const clientId = str(f, 'clientId') || undefined;
++		const c = clientId ? getBiz().clients.find((x) => x.id === clientId) : undefined;
++		const who = c?.name || str(f, 'who', 120);
++		if (!who || !amount || !due) return fail(400, { paymentError: 'Who, how much and the due date, please.' });
++		addPayment({ clientId: c?.id, who, email: str(f, 'email', 160) || c?.email, label: str(f, 'label', 120), amount, due });
++		return { paymentAdded: true };
++	},
++	paid: async ({ request }: E) => {
++		markPaymentPaid(str(await request.formData(), 'id'));
++		return { ok: true };
++	},
++	deletePayment: async ({ request }: E) => {
++		deletePayment(str(await request.formData(), 'id'));
++		return { ok: true };
++	},
+ 	details: async ({ request }: E) => {
+ 		const f = await request.formData();
+ 		const vat = Number(str(f, 'vat').replace(',', '.'));
+diff --git a/src/lib/server/business.ts b/src/lib/server/business.ts
+index b5f80c0..aad4a3a 100644
+--- a/src/lib/server/business.ts
++++ b/src/lib/server/business.ts
+@@ -28,19 +28,21 @@ export type Meeting = { id: string; title: string; date: string; time?: string;
+ export type DocLine = { desc: string; qty: number; price: number };
+ export type DocKind = 'quote' | 'invoice';
+ export type DocStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'paid';
+-export type Doc = { id: string; kind: DocKind; number: string; clientId: string; date: string; due?: string; lines: DocLine[]; vat: number; status: DocStatus; notes?: string; paidAt?: string; fromQuote?: string; createdAt: string };
++export type Doc = { id: string; kind: DocKind; number: string; clientId: string; date: string; due?: string; lines: DocLine[]; vat: number; status: DocStatus; notes?: string; paidAt?: string; fromQuote?: string; createdAt: string; reminders?: number; lastReminder?: string };
++/** Money someone owes you, without making the invoice in Undercut (your invoicing tool keeps doing that). */
++export type Payment = { id: string; clientId?: string; who: string; email?: string; label: string; amount: number; due: string; paidAt?: string; reminders: number; lastReminder?: string; createdAt: string };
+ export type BizDetails = { legalName?: string; address?: string; vatNumber?: string; iban?: string; email?: string; phone?: string; currency: string; vat: number; payDays: number; footer?: string };
+-export type Business = { clients: BizClient[]; tasks: Task[]; meetings: Meeting[]; docs: Doc[]; details: BizDetails };
++export type Business = { clients: BizClient[]; tasks: Task[]; meetings: Meeting[]; docs: Doc[]; payments: Payment[]; details: BizDetails };
+ 
+ const FILE = 'business.json';
+-const EMPTY: Business = { clients: [], tasks: [], meetings: [], docs: [], details: { currency: 'EUR', vat: 21, payDays: 30 } };
++const EMPTY: Business = { clients: [], tasks: [], meetings: [], docs: [], payments: [], details: { currency: 'EUR', vat: 21, payDays: 30 } };
+ export const uid = () => randomBytes(6).toString('base64url');
+ export const today = () => new Date().toISOString().slice(0, 10);
+ export const addDays = (d: string, n: number) => new Date(Date.parse(d + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+ 
+ export function getBiz(): Business {
+ 	const b = readData<Business>(FILE, EMPTY);
+-	return { clients: b.clients ?? [], tasks: b.tasks ?? [], meetings: b.meetings ?? [], docs: b.docs ?? [], details: { ...EMPTY.details, ...(b.details ?? {}) } };
++	return { clients: b.clients ?? [], tasks: b.tasks ?? [], meetings: b.meetings ?? [], docs: b.docs ?? [], payments: b.payments ?? [], details: { ...EMPTY.details, ...(b.details ?? {}) } };
+ }
+ function save(b: Business) {
+ 	writeData(FILE, b);
+@@ -192,19 +194,54 @@ export function saveDetails(d: Partial<BizDetails>) {
+ 	});
+ }
+ 
++// ---------- payments waiting (no invoicing needed) ----------
++export function addPayment(p: Omit<Payment, 'id' | 'reminders' | 'createdAt'>) {
++	return edit((b) => {
++		const n: Payment = { ...p, id: uid(), reminders: 0, createdAt: new Date().toISOString() };
++		b.payments.push(n);
++		return n;
++	});
++}
++export function markPaymentPaid(id: string) {
++	edit((b) => {
++		const p = b.payments.find((x) => x.id === id);
++		if (p) p.paidAt = new Date().toISOString();
++		const d = b.docs.find((x) => x.id === id);
++		if (d) {
++			d.status = 'paid';
++			d.paidAt = new Date().toISOString();
++		}
++	});
++}
++export function deletePayment(id: string) {
++	edit((b) => {
++		b.payments = b.payments.filter((p) => p.id !== id);
++	});
++}
++/** A reminder was sent (or skipped for now) for a payment or an invoice. */
++export function remindPayment(id: string, sent: boolean) {
++	edit((b) => {
++		const x = b.payments.find((p) => p.id === id) ?? b.docs.find((d) => d.id === id);
++		if (!x) return;
++		x.lastReminder = today();
++		if (sent) x.reminders = (x.reminders ?? 0) + 1;
++	});
++}
++
+ // ---------- numbers for the dashboard ----------
+ export function money(b: Business) {
+ 	const month = today().slice(0, 7);
+ 	const inv = b.docs.filter((d) => d.kind === 'invoice');
+ 	const unpaid = inv.filter((d) => d.status === 'sent');
+ 	const overdue = unpaid.filter((d) => d.due && d.due < today());
++	const waiting = b.payments.filter((p) => !p.paidAt);
+ 	return {
+ 		mrr: b.clients.filter((c) => c.status === 'active').reduce((t, c) => t + (c.fee ?? 0), 0),
+ 		active: b.clients.filter((c) => c.status === 'active').length,
+ 		paidMonth: inv.filter((d) => d.status === 'paid' && (d.paidAt ?? d.date).startsWith(month)).reduce((t, d) => t + docTotal(d).total, 0),
+-		unpaid: unpaid.reduce((t, d) => t + docTotal(d).total, 0),
+-		unpaidCount: unpaid.length,
+-		overdue: overdue.length,
++		unpaid: unpaid.reduce((t, d) => t + docTotal(d).total, 0) + waiting.reduce((t, p) => t + p.amount, 0),
++		unpaidCount: unpaid.length + waiting.length,
++		overdue: overdue.length + waiting.filter((p) => p.due < today()).length,
+ 		openQuotes: b.docs.filter((d) => d.kind === 'quote' && d.status === 'sent').reduce((t, d) => t + docTotal(d).net, 0)
+ 	};
+ }
+diff --git a/src/lib/server/inbox.ts b/src/lib/server/inbox.ts
+new file mode 100644
+index 0000000..244d889
+--- /dev/null
++++ b/src/lib/server/inbox.ts
+@@ -0,0 +1,124 @@
++// "To approve": everything Undercut prepared for today, built from the agency's real data.
++// First messages to new prospects, follow-ups that are due, payment reminders. Nothing is sent without the user's click.
++import { getOS, saveOS, type PipelineItem } from './agency-os.ts';
++import { addDays, docTotal, getBiz, remindPayment, today } from './business.ts';
++
++type Lang = 'fr' | 'nl' | 'en';
++export type InboxKind = 'first' | 'followup' | 'payment';
++export type InboxItem = {
++	key: string; // kind:id
++	kind: InboxKind;
++	id: string; // prospect, payment or invoice id
++	title: string;
++	why: string;
++	to?: string; // email
++	phone?: string;
++	subject: string;
++	message: string;
++	step?: number; // follow-up number / reminder number
++	late?: boolean;
++};
++
++const FIRST_PER_DAY = 3;
++const MAX_FOLLOWUPS = 2; // after the first message: 2 follow-ups, then it moves to "Not now"
++
++const money = (n: number, lang: Lang) => new Intl.NumberFormat(lang === 'nl' ? 'nl-BE' : lang === 'fr' ? 'fr-BE' : 'en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
++const date = (d: string, lang: Lang) => new Date(d + 'T12:00:00').toLocaleDateString(lang === 'nl' ? 'nl-BE' : lang === 'fr' ? 'fr-BE' : 'en-GB', { day: 'numeric', month: 'long' });
++
++const FOLLOW: Record<Lang, (step: number, biz: string, agency: string) => { subject: string; text: string }> = {
++	fr: (step, biz, agency) =>
++		step === 1
++			? { subject: `${biz} : suite à mon message`, text: `Bonjour,\n\nJe me permets de revenir vers vous au sujet de mon message de la semaine dernière concernant ${biz}.\n\nSeriez-vous ouvert à un échange de 10 minutes cette semaine ? Je peux vous montrer concrètement ce que j’ai remarqué.\n\nBonne journée,\n${agency}` }
++			: { subject: `${biz} : dernier message`, text: `Bonjour,\n\nDernier petit message de ma part : si ce n’est pas le bon moment, aucun souci.\n\nJe reste disponible si vous souhaitez en parler plus tard.\n\nBelle journée,\n${agency}` },
++	nl: (step, biz, agency) =>
++		step === 1
++			? { subject: `${biz}: opvolging van mijn bericht`, text: `Hallo,\n\nIk kom even terug op mijn bericht van vorige week over ${biz}.\n\nHebt u deze week 10 minuten voor een kort gesprek? Ik toon u graag concreet wat me opviel.\n\nFijne dag,\n${agency}` }
++			: { subject: `${biz}: laatste bericht`, text: `Hallo,\n\nEen laatste berichtje van mij: als het nu niet past, geen probleem.\n\nIk sta klaar als u er later over wilt praten.\n\nFijne dag,\n${agency}` },
++	en: (step, biz, agency) =>
++		step === 1
++			? { subject: `${biz}: following up`, text: `Hi,\n\nJust following up on my message from last week about ${biz}.\n\nWould you be open to a 10-minute call this week? I can show you exactly what I noticed.\n\nBest,\n${agency}` }
++			: { subject: `${biz}: last note`, text: `Hi,\n\nLast note from me: if now isn’t the right time, no problem at all.\n\nHappy to talk whenever it suits you.\n\nBest,\n${agency}` }
++};
++
++const REMIND: Record<Lang, (p: { who: string; label: string; amount: string; due: string; agency: string; step: number; iban?: string }) => { subject: string; text: string }> = {
++	fr: ({ who, label, amount, due, agency, step, iban }) => ({
++		subject: step === 1 ? `Petit rappel : ${label}` : `Rappel : ${label} en attente`,
++		text: step === 1 ? `Bonjour ${who},\n\nPetit rappel concernant ${label} de ${amount}, arrivé(e) à échéance le ${due}.\n\nPourriez-vous me dire quand le paiement sera effectué ?${iban ? `\nIBAN : ${iban}` : ''}\n\nMerci beaucoup,\n${agency}` : `Bonjour ${who},\n\nSauf erreur de ma part, ${label} de ${amount} (échéance le ${due}) n’est toujours pas réglé(e).\n\nMerci de procéder au paiement dans les prochains jours${iban ? ` sur ${iban}` : ''}, ou de me dire s’il y a un souci.\n\nBien à vous,\n${agency}`
++	}),
++	nl: ({ who, label, amount, due, agency, step, iban }) => ({
++		subject: step === 1 ? `Kleine herinnering: ${label}` : `Herinnering: ${label} nog open`,
++		text: step === 1 ? `Hallo ${who},\n\nEen kleine herinnering voor ${label} van ${amount}, vervallen op ${due}.\n\nKunt u laten weten wanneer de betaling gebeurt?${iban ? `\nIBAN: ${iban}` : ''}\n\nAlvast bedankt,\n${agency}` : `Hallo ${who},\n\n${label} van ${amount} (vervallen op ${due}) staat bij mij nog open.\n\nWilt u de betaling de komende dagen uitvoeren${iban ? ` op ${iban}` : ''}, of laten weten als er iets is?\n\nMet vriendelijke groet,\n${agency}`
++	}),
++	en: ({ who, label, amount, due, agency, step, iban }) => ({
++		subject: step === 1 ? `Friendly reminder: ${label}` : `Reminder: ${label} still open`,
++		text: step === 1 ? `Hi ${who},\n\nA friendly reminder about ${label} for ${amount}, due on ${due}.\n\nCould you let me know when the payment will go out?${iban ? `\nIBAN: ${iban}` : ''}\n\nThanks a lot,\n${agency}` : `Hi ${who},\n\nAs far as I can see, ${label} for ${amount} (due ${due}) is still unpaid.\n\nCould you pay it in the next few days${iban ? ` to ${iban}` : ''}, or let me know if anything is wrong?\n\nBest regards,\n${agency}`
++	})
++};
++
++/** Everything to approve today, most urgent first. */
++export function inboxItems(): InboxItem[] {
++	const os = getOS();
++	const b = getBiz();
++	const t = today();
++	const lang: Lang = os.profile?.lang ?? 'en';
++	const agency = os.profile?.name || 'Your agency';
++	const items: InboxItem[] = [];
++
++	// 1) payment reminders: overdue, and no reminder in the last 7 days
++	const recent = (d?: string) => Boolean(d && d > addDays(t, -7));
++	const cname = (id?: string) => (id ? b.clients.find((c) => c.id === id) : undefined);
++	for (const p of b.payments) {
++		if (p.paidAt || p.due >= t || recent(p.lastReminder)) continue;
++		const step = Math.min(2, (p.reminders ?? 0) + 1);
++		const c = cname(p.clientId);
++		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || p.who, label: p.label || (lang === 'fr' ? 'ma facture' : lang === 'nl' ? 'mijn factuur' : 'my invoice'), amount: money(p.amount, lang), due: date(p.due, lang), agency, step, iban: b.details.iban });
++		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
++	}
++	for (const d of b.docs) {
++		if (d.kind !== 'invoice' || d.status !== 'sent' || !d.due || d.due >= t || recent(d.lastReminder)) continue;
++		const c = cname(d.clientId);
++		const step = Math.min(2, (d.reminders ?? 0) + 1);
++		const total = docTotal(d).total;
++		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || c?.name || '', label: lang === 'fr' ? `la facture ${d.number}` : lang === 'nl' ? `factuur ${d.number}` : `invoice ${d.number}`, amount: money(total, lang), due: date(d.due, lang), agency, step, iban: b.details.iban });
++		items.push({ key: `payment:${d.id}`, kind: 'payment', id: d.id, title: `${c?.name ?? 'Client'} owes ${money(total, 'en')}`, why: `Invoice ${d.number} · due ${d.due}`, to: c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
++	}
++
++	// 2) follow-ups that are due; a week after the last follow-up with no answer, the prospect moves to "Not now"
++	let expired = false;
++	for (const p of os.pipeline) if (p.stage === 'contacted' && (p.followups ?? 0) >= MAX_FOLLOWUPS && p.next && p.next <= t) Object.assign(p, { stage: 'lost', next: undefined, updatedAt: new Date().toISOString() }), (expired = true);
++	if (expired) saveOS(os);
++	const due = os.pipeline.filter((p) => p.stage === 'contacted' && p.next && p.next <= t).sort((a, z) => a.next!.localeCompare(z.next!));
++	for (const p of due) {
++		const step = Math.min(MAX_FOLLOWUPS, (p.followups ?? 0) + 1);
++		const m = FOLLOW[lang](step, p.name, agency);
++		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
++	}
++
++	// 3) first messages: the best new prospects, a few a day
++	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, FIRST_PER_DAY);
++	for (const p of fresh) items.push({ key: `first:${p.id}`, kind: 'first', id: p.id, title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}`, to: p.email, phone: p.phone, subject: p.name, message: p.message });
++
++	return items;
++}
++
++/** The user approved (sent) or skipped an item: move the real state forward so it leaves the inbox. */
++export function resolveItem(kind: InboxKind, id: string, sent: boolean) {
++	const t = today();
++	if (kind === 'payment') return remindPayment(id, sent);
++	const s = getOS();
++	const p: PipelineItem | undefined = s.pipeline.find((x) => x.id === id);
++	if (!p) return;
++	const now = new Date().toISOString();
++	if (kind === 'first') {
++		if (sent) Object.assign(p, { stage: 'contacted', contactedAt: t, followups: 0, next: addDays(t, 4), updatedAt: now });
++		else Object.assign(p, { stage: 'lost', next: undefined, note: [p.note, 'Skipped from the inbox'].filter(Boolean).join(' · '), updatedAt: now });
++	} else if (kind === 'followup') {
++		if (sent) {
++			const n = (p.followups ?? 0) + 1;
++			// after the last follow-up, wait a week for an answer (then inboxItems moves it to "Not now")
++			Object.assign(p, { followups: n, next: n >= MAX_FOLLOWUPS ? addDays(t, 7) : addDays(t, 4), updatedAt: now });
++		} else Object.assign(p, { next: addDays(t, 2), updatedAt: now });
++	}
++	if (p.next === undefined) delete p.next;
++	saveOS(s);
++}
+diff --git a/src/routes/app/+layout.server.ts b/src/routes/app/+layout.server.ts
+index 2c4681d..a4a2e59 100644
+--- a/src/routes/app/+layout.server.ts
++++ b/src/routes/app/+layout.server.ts
+@@ -5,6 +5,7 @@ import { isAdmin } from '#lib/server/beta.ts';
+ import { dbOn } from '#lib/server/db.ts';
+ import { getOS } from '#lib/server/agency-os.ts';
+ import { themeStyle } from '#lib/theme.ts';
++import { inboxItems } from '#lib/server/inbox.ts';
+ 
+ export const load = ({ locals }) => {
+ 	const t = getTokens();
+@@ -19,6 +20,7 @@ export const load = ({ locals }) => {
+ 		account: { name: u?.name || 'Agency owner', email: u?.email ?? '', role: u?.role ?? 'owner' },
+ 		billing: getBilling(),
+ 		unread: unreadCount(),
++		toApprove: os.profile ? inboxItems().length : 0,
+ 		beta: dbOn(),
+ 		isAdmin: dbOn() ? isAdmin(u?.email) : u?.role === 'owner',
+ 		clients: listClients()
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 5abcfc6..f342294 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -22,13 +22,15 @@
+ 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 	type Item = { href: string; label: string; icon: any; badge?: number };
+ 	const agencyNav = $derived([
+-		{ href: '/app', label: 'Dashboard', icon: 'grid' },
++		{ href: '/app', label: 'Today', icon: 'grid', badge: data.toApprove },
+ 		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
+-		{ href: '/app/crm', label: 'Clients', icon: 'team' },
++		{ href: '/app/crm', label: 'Clients', icon: 'team' }
++	] as Item[]);
++	const moreNav = [
+ 		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
+ 		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
+ 		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
+-	] as Item[]);
++	] as Item[];
+ 	const clientNav = $derived.by(() => {
+ 		if (!current) return [] as { group: string; items: Item[] }[];
+ 		const b = `/app/clients/${current.id}`;
+@@ -81,7 +83,7 @@
+ 	>
+ 		<Icon name={it.icon} />
+ 		<span class="flex-1 truncate">{it.label}</span>
+-		{#if it.badge}<span class="rounded-full bg-bad px-1.5 text-[10px] font-semibold text-white">{it.badge}</span>{/if}
++		{#if it.badge}<span class="rounded-full px-1.5 text-[10px] font-semibold {isActive(it.href) ? 'bg-white text-ink' : 'bg-ink text-white'}">{it.badge}</span>{/if}
+ 	</a>
+ {/snippet}
+ 
+@@ -106,6 +108,10 @@
+ 		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Agency">
+ 			{#each agencyNav as it (it.href)}{@render link(it)}{/each}
+ 		</nav>
++		<nav class="mt-4 flex flex-col gap-0.5" aria-label="More">
++			<p class="px-3 pb-1 text-[10px] font-medium tracking-wider text-muted uppercase">More</p>
++			{#each moreNav as it (it.href)}{@render link(it)}{/each}
++		</nav>
+ 
+ 		{#if current}
+ 			<nav class="mt-4 flex flex-col gap-0.5 border-t border-line pt-4" aria-label="{current.name} sections">
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index 8a1aef2..3a0b90e 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -3,6 +3,7 @@ import { agencyActions } from '#lib/server/agency-actions.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
+ import { agenda, getBiz, money } from '#lib/server/business.ts';
+ import { analyticsRows } from '#lib/server/analytics-rows.ts';
++import { inboxItems } from '#lib/server/inbox.ts';
+ 
+ export const load = async () => {
+ 	const os = getOS();
+@@ -10,6 +11,7 @@ export const load = async () => {
+ 	const stats = pipelineStats(os);
+ 	const names = Object.fromEntries(b.clients.map((c) => [c.id, c.name]));
+ 	return {
++		inbox: os.profile ? inboxItems() : [],
+ 		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, built: os.built && !os.built.seen ? os.built : null, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
+ 		stats: { counts: stats.counts, wonMonth: stats.wonMonth, wonValue: stats.wonValue, replyRate: stats.replyRate },
+ 		quota: monthlyQuota(),
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index 1657ea2..d160d43 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -5,6 +5,7 @@
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+ 	import AgencySetup from '#lib/components/AgencySetup.svelte';
++	import Inbox from '#lib/components/Inbox.svelte';
+ 	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
+ 	import { eur, dayLabel, todayIso } from '#lib/biz-format.ts';
+ 	import { flip } from 'svelte/animate';
+@@ -61,7 +62,7 @@
+ 	const cur = $derived(data.currency);
+ 	const STAGE_LABEL = { new: 'To contact', contacted: 'Contacted', talking: 'Talking', won: 'Won' } as const;
+ 	const KIND: Record<string, string> = { meeting: 'Meeting', task: 'Task', followup: 'Follow-up', invoice: 'Invoice' };
+-	const todayCount = $derived(data.agenda.filter((a) => a.date <= t).length);
++	const todayCount = $derived(data.inbox.length);
+ </script>
+ 
+ <svelte:head><title>Dashboard · Undercut</title></svelte:head>
+@@ -78,10 +79,10 @@
+ 	<section class="flex flex-wrap items-end justify-between gap-6">
+ 		<div>
+ 			<p class="label">{hello} · {data.os.profile.name}</p>
+-			<h1 class="display mt-2 text-[48px] sm:text-[76px]">Your <em>week</em></h1>
++			<h1 class="display mt-2 text-[48px] sm:text-[76px]"><em>Today</em></h1>
+ 		</div>
+ 		<div class="flex flex-wrap gap-x-10 gap-y-4">
+-			<div><p class="big text-5xl">{todayCount}</p><p class="mt-1 text-sm text-muted">for today</p></div>
++			<div><p class="big text-5xl">{todayCount}</p><p class="mt-1 text-sm text-muted">to approve</p></div>
+ 			<div><p class="big text-5xl">{data.openTasks}</p><p class="mt-1 text-sm text-muted">open tasks</p></div>
+ 			<div><p class="big text-5xl">{eur(data.money.mrr, cur)}</p><p class="mt-1 text-sm text-muted">per month</p></div>
+ 		</div>
+@@ -109,6 +110,8 @@
+ 		</section>
+ 	{/if}
+ 
++	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} /></div>
++
+ 	<!-- ask to change: plain-language edits to the dashboard -->
+ 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
+ 		<span class="hidden pl-3 text-muted sm:block">✦</span>
+-- 
+2.43.0
+

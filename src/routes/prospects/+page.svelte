@@ -127,7 +127,11 @@
 							</div>
 							<ul class="mt-4 flex flex-wrap gap-1.5">
 								{#each p.issues as x (x.key)}<li class="rounded-full border border-line px-3 py-1 text-xs text-ink-2">{x.label}</li>{/each}
-							</ul>
+									{#if p.budget === 'high'}<li class="rounded-full bg-ink px-3 py-1 text-xs text-white">can afford an agency</li>{/if}
+								</ul>
+								{#if p.proof?.length}
+									<p class="mt-3 text-xs text-muted">Check it yourself: {#each p.proof as pr, k (pr.url)}{k ? ' · ' : ''}<a class="underline hover:text-ink" href={pr.url} target="_blank" rel="noopener nofollow">{pr.label}</a>{/each}</p>
+								{/if}
 							<div class="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-2">
 								{#if p.website}<a href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener nofollow" class="hover:text-ink">↗ Website</a>{/if}
 								{#if p.phone}<a href="tel:{p.phone}" class="hover:text-ink">☎ {p.phone}</a>{/if}

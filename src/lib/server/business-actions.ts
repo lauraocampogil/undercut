@@ -1,7 +1,12 @@
 // Form actions for clients, tasks, meetings, quotes and invoices (dashboard + their own pages).
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { addMeeting, addTask, checkWebsite, createDoc, deleteClient, deleteDoc, deleteMeeting, deleteTask, getBiz, saveClient, saveDetails, saveDoc, setSiteCheck, toggleTask, updateTask, type ClientStatus, type DocLine, type DocStatus } from './business.ts';
-import { getOS, updateItem } from './agency-os.ts';
+import { getOS, setBrief, updateItem } from './agency-os.ts';
+import { briefContent } from './brief.ts';
+import { sendEmail, emailReady } from './email.ts';
+import { getAccount } from './store.ts';
+import { addPayment, deletePayment, markPaymentPaid } from './business.ts';
+import { resolveItem, type InboxKind } from './inbox.ts';
 
 type E = RequestEvent;
 const str = (f: FormData, k: string, n = 200) => String(f.get(k) ?? '').trim().slice(0, n);
@@ -141,6 +146,46 @@ export const businessActions = {
 	deleteDoc: async ({ request }: E) => {
 		deleteDoc(str(await request.formData(), 'id'));
 		redirect(303, '/app/invoices');
+	},
+	/** "To approve": sent (or skipped) → move the prospect / payment forward. */
+	inbox: async ({ request }: E) => {
+		const f = await request.formData();
+		const kind = str(f, 'kind') as InboxKind;
+		if (!['first', 'followup', 'payment'].includes(kind)) return fail(400, { error: 'Unknown item' });
+		resolveItem(kind, str(f, 'id'), f.get('sent') === '1');
+		return { resolved: str(f, 'id') };
+	},
+	brief: async ({ request }: E) => {
+		setBrief(String((await request.formData()).get('on')) === '1');
+		return { ok: true };
+	},
+	/** Send today's brief now, to check what it looks like. */
+	briefTest: async ({ url }: E) => {
+		const to = getAccount().email;
+		if (!emailReady()) return fail(400, { briefMsg: 'Email is not set up on the server yet (Resend).' });
+		if (!to) return fail(400, { briefMsg: 'Add your email in My account first.' });
+		const c = briefContent(url.origin);
+		const ok = await sendEmail(to, c.subject || 'Today: nothing to approve', c.html);
+		return { briefMsg: ok ? `Sent to ${to}.` : 'Could not send it. Check the Resend set-up.' };
+	},
+	payment: async ({ request }: E) => {
+		const f = await request.formData();
+		const amount = num(f, 'amount');
+		const due = date(f, 'due');
+		const clientId = str(f, 'clientId') || undefined;
+		const c = clientId ? getBiz().clients.find((x) => x.id === clientId) : undefined;
+		const who = c?.name || str(f, 'who', 120);
+		if (!who || !amount || !due) return fail(400, { paymentError: 'Who, how much and the due date, please.' });
+		addPayment({ clientId: c?.id, who, email: str(f, 'email', 160) || c?.email, label: str(f, 'label', 120), amount, due });
+		return { paymentAdded: true };
+	},
+	paid: async ({ request }: E) => {
+		markPaymentPaid(str(await request.formData(), 'id'));
+		return { ok: true };
+	},
+	deletePayment: async ({ request }: E) => {
+		deletePayment(str(await request.formData(), 'id'));
+		return { ok: true };
 	},
 	details: async ({ request }: E) => {
 		const f = await request.formData();

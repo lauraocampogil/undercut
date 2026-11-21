@@ -5,7 +5,7 @@ import type { AgencyProfile } from './agency-profile.ts';
 import { findProspects, type Prospect } from './prospects.ts';
 
 export type Stage = 'new' | 'contacted' | 'talking' | 'won' | 'lost';
-export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */ };
+export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */; followups?: number /* follow-ups sent after the first message */; contactedAt?: string };
 export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'tasks' | 'agenda' | 'money' | 'analytics';
 export const BLOCKS: { id: BlockId; label: string; help: string }[] = [
 	{ id: 'prospects', label: 'New prospects', help: 'Local businesses that need what you sell' },
@@ -29,8 +29,9 @@ export type AgencyOS = {
 	custom?: boolean; // the user rearranged the dashboard: don't rebuild it automatically
 	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
 	layoutV?: number; // version of the block set the saved layout was made for
+	brief?: boolean; // morning email (on unless turned off)
 };
-const LAYOUT_V = 3; // v3: prospects, pipeline, tasks, agenda, clients, revenue, analytics
+const LAYOUT_V = 4; // v4: the sales loop first; tasks, agenda and analytics off by default (add them in Customise)
 export type Size = 's' | 'm' | 'l' | 'xl';
 export const DEFAULT_SIZE: Record<BlockId, Size> = { prospects: 'l', pipeline: 's', tasks: 'm', agenda: 'm', clients: 'l', money: 's', analytics: 'xl' };
 const IDS = new Set<string>(['prospects', 'pipeline', 'clients', 'tasks', 'agenda', 'money', 'analytics']);
@@ -83,11 +84,14 @@ export function setStage(id: string, stage: Stage, note?: string) {
 }
 
 /** Change a pipeline item (stage, note, follow-up date, value). Contacting someone sets a follow-up in 4 days by default. */
-export function updateItem(id: string, patch: Partial<Pick<PipelineItem, 'stage' | 'note' | 'next' | 'value'>>) {
+export function updateItem(id: string, patch: Partial<Pick<PipelineItem, 'stage' | 'note' | 'next' | 'value' | 'followups' | 'contactedAt'>>) {
 	const s = getOS();
 	const p = s.pipeline.find((x) => x.id === id);
 	if (!p) return;
-	if (patch.stage === 'contacted' && p.stage === 'new' && patch.next === undefined && !p.next) patch.next = new Date(Date.now() + 4 * 864e5).toISOString().slice(0, 10);
+	if (patch.stage === 'contacted' && p.stage === 'new') {
+		if (patch.next === undefined && !p.next) patch.next = new Date(Date.now() + 4 * 864e5).toISOString().slice(0, 10);
+		patch.contactedAt = patch.contactedAt ?? new Date().toISOString().slice(0, 10);
+	}
 	if (patch.stage === 'won' || patch.stage === 'lost') patch.next = patch.next ?? '';
 	Object.assign(p, patch, { updatedAt: new Date().toISOString() });
 	if (p.next === '') delete p.next;
@@ -114,11 +118,13 @@ export function layoutFor(p: AgencyProfile) {
 	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;
 	const sizes: Partial<Record<BlockId, Size>> = { ...DEFAULT_SIZE };
 	const looks = [web && 'a weak website', social && 'weak Instagram / TikTok', app && 'no app or online booking'].filter(Boolean).join(', ');
-	const why: string[] = [`Prospects around ${p.city || 'you'} with ${looks || 'a weak online presence'}, first message written`, 'Pipeline from first message to signed client', 'Tasks and agenda: meetings, deadlines, follow-ups', 'Clients, quotes and invoices, monthly revenue'];
+	const why: string[] = [`Prospects around ${p.city || 'you'} with ${looks || 'a weak online presence'}, first message written`, 'Every morning: first messages, follow-ups and payment reminders ready to approve', 'Pipeline from first message to signed client', 'Clients and monthly revenue'];
 	// rows of 12 columns: what matters most for this mix comes first
-	blocks.analytics = web || app || brand;
-	if (blocks.analytics) why.push(app && !web ? 'Your clients’ apps: users, crashes, reviews' : 'Your clients’ sites: visits, leads, heatmaps, SEO fixes');
-	const order: BlockId[] = app && !web && !social ? ['clients', 'money', 'analytics', 'tasks', 'agenda', 'prospects', 'pipeline'] : ['prospects', 'pipeline', 'tasks', 'agenda', 'clients', 'money', 'analytics'];
+	// v1 focus: the sales loop. Tasks, agenda and analytics stay one click away in Customise.
+	blocks.tasks = false;
+	blocks.agenda = false;
+	blocks.analytics = false;
+	const order: BlockId[] = app && !web && !social ? ['clients', 'money', 'prospects', 'pipeline', 'tasks', 'agenda', 'analytics'] : ['prospects', 'pipeline', 'clients', 'money', 'tasks', 'agenda', 'analytics'];
 	return { kind, order, blocks, sizes, why };
 }
 
@@ -218,6 +224,12 @@ export function setLayout(order: string[], sizes: Record<string, string>, visibl
 	for (const [k, v] of Object.entries(sizes)) if (ok(k) && ['s', 'm', 'l', 'xl'].includes(v)) s.sizes[k] = v as Size;
 	if (visible.length) for (const id of ids) s.blocks[id] = visible.includes(id);
 	s.custom = true;
+	saveOS(s);
+}
+
+export function setBrief(on: boolean) {
+	const s = getOS();
+	s.brief = on;
 	saveOS(s);
 }
 
