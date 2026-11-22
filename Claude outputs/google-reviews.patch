@@ -1,0 +1,297 @@
+From 7adc1769eae026fbc35dd68d833defc604cc64bb Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 23 Nov 2026 00:06:26 +0100
+Subject: [PATCH] =?UTF-8?q?Leads=20read=20their=20own=20Google=20reviews:?=
+ =?UTF-8?q?=201=E2=80=933=20star=20complaints=20an=20agency=20can=20fix=20?=
+ =?UTF-8?q?(hours,=20booking,=20phone,=20website,=20menu,=20photos,=20bein?=
+ =?UTF-8?q?g=20found)=20become=20the=20hook=20of=20the=20first=20message,?=
+ =?UTF-8?q?=20with=20a=20link=20to=20the=20reviews;=20Google's=20website?=
+ =?UTF-8?q?=20and=20phone=20stop=20false=20'no=20website'=20claims;=20rati?=
+ =?UTF-8?q?ng=20shown=20on=20the=20card.=20Needs=20GOOGLE=5FPLACES=5FAPI?=
+ =?UTF-8?q?=5FKEY;=20the=20AI=20reviewer=20also=20looks=20for=20reviews=20?=
+ =?UTF-8?q?on=20the=20web?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/env.ts                  |  1 +
+ src/lib/server/inbox.ts     |  5 ++-
+ src/lib/server/lead-ai.ts   |  8 ++--
+ src/lib/server/prospects.ts | 62 ++++++++++++++++++++++++-----
+ src/lib/server/reviews.ts   | 77 +++++++++++++++++++++++++++++++++++++
+ 5 files changed, 138 insertions(+), 15 deletions(-)
+ create mode 100644 src/lib/server/reviews.ts
+
+diff --git a/src/env.ts b/src/env.ts
+index f338834..6fbe789 100644
+--- a/src/env.ts
++++ b/src/env.ts
+@@ -21,6 +21,7 @@ export const variables = defineEnvVars({
+ 	CRON_SECRET: { schema: optional, description: 'Protects /api/cron (Vercel Cron sends it automatically)' },
+ 	ANTHROPIC_MODEL: { schema: optional, description: 'Optional: Claude model id' },
+ 	SITE_URL: { schema: optional, description: 'Marketing site URL, e.g. https://getundercut.app — the app stays on PUBLIC_BASE_URL (e.g. https://app.getundercut.app). Leave empty to serve everything on one domain' },
++	GOOGLE_PLACES_API_KEY: { schema: optional, description: 'Prospects: Google Maps rating, website and 1–3 star reviews of each lead (Places API New). Without it, the AI reviewer searches reviews on the web' },
+ 	GEOAPIFY_API_KEY: { schema: optional, description: 'Prospects: business listings (OpenStreetMap data via Geoapify). Free: 3000 credits/day' },
+ 	SCHEDULER: { schema: optional, description: 'Set to "off" to disable the built-in daily alerts / weekly digest timer (self-hosting)' },
+ 	SUPABASE_URL: { schema: optional, description: 'Supabase project URL (multi-agency mode). Without it: local JSON files, one workspace' },
+diff --git a/src/lib/server/inbox.ts b/src/lib/server/inbox.ts
+index 7bc41a1..372c976 100644
+--- a/src/lib/server/inbox.ts
++++ b/src/lib/server/inbox.ts
+@@ -114,9 +114,10 @@ export function inboxItems(): InboxItem[] {
+ 			kind: 'first',
+ 			id: p.id,
+ 			name: p.name,
+-			meta: [p.category, p.address || p.city, p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
++			meta: [p.category, p.address || p.city, p.google?.rating ? `★ ${p.google.rating} on Google (${p.google.count ?? 0})` : '', p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
+ 			reasonsTitle: 'Why they need you',
+-			reasons: [...(p.detail ? [p.detail] : []), ...p.issues.map((i) => i.label)].slice(0, 3),
++			// a real customer complaint first, then the biggest problems
++			reasons: [...(p.detail ? [p.detail] : []), ...[...p.issues].sort((a, z) => (z.key === 'review' ? 99 : z.weight) - (a.key === 'review' ? 99 : a.weight)).map((i) => i.label)].slice(0, 3),
+ 			proof: p.proof,
+ 			lang: p.lang ?? lang,
+ 			instagram: p.instagram,
+diff --git a/src/lib/server/lead-ai.ts b/src/lib/server/lead-ai.ts
+index c390baa..c4aa764 100644
+--- a/src/lib/server/lead-ai.ts
++++ b/src/lib/server/lead-ai.ts
+@@ -20,7 +20,7 @@ const clean = (html: string) =>
+ 
+ export const aiReady = () => Boolean(env.ANTHROPIC_API_KEY);
+ 
+-export async function reviewLead(p: { name: string; category: string; city: string; address?: string; website?: string; issues: string[]; html: string; agency: string; services: string[]; lang: Lang; optOut: string }): Promise<Review | null> {
++export async function reviewLead(p: { name: string; category: string; city: string; address?: string; website?: string; issues: string[]; complaints?: string[]; html: string; agency: string; services: string[]; lang: Lang; optOut: string }): Promise<Review | null> {
+ 	if (!env.ANTHROPIC_API_KEY) return null;
+ 	const language = { fr: 'French', nl: 'Dutch', en: 'English' }[p.lang];
+ 	const prompt = `You qualify one sales lead for a small digital agency, then write the first email. Use web search to CHECK the facts before writing.
+@@ -28,12 +28,12 @@ export async function reviewLead(p: { name: string; category: string; city: stri
+ Agency: ${p.agency}. It sells: ${p.services.join(', ')}.
+ Business: ${p.name} (${p.category}), ${p.address || p.city}. Website we know: ${p.website || 'none found on the map'}.
+ What our automatic checks think is missing or weak: ${p.issues.join('; ') || 'nothing'}.
+-Text from their website (may be empty): """${clean(p.html)}"""
++${p.complaints?.length ? `What their own customers wrote in 1–3 star Google reviews (real quotes): ${p.complaints.map((c) => `"${c}"`).join(' / ')}\n` : ''}Text from their website (may be empty): """${clean(p.html)}"""
+ 
+ Steps:
+-1. Search the web for "${p.name} ${p.city}". Find their real website, Instagram and TikTok if they exist. A claim like "no website" or "no TikTok" is FALSE if you find one: never repeat a false claim.
++1. Search the web for "${p.name} ${p.city}". Find their real website, Instagram and TikTok if they exist. A claim like "no website" or "no TikTok" is FALSE if you find one: never repeat a false claim. Also look at what customers say in their reviews (Google, TripAdvisor, Facebook): a low review about something the agency can fix (opening hours wrong or missing, can't book online, nobody answers the phone, website broken, no menu or prices online, photos that don't match, hard to find) is the strongest hook.
+ 2. keep=false if: it is closed, a chain/franchise or a big company, not a local business, or its online presence is already good for what the agency sells (nothing real to improve).
+-3. Write the email in ${language}, 90–130 words, warm and human, no hype, no emojis, no clichés. Structure: one specific thing you noticed that is TRUE (from your search or their site) → what it costs them in customers → what the agency does, in one line → an easy yes: offer to send 3 concrete ideas for free if they reply "yes" (in ${language}). Say they can also call or have you drop by if they prefer. Do NOT ask for a video call or a meeting. Never invent numbers, reviews or names. Sign with "${p.agency}".
++3. Write the email in ${language}, 90–130 words, warm and human, no hype, no emojis, no clichés. Structure: one specific thing you noticed that is TRUE (from your search or their site; if a customer review mentions a fixable problem, open with it: "in your Google reviews, a customer mentions…", short quote of max 15 words or a paraphrase) → what it costs them in customers → what the agency does, in one line → an easy yes: offer to send 3 concrete ideas for free if they reply "yes" (in ${language}). Say they can also call or have you drop by if they prefer. Do NOT ask for a video call or a meeting. Never invent numbers, reviews or names. Never mention complaints about staff, food, prices, cleanliness or service quality, and never blame or shame the owner: only problems a website, booking, Google profile or social media can fix. Sign with "${p.agency}".
+ 4. End the email with this line exactly: "${p.optOut}"
+ 
+ Answer with JSON only:
+diff --git a/src/lib/server/prospects.ts b/src/lib/server/prospects.ts
+index 7722f77..a931a0e 100644
+--- a/src/lib/server/prospects.ts
++++ b/src/lib/server/prospects.ts
+@@ -8,6 +8,7 @@
+ // Chains (brand) are skipped. The agency reviews and sends every message itself.
+ import * as env from '$app/env/private';
+ import { reviewLead } from './lead-ai.ts';
++import { googlePlace, type Complaint, type Topic } from './reviews.ts';
+ import type { AgencyProfile, Service } from './agency-profile.ts';
+ 
+ const UA = 'UndercutBot/1.0 (+https://getundercut.app; prospects)';
+@@ -38,6 +39,8 @@ export type Prospect = {
+ 	reviewed?: boolean; // checked and written by the AI reviewer
+ 	budget?: 'high' | 'medium' | 'low'; // can they afford an agency? from the kind of business and what they already invest
+ 	proof?: { label: string; url: string }[]; // links the agency can open (and show the owner) to check the problem
++	google?: { rating?: number; count?: number; url?: string }; // the business on Google Maps
++	complaint?: Complaint; // what its own customers say on Google that the agency can fix
+ 	message: string;
+ 	osmUrl: string;
+ };
+@@ -74,9 +77,9 @@ const CAT: Record<Lang, Record<string, string>> = {
+ 	nl: { restaurant: 'Restaurant', cafe: 'Café', bar: 'Bar', pub: 'Café', ice_cream: 'IJssalon', dentist: 'Tandarts', doctors: 'Dokter', clinic: 'Kliniek', clinic_or_praxis: 'Praktijk', veterinary: 'Dierenarts', driving_school: 'Rijschool', language_school: 'Taalschool', bakery: 'Bakkerij', butcher: 'Slagerij', hairdresser: 'Kapper', beauty: 'Schoonheidssalon', tattoo: 'Tattooshop', florist: 'Bloemist', clothes: 'Kledingwinkel', clothing: 'Kledingwinkel', optician: 'Opticien', jewelry: 'Juwelier', furniture: 'Meubelwinkel', furniture_and_interior: 'Interieurwinkel', bicycle: 'Fietsenwinkel', deli: 'Delicatessen', drinks: 'Wijnhandel', wine: 'Wijnhandel', chocolate: 'Chocolatier', gift: 'Cadeauwinkel', gift_and_souvenir: 'Cadeauwinkel', cosmetics: 'Cosmetica', carpenter: 'Schrijnwerker', electrician: 'Elektricien', plumber: 'Loodgieter', photographer: 'Fotograaf', lawyer: 'Advocaat', accountant: 'Boekhouder', estate_agent: 'Immokantoor', architect: 'Architect', notary: 'Notaris', insurance: 'Verzekeringen', fitness_centre: 'Fitness', sports_centre: 'Sportcentrum', hotel: 'Hotel', guest_house: 'B&B' }
+ };
+ const L: Record<Lang, Record<string, (x?: string) => string>> = {
+-	en: { 'no-site': () => 'no website found', down: () => 'website not responding', http: () => 'not secure (no https)', mobile: () => 'not mobile-friendly', slow: (x) => `slow on mobile (${x} s)`, old: (x) => `not updated since ${x}`, title: () => 'no Google title', builder: (x) => `built with ${x}`, 'no-insta': () => 'no Instagram linked on the website', 'no-tiktok': () => 'no TikTok linked on the website', 'no-social': () => 'no social media linked on the website', 'no-app': () => 'no app or online booking', 'no-video': () => 'no photos or videos that show the place' },
+-	fr: { 'no-site': () => 'pas de site web trouvé', down: () => 'le site ne répond pas', http: () => 'site non sécurisé (pas de https)', mobile: () => 'site pas adapté au mobile', slow: (x) => `site lent sur mobile (${x} s)`, old: (x) => `pas mis à jour depuis ${x}`, title: () => 'pas de titre Google', builder: (x) => `site fait avec ${x}`, 'no-insta': () => 'pas d’Instagram relié au site', 'no-tiktok': () => 'pas de TikTok relié au site', 'no-social': () => 'aucun réseau social relié au site', 'no-app': () => 'pas d’app ni de réservation en ligne', 'no-video': () => 'pas de photos ni de vidéos qui montrent le lieu' },
+-	nl: { 'no-site': () => 'geen website gevonden', down: () => 'website reageert niet', http: () => 'niet beveiligd (geen https)', mobile: () => 'niet mobielvriendelijk', slow: (x) => `traag op mobiel (${x} s)`, old: (x) => `niet bijgewerkt sinds ${x}`, title: () => 'geen Google-titel', builder: (x) => `gemaakt met ${x}`, 'no-insta': () => 'geen Instagram gelinkt op de website', 'no-tiktok': () => 'geen TikTok gelinkt op de website', 'no-social': () => 'geen sociale media gelinkt op de website', 'no-app': () => 'geen app of online boeking', 'no-video': () => 'geen foto’s of video’s die de zaak tonen' }
++	en: { 'no-site': () => 'no website found', down: () => 'website not responding', http: () => 'not secure (no https)', mobile: () => 'not mobile-friendly', slow: (x) => `slow on mobile (${x} s)`, old: (x) => `not updated since ${x}`, title: () => 'no Google title', builder: (x) => `built with ${x}`, 'no-insta': () => 'no Instagram linked on the website', 'no-tiktok': () => 'no TikTok linked on the website', 'no-social': () => 'no social media linked on the website', 'no-app': () => 'no app or online booking', 'no-video': () => 'no photos or videos that show the place', review: (x) => `a customer on Google: “${x}”` },
++	fr: { 'no-site': () => 'pas de site web trouvé', down: () => 'le site ne répond pas', http: () => 'site non sécurisé (pas de https)', mobile: () => 'site pas adapté au mobile', slow: (x) => `site lent sur mobile (${x} s)`, old: (x) => `pas mis à jour depuis ${x}`, title: () => 'pas de titre Google', builder: (x) => `site fait avec ${x}`, 'no-insta': () => 'pas d’Instagram relié au site', 'no-tiktok': () => 'pas de TikTok relié au site', 'no-social': () => 'aucun réseau social relié au site', 'no-app': () => 'pas d’app ni de réservation en ligne', 'no-video': () => 'pas de photos ni de vidéos qui montrent le lieu', review: (x) => `un client sur Google : « ${x} »` },
++	nl: { 'no-site': () => 'geen website gevonden', down: () => 'website reageert niet', http: () => 'niet beveiligd (geen https)', mobile: () => 'niet mobielvriendelijk', slow: (x) => `traag op mobiel (${x} s)`, old: (x) => `niet bijgewerkt sinds ${x}`, title: () => 'geen Google-titel', builder: (x) => `gemaakt met ${x}`, 'no-insta': () => 'geen Instagram gelinkt op de website', 'no-tiktok': () => 'geen TikTok gelinkt op de website', 'no-social': () => 'geen sociale media gelinkt op de website', 'no-app': () => 'geen app of online boeking', 'no-video': () => 'geen foto’s of video’s die de zaak tonen', review: (x) => `een klant op Google: “${x}”` }
+ };
+ 
+ // first message, shaped by what the agency sells
+@@ -94,21 +97,24 @@ const COST: Record<Lang, Record<Main, string>> = {
+ };
+ // GDPR / good practice: every first message says how to stop receiving them
+ export const OPT_OUT: Record<Lang, string> = { en: 'If you’d rather not hear from me, just reply “no” and I won’t write again.', fr: 'Si vous préférez ne plus recevoir de message de ma part, répondez simplement « non ».', nl: 'Liever geen berichten meer van mij? Antwoord gewoon “nee”.' };
+-type MsgIn = { biz: string; agency: string; issues: string[]; main: Main; category: string; city: string };
++type MsgIn = { biz: string; agency: string; issues: string[]; main: Main; category: string; city: string; review?: string };
+ export const SUBJECT: Record<Lang, (p: MsgIn) => string> = {
+ 	fr: ({ biz, main }) => `${biz} : ${main === 'social' ? 'une idée pour attirer plus de clients via Instagram' : main === 'app' ? 'une idée pour remplir plus facilement votre agenda' : main === 'branding' ? 'une idée pour vous démarquer' : main === 'seo' ? 'une idée pour être mieux trouvé sur Google' : main === 'video' ? 'une idée pour montrer votre lieu' : main === 'ads' ? 'une idée pour attirer les clients du quartier' : 'une idée pour avoir plus de clients via votre site'}`,
+ 	nl: ({ biz, main }) => `${biz}: ${main === 'social' ? 'een idee om meer klanten via Instagram te krijgen' : main === 'app' ? 'een idee om uw agenda makkelijker te vullen' : main === 'branding' ? 'een idee om op te vallen' : main === 'seo' ? 'een idee om beter gevonden te worden op Google' : main === 'video' ? 'een idee om uw zaak te tonen' : main === 'ads' ? 'een idee om klanten uit de buurt aan te trekken' : 'een idee voor meer klanten via uw website'}`,
+ 	en: ({ biz, main }) => `${biz}: ${main === 'social' ? 'an idea to bring in more customers through Instagram' : main === 'app' ? 'an idea to fill your bookings more easily' : main === 'branding' ? 'an idea to stand out' : main === 'seo' ? 'an idea to be found more easily on Google' : main === 'video' ? 'an idea to show off your place' : main === 'ads' ? 'an idea to bring in customers from your area' : 'an idea to get more customers from your website'}`
+ };
+ const MSG: Record<Lang, (p: MsgIn) => string> = {
+-	fr: (p) => `Bonjour,\n\nEn cherchant « ${p.category.toLowerCase()} ${p.city} », j’ai découvert ${p.biz} et j’ai remarqué : ${p.issues.join(' ; ')}.\n${COST.fr[p.main]}\n\nC’est exactement ce que nous faisons chez ${p.agency} : ${VALUE.fr[p.main]}.\n\nJe vous propose quelque chose de simple : je vous envoie gratuitement 3 améliorations concrètes pour ${p.biz}, que vous pourrez appliquer avec ou sans nous. Répondez simplement « oui ».\nSi vous préférez un coup de fil ou que je passe vous voir, dites-moi ce qui vous arrange.\n\nBelle journée,\n${p.agency}\n\n${OPT_OUT.fr}`,
+-	nl: (p) => `Goeiedag,\n\nToen ik zocht op “${p.category.toLowerCase()} ${p.city}”, ontdekte ik ${p.biz} en viel me op: ${p.issues.join('; ')}.\n${COST.nl[p.main]}\n\nDat is precies wat we bij ${p.agency} doen: ${VALUE.nl[p.main]}.\n\nMijn voorstel is eenvoudig: ik stuur u gratis 3 concrete verbeteringen voor ${p.biz}, die u met of zonder ons kunt toepassen. Antwoord gewoon “ja”.\nBelt u liever even, of kom ik eens langs? Zeg maar wat u het beste past.\n\nFijne dag,\n${p.agency}\n\n${OPT_OUT.nl}`,
+-	en: (p) => `Hi,\n\nSearching for “${p.category.toLowerCase()} ${p.city}”, I came across ${p.biz} and noticed: ${p.issues.join('; ')}.\n${COST.en[p.main]}\n\nThat’s exactly what we do at ${p.agency}: ${VALUE.en[p.main]}.\n\nHere’s a simple offer: I’ll send you 3 concrete improvements for ${p.biz}, free, that you can use with or without us. Just reply “yes”.\nIf you’d rather have a quick call or have me drop by, tell me what suits you.\n\nBest,\n${p.agency}\n\n${OPT_OUT.en}`
++	fr: (p) => `Bonjour,\n\nEn cherchant « ${p.category.toLowerCase()} ${p.city} », j’ai découvert ${p.biz} et j’ai remarqué : ${p.issues.join(' ; ')}.\n${p.review ? `Dans vos avis Google, un client écrit d’ailleurs : « ${p.review} ». C’est typiquement le genre de détail qui se règle en ligne.\n` : ''}${COST.fr[p.main]}\n\nC’est exactement ce que nous faisons chez ${p.agency} : ${VALUE.fr[p.main]}.\n\nJe vous propose quelque chose de simple : je vous envoie gratuitement 3 améliorations concrètes pour ${p.biz}, que vous pourrez appliquer avec ou sans nous. Répondez simplement « oui ».\nSi vous préférez un coup de fil ou que je passe vous voir, dites-moi ce qui vous arrange.\n\nBelle journée,\n${p.agency}\n\n${OPT_OUT.fr}`,
++	nl: (p) => `Goeiedag,\n\nToen ik zocht op “${p.category.toLowerCase()} ${p.city}”, ontdekte ik ${p.biz} en viel me op: ${p.issues.join('; ')}.\n${p.review ? `In uw Google-reviews schrijft een klant trouwens: “${p.review}”. Precies zoiets los je online op.\n` : ''}${COST.nl[p.main]}\n\nDat is precies wat we bij ${p.agency} doen: ${VALUE.nl[p.main]}.\n\nMijn voorstel is eenvoudig: ik stuur u gratis 3 concrete verbeteringen voor ${p.biz}, die u met of zonder ons kunt toepassen. Antwoord gewoon “ja”.\nBelt u liever even, of kom ik eens langs? Zeg maar wat u het beste past.\n\nFijne dag,\n${p.agency}\n\n${OPT_OUT.nl}`,
++	en: (p) => `Hi,\n\nSearching for “${p.category.toLowerCase()} ${p.city}”, I came across ${p.biz} and noticed: ${p.issues.join('; ')}.\n${p.review ? `In your Google reviews, a customer also writes: “${p.review}”. That’s exactly the kind of thing that can be fixed online.\n` : ''}${COST.en[p.main]}\n\nThat’s exactly what we do at ${p.agency}: ${VALUE.en[p.main]}.\n\nHere’s a simple offer: I’ll send you 3 concrete improvements for ${p.biz}, free, that you can use with or without us. Just reply “yes”.\nIf you’d rather have a quick call or have me drop by, tell me what suits you.\n\nBest,\n${p.agency}\n\n${OPT_OUT.en}`
+ };
+ 
+ // The message talks about the agency's service that fixes this business's biggest problem
+ // (a web + social agency writes about Instagram to a shop whose problem is Instagram).
+ const ISSUE_SERVICE: Record<string, Main> = { 'no-site': 'web', down: 'web', http: 'web', mobile: 'web', slow: 'web', old: 'web', builder: 'branding', title: 'seo', 'no-social': 'social', 'no-insta': 'social', 'no-tiktok': 'social', 'no-app': 'app', 'no-video': 'video' };
++// a Google complaint about booking → the agency's booking/app offer, about hours → Google profile (SEO), etc.
++const TOPIC_SERVICE: Record<Topic, Main[]> = { hours: ['seo', 'web'], booking: ['app', 'web'], phone: ['web', 'app'], website: ['web', 'seo'], menu: ['web', 'social'], photos: ['video', 'social', 'web'], find: ['seo', 'web', 'ads'] };
++const topicService = (t: Topic, sells: Set<string>, fallback: Main): Main => TOPIC_SERVICE[t].find((m) => sells.has(m)) ?? fallback;
+ function mainFor(issues: Issue[], sells: Set<string>, fallback: Main): Main {
+ 	for (const x of [...issues].sort((a, b) => b.weight - a.weight)) {
+ 		const sv = ISSUE_SERVICE[x.key];
+@@ -365,6 +371,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 
+ 	const out: Prospect[] = [];
+ 	const pages = new Map<string, string>(); // site html per prospect, for the AI reviewer
++	const msgs = new Map<string, MsgIn>(); // message inputs, to rewrite it once we know their Google reviews
+ 	for (let i = 0; i < cands.length && out.length < limit * 3; i += 6) {
+ 		const batch = await Promise.all(
+ 			cands.slice(i, i + 6).map(async (pl): Promise<Prospect | null> => {
+@@ -419,6 +426,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 				// the message speaks the business's language (its site, else its postcode)
+ 				const plang = prospectLang(html, `${pl.address} ${pl.city}`, profile.country || '', lang);
+ 				const mi: MsgIn = { biz: pl.name, agency: profile.name, main: mainFor(issues, sells, main), category: CAT[plang][pl.kind] ?? CAT.en[pl.kind] ?? pl.kind.replace(/_/g, ' '), city: pl.city || profile.city, issues: [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => L[plang][x.key](x.label.match(/[\d.]+(?= s)|\d{4}|Wix|Jimdo/)?.[0])) };
++				msgs.set(pl.id, mi);
+ 				const budget = budgetOf(pl, checked);
+ 				const score = Math.min(100, Math.round(issues.reduce((s, x) => s + x.weight, 0) * (target === 'big' ? BUDGET_WEIGHT_BIG : BUDGET_WEIGHT)[budget]));
+ 				if (score < 15) return null;
+@@ -454,8 +462,44 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 	// most in need (weighted by budget) first; those you can email before the rest
+ 	out.sort((a, b) => b.score - a.score || (b.email ? 1 : 0) - (a.email ? 1 : 0) || (b.phone ? 1 : 0) - (a.phone ? 1 : 0));
+ 	// AI reviewer + writer on the best few: drop what doesn't fit, personalise the first message
+-	const short = out.slice(0, limit + 3);
+-	const reviews = await Promise.all(short.map((p) => reviewLead({ name: p.name, category: p.category, city: p.city, address: p.address, website: p.website, issues: p.issues.map((x) => x.label), html: pages.get(p.id) ?? '', agency: profile.name, services, lang: p.lang ?? lang, optOut: OPT_OUT[p.lang ?? lang] })));
++	// their Google Maps listing: rating, the website/phone Google knows, and what their own customers complain about
++	const short = (
++		await Promise.all(
++			out.slice(0, limit + 3).map(async (p): Promise<Prospect | null> => {
++				const g = await googlePlace(p, sells);
++				if (!g) return p;
++				const pl = p.lang ?? lang;
++				let issues = p.issues;
++				// Google knows their website: never claim there is none
++				if (g.website && !p.website) issues = issues.filter((x) => x.key !== 'no-site');
++				const c = g.complaints[0];
++				if (c) issues = [...issues, { key: 'review', weight: 35, label: L[pl].review(c.quote) }];
++				if (!issues.length) return null;
++				const mi = msgs.get(p.id);
++				const top = [...issues].sort((a, b) => b.weight - a.weight);
++				const next: Prospect = {
++					...p,
++					issues,
++					score: Math.min(100, p.score + (c ? 25 : 0)),
++					pitch: top.slice(0, 2).map((x) => x.label).join(' · '),
++					website: p.website || g.website,
++					phone: p.phone || g.phone,
++					google: { rating: g.rating, count: g.count, url: g.url },
++					complaint: c,
++					proof: [...(c && g.url ? [{ label: pl === 'fr' ? 'Leurs avis Google' : pl === 'nl' ? 'Hun Google-reviews' : 'Their Google reviews', url: g.url }] : []), ...(p.proof ?? [])].slice(0, 3)
++				};
++				if (mi) {
++					const m: MsgIn = { ...mi, main: c ? topicService(c.topic, sells, mi.main) : mi.main, issues: top.filter((x) => x.key !== 'review').slice(0, 2).map((x) => x.label), review: c?.quote };
++					if (!m.issues.length) m.issues = [L[pl].review(c!.quote)];
++					next.message = MSG[pl](m);
++					next.subject = SUBJECT[pl](m);
++				}
++				return next;
++			})
++		)
++	).filter((p): p is Prospect => Boolean(p));
++	short.sort((a, b) => b.score - a.score);
++	const reviews = await Promise.all(short.map((p) => reviewLead({ name: p.name, category: p.category, city: p.city, address: p.address, website: p.website, issues: p.issues.filter((x) => x.key !== 'review').map((x) => x.label), complaints: p.complaint ? [p.complaint.quote] : [], html: pages.get(p.id) ?? '', agency: profile.name, services, lang: p.lang ?? lang, optOut: OPT_OUT[p.lang ?? lang] })));
+ 	const final: Prospect[] = [];
+ 	short.forEach((p, i) => {
+ 		const r = reviews.at(i);
+diff --git a/src/lib/server/reviews.ts b/src/lib/server/reviews.ts
+new file mode 100644
+index 0000000..70fef03
+--- /dev/null
++++ b/src/lib/server/reviews.ts
+@@ -0,0 +1,77 @@
++// What a business's own customers complain about on Google, kept only when it is something an agency can fix
++// (hours, booking, phone, website, menu & prices, photos, being found). Complaints about staff, food or service are never used.
++// Source: Google Places API (New), only when GOOGLE_PLACES_API_KEY is set. One call per shortlisted lead.
++import * as env from '$app/env/private';
++import type { Service } from './agency-profile.ts';
++
++export type Topic = 'hours' | 'booking' | 'phone' | 'website' | 'menu' | 'photos' | 'find';
++export type Complaint = { topic: Topic; rating: number; quote: string; when?: string };
++export type GooglePlace = { rating?: number; count?: number; url?: string; website?: string; phone?: string; complaints: Complaint[] };
++
++export const placesReady = () => Boolean(env.GOOGLE_PLACES_API_KEY);
++
++// words customers use, in French, Dutch and English
++const TOPICS: [Topic, RegExp][] = [
++	['hours', /horaire|heures d.ouverture|indiqu[ée] (comme )?ouvert|trouv[ée] (porte )?ferm|ferm[ée] alors|openingsuren|openingstijden|gesloten terwijl|stond open|opening hours|said (it was )?open|closed when|wrong hours/i],
++	['booking', /r[ée]serv|r[ée]servation en ligne|prendre (un )?rendez-vous|rdv|boeken|reserveren|afspraak maken|book(ing)? online|make a booking|appointment/i],
++	['phone', /t[ée]l[ée]phone|personne ne r[ée]pond|injoignable|ne d[ée]croche|messagerie|telefoon|neemt (de telefoon )?niet op|onbereikbaar|no one (answers|picks up)|never answer|unreachable|phone/i],
++	['website', /site( web| internet)?\b|website|en ligne|webshop|online bestellen|commande en ligne|order online/i],
++	['menu', /\bmenu|la carte\b|prix (affich|pas indiqu)|tarifs?\b|prijslijst|prijzen|price list|prices (weren.t|not) (shown|listed)/i],
++	['photos', /photos? (ne correspond|trompeu)|pas comme sur les photos|foto.s (klopten|kloppen) niet|niet zoals op de foto|looks? nothing like (the )?(photos?|pictures?)|misleading (photos?|pictures?)/i],
++	['find', /introuvable|difficile [àa] trouver|pas trouv[ée] l.adresse|mauvaise adresse|moeilijk te vinden|verkeerd adres|hard to find|couldn.t find|wrong address|gps/i]
++];
++// the agency services that fix each topic
++const FIXES: Record<Topic, Service[]> = { hours: ['seo', 'web'], booking: ['app', 'web'], phone: ['web', 'app'], website: ['web', 'seo'], menu: ['web', 'social'], photos: ['video', 'social', 'web'], find: ['seo', 'web', 'ads'] };
++
++/** The sentence of a review that talks about the topic, short enough to quote. */
++function excerpt(text: string, re: RegExp) {
++	const parts = text.replace(/\s+/g, ' ').split(/(?<=[.!?])\s+/);
++	const s = (parts.find((p) => re.test(p)) ?? text).trim();
++	return s.length > 140 ? s.slice(0, 137).replace(/\s\S*$/, '') + '…' : s;
++}
++
++/** Keep only 1–3 star reviews about something the agency can fix. Most recent first, one per topic. */
++export function complaintsFrom(reviews: { rating?: number; text?: string; when?: string }[], sells: Set<string>): Complaint[] {
++	const out: Complaint[] = [];
++	for (const r of reviews) {
++		if (!r.text || !r.rating || r.rating > 3) continue;
++		const hit = TOPICS.find(([t, re]) => re.test(r.text!) && FIXES[t].some((s) => sells.has(s)) && !out.some((c) => c.topic === t));
++		if (hit) out.push({ topic: hit[0], rating: r.rating, quote: excerpt(r.text, hit[1]), when: r.when });
++	}
++	return out.slice(0, 2);
++}
++
++type Api = {
++	places?: {
++		rating?: number;
++		userRatingCount?: number;
++		googleMapsUri?: string;
++		websiteUri?: string;
++		nationalPhoneNumber?: string;
++		reviews?: { rating?: number; text?: { text?: string }; originalText?: { text?: string }; relativePublishTimeDescription?: string }[];
++	}[];
++};
++
++/** The business on Google Maps (matched by name near its map position): rating, link, website, phone and fixable complaints. */
++export async function googlePlace(p: { name: string; address?: string; city?: string; lat: number; lon: number }, sells: Set<string>): Promise<GooglePlace | null> {
++	if (!env.GOOGLE_PLACES_API_KEY) return null;
++	try {
++		const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
++			method: 'POST',
++			signal: AbortSignal.timeout(10000),
++			headers: {
++				'content-type': 'application/json',
++				'X-Goog-Api-Key': env.GOOGLE_PLACES_API_KEY,
++				'X-Goog-FieldMask': 'places.rating,places.userRatingCount,places.googleMapsUri,places.websiteUri,places.nationalPhoneNumber,places.reviews'
++			},
++			body: JSON.stringify({ textQuery: [p.name, p.address || p.city].filter(Boolean).join(' '), maxResultCount: 1, locationBias: { circle: { center: { latitude: p.lat, longitude: p.lon }, radius: 250 } } })
++		});
++		if (!res.ok) return null;
++		const g = ((await res.json()) as Api).places?.[0];
++		if (!g) return null;
++		const reviews = (g.reviews ?? []).map((r) => ({ rating: r.rating, text: r.originalText?.text || r.text?.text, when: r.relativePublishTimeDescription }));
++		return { rating: g.rating, count: g.userRatingCount, url: g.googleMapsUri, website: g.websiteUri, phone: g.nationalPhoneNumber, complaints: complaintsFrom(reviews, sells) };
++	} catch {
++		return null;
++	}
++}
+-- 
+2.43.0
+

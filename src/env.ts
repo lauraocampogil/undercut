@@ -21,6 +21,7 @@ export const variables = defineEnvVars({
 	CRON_SECRET: { schema: optional, description: 'Protects /api/cron (Vercel Cron sends it automatically)' },
 	ANTHROPIC_MODEL: { schema: optional, description: 'Optional: Claude model id' },
 	SITE_URL: { schema: optional, description: 'Marketing site URL, e.g. https://getundercut.app — the app stays on PUBLIC_BASE_URL (e.g. https://app.getundercut.app). Leave empty to serve everything on one domain' },
+	GOOGLE_PLACES_API_KEY: { schema: optional, description: 'Prospects: Google Maps rating, website and 1–3 star reviews of each lead (Places API New). Without it, the AI reviewer searches reviews on the web' },
 	GEOAPIFY_API_KEY: { schema: optional, description: 'Prospects: business listings (OpenStreetMap data via Geoapify). Free: 3000 credits/day' },
 	SCHEDULER: { schema: optional, description: 'Set to "off" to disable the built-in daily alerts / weekly digest timer (self-hosting)' },
 	SUPABASE_URL: { schema: optional, description: 'Supabase project URL (multi-agency mode). Without it: local JSON files, one workspace' },

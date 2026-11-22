@@ -20,7 +20,7 @@ const clean = (html: string) =>
 
 export const aiReady = () => Boolean(env.ANTHROPIC_API_KEY);
 
-export async function reviewLead(p: { name: string; category: string; city: string; address?: string; website?: string; issues: string[]; html: string; agency: string; services: string[]; lang: Lang; optOut: string }): Promise<Review | null> {
+export async function reviewLead(p: { name: string; category: string; city: string; address?: string; website?: string; issues: string[]; complaints?: string[]; html: string; agency: string; services: string[]; lang: Lang; optOut: string }): Promise<Review | null> {
 	if (!env.ANTHROPIC_API_KEY) return null;
 	const language = { fr: 'French', nl: 'Dutch', en: 'English' }[p.lang];
 	const prompt = `You qualify one sales lead for a small digital agency, then write the first email. Use web search to CHECK the facts before writing.
@@ -28,12 +28,12 @@ export async function reviewLead(p: { name: string; category: string; city: stri
 Agency: ${p.agency}. It sells: ${p.services.join(', ')}.
 Business: ${p.name} (${p.category}), ${p.address || p.city}. Website we know: ${p.website || 'none found on the map'}.
 What our automatic checks think is missing or weak: ${p.issues.join('; ') || 'nothing'}.
-Text from their website (may be empty): """${clean(p.html)}"""
+${p.complaints?.length ? `What their own customers wrote in 1–3 star Google reviews (real quotes): ${p.complaints.map((c) => `"${c}"`).join(' / ')}\n` : ''}Text from their website (may be empty): """${clean(p.html)}"""
 
 Steps:
-1. Search the web for "${p.name} ${p.city}". Find their real website, Instagram and TikTok if they exist. A claim like "no website" or "no TikTok" is FALSE if you find one: never repeat a false claim.
+1. Search the web for "${p.name} ${p.city}". Find their real website, Instagram and TikTok if they exist. A claim like "no website" or "no TikTok" is FALSE if you find one: never repeat a false claim. Also look at what customers say in their reviews (Google, TripAdvisor, Facebook): a low review about something the agency can fix (opening hours wrong or missing, can't book online, nobody answers the phone, website broken, no menu or prices online, photos that don't match, hard to find) is the strongest hook.
 2. keep=false if: it is closed, a chain/franchise or a big company, not a local business, or its online presence is already good for what the agency sells (nothing real to improve).
-3. Write the email in ${language}, 90–130 words, warm and human, no hype, no emojis, no clichés. Structure: one specific thing you noticed that is TRUE (from your search or their site) → what it costs them in customers → what the agency does, in one line → an easy yes: offer to send 3 concrete ideas for free if they reply "yes" (in ${language}). Say they can also call or have you drop by if they prefer. Do NOT ask for a video call or a meeting. Never invent numbers, reviews or names. Sign with "${p.agency}".
+3. Write the email in ${language}, 90–130 words, warm and human, no hype, no emojis, no clichés. Structure: one specific thing you noticed that is TRUE (from your search or their site; if a customer review mentions a fixable problem, open with it: "in your Google reviews, a customer mentions…", short quote of max 15 words or a paraphrase) → what it costs them in customers → what the agency does, in one line → an easy yes: offer to send 3 concrete ideas for free if they reply "yes" (in ${language}). Say they can also call or have you drop by if they prefer. Do NOT ask for a video call or a meeting. Never invent numbers, reviews or names. Never mention complaints about staff, food, prices, cleanliness or service quality, and never blame or shame the owner: only problems a website, booking, Google profile or social media can fix. Sign with "${p.agency}".
 4. End the email with this line exactly: "${p.optOut}"
 
 Answer with JSON only:

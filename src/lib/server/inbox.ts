@@ -114,9 +114,10 @@ export function inboxItems(): InboxItem[] {
 			kind: 'first',
 			id: p.id,
 			name: p.name,
-			meta: [p.category, p.address || p.city, p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
+			meta: [p.category, p.address || p.city, p.google?.rating ? `★ ${p.google.rating} on Google (${p.google.count ?? 0})` : '', p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
 			reasonsTitle: 'Why they need you',
-			reasons: [...(p.detail ? [p.detail] : []), ...p.issues.map((i) => i.label)].slice(0, 3),
+			// a real customer complaint first, then the biggest problems
+			reasons: [...(p.detail ? [p.detail] : []), ...[...p.issues].sort((a, z) => (z.key === 'review' ? 99 : z.weight) - (a.key === 'review' ? 99 : a.weight)).map((i) => i.label)].slice(0, 3),
 			proof: p.proof,
 			lang: p.lang ?? lang,
 			instagram: p.instagram,
