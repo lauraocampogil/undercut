@@ -25,19 +25,20 @@ const MAX_FOLLOWUPS = 2; // after the first message: 2 follow-ups, then it moves
 const money = (n: number, lang: Lang) => new Intl.NumberFormat(lang === 'nl' ? 'nl-BE' : lang === 'fr' ? 'fr-BE' : 'en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
 const date = (d: string, lang: Lang) => new Date(d + 'T12:00:00').toLocaleDateString(lang === 'nl' ? 'nl-BE' : lang === 'fr' ? 'fr-BE' : 'en-GB', { day: 'numeric', month: 'long' });
 
+// follow-ups: short, in the business's language, an easy yes (no call or meeting required)
 const FOLLOW: Record<Lang, (step: number, biz: string, agency: string) => { subject: string; text: string }> = {
 	fr: (step, biz, agency) =>
 		step === 1
-			? { subject: `${biz} : suite à mon message`, text: `Bonjour,\n\nJe me permets de revenir vers vous au sujet de mon message de la semaine dernière concernant ${biz}.\n\nSeriez-vous ouvert à un échange de 10 minutes cette semaine ? Je peux vous montrer concrètement ce que j’ai remarqué.\n\nBonne journée,\n${agency}` }
-			: { subject: `${biz} : dernier message`, text: `Bonjour,\n\nDernier petit message de ma part : si ce n’est pas le bon moment, aucun souci.\n\nJe reste disponible si vous souhaitez en parler plus tard.\n\nBelle journée,\n${agency}` },
+			? { subject: `${biz} : vos 3 idées`, text: `Bonjour,\n\nJe reviens vers vous au sujet de mon message de la semaine dernière.\n\nLes 3 améliorations pour ${biz} sont prêtes : voulez-vous que je vous les envoie ? Elles sont gratuites et vous pourrez les appliquer avec ou sans nous. Un simple « oui » suffit.\n\nBelle journée,\n${agency}` }
+			: { subject: `${biz} : je ne vous dérange plus`, text: `Bonjour,\n\nDernier message de ma part : si ce n’est pas le moment, aucun souci, je ne vous relancerai plus.\n\nSi un jour vous voulez les idées pour ${biz}, répondez simplement à ce message.\n\nBelle journée,\n${agency}` },
 	nl: (step, biz, agency) =>
 		step === 1
-			? { subject: `${biz}: opvolging van mijn bericht`, text: `Hallo,\n\nIk kom even terug op mijn bericht van vorige week over ${biz}.\n\nHebt u deze week 10 minuten voor een kort gesprek? Ik toon u graag concreet wat me opviel.\n\nFijne dag,\n${agency}` }
-			: { subject: `${biz}: laatste bericht`, text: `Hallo,\n\nEen laatste berichtje van mij: als het nu niet past, geen probleem.\n\nIk sta klaar als u er later over wilt praten.\n\nFijne dag,\n${agency}` },
+			? { subject: `${biz}: uw 3 ideeën`, text: `Goeiedag,\n\nIk kom even terug op mijn bericht van vorige week.\n\nDe 3 verbeteringen voor ${biz} liggen klaar: zal ik ze u sturen? Ze zijn gratis en u kunt ze met of zonder ons toepassen. Een eenvoudig “ja” volstaat.\n\nFijne dag,\n${agency}` }
+			: { subject: `${biz}: ik stoor niet langer`, text: `Goeiedag,\n\nLaatste bericht van mij: past het nu niet, geen probleem, ik stuur u niets meer.\n\nWilt u de ideeën voor ${biz} later toch, antwoord dan gewoon op dit bericht.\n\nFijne dag,\n${agency}` },
 	en: (step, biz, agency) =>
 		step === 1
-			? { subject: `${biz}: following up`, text: `Hi,\n\nJust following up on my message from last week about ${biz}.\n\nWould you be open to a 10-minute call this week? I can show you exactly what I noticed.\n\nBest,\n${agency}` }
-			: { subject: `${biz}: last note`, text: `Hi,\n\nLast note from me: if now isn’t the right time, no problem at all.\n\nHappy to talk whenever it suits you.\n\nBest,\n${agency}` }
+			? { subject: `${biz}: your 3 ideas`, text: `Hi,\n\nJust following up on my message from last week.\n\nThe 3 improvements for ${biz} are ready: shall I send them over? They’re free and you can use them with or without us. A simple “yes” is enough.\n\nBest,\n${agency}` }
+			: { subject: `${biz}: I won’t bother you again`, text: `Hi,\n\nLast note from me: if now isn’t the time, no problem, I won’t follow up again.\n\nIf you’d like the ideas for ${biz} later, just reply to this email.\n\nBest,\n${agency}` }
 };
 
 const REMIND: Record<Lang, (p: { who: string; label: string; amount: string; due: string; agency: string; step: number; iban?: string }) => { subject: string; text: string }> = {
@@ -90,13 +91,13 @@ export function inboxItems(): InboxItem[] {
 	const due = os.pipeline.filter((p) => p.stage === 'contacted' && p.next && p.next <= t).sort((a, z) => a.next!.localeCompare(z.next!));
 	for (const p of due) {
 		const step = Math.min(MAX_FOLLOWUPS, (p.followups ?? 0) + 1);
-		const m = FOLLOW[lang](step, p.name, agency);
+		const m = FOLLOW[p.lang ?? lang](step, p.name, agency);
 		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
 	}
 
 	// 3) first messages: the best new prospects, a few a day
 	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, FIRST_PER_DAY);
-	for (const p of fresh) items.push({ key: `first:${p.id}`, kind: 'first', id: p.id, title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.budget === 'high' ? ' · can afford you' : ''}`, to: p.email, phone: p.phone, subject: p.name, message: p.message });
+	for (const p of fresh) items.push({ key: `first:${p.id}`, kind: 'first', id: p.id, title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });
 
 	return items;
 }

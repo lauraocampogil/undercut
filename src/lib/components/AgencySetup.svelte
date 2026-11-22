@@ -2,7 +2,7 @@
 	// "Paste your agency's URL" — first step of the agency cockpit, and the place to correct what we detected.
 	import { enhance } from '$app/forms';
 	import { act } from '#lib/act.ts';
-	type Profile = { url: string; name: string; services: string[]; city: string; needs?: string } | null;
+	type Profile = { url: string; name: string; services: string[]; city: string; needs?: string; target?: 'small' | 'big' | 'any' } | null;
 	let { profile, error = '', dark = true, onsaved }: { profile: Profile; error?: string; dark?: boolean; onsaved?: () => void } = $props();
 	let busy = $state(false);
 	const steps = ['Reading your website…', 'Understanding what you sell…', 'Finding your city and language…', 'Choosing the blocks you need…', 'Building your dashboard…'];
@@ -19,7 +19,8 @@
 		['social', 'Social media'],
 		['seo', 'SEO'],
 		['branding', 'Branding'],
-		['ads', 'Ads']
+		['ads', 'Ads'],
+		['video', 'Photo & video']
 	] as const;
 	const field = $derived(dark ? 'bg-white/10 text-white placeholder:text-white/35' : 'bg-tile text-ink placeholder:text-muted');
 </script>
@@ -54,6 +55,15 @@
 					<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={profile.services.includes(k)} class="peer sr-only" /><span class="inline-block rounded-full px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink {dark ? 'bg-white/10' : 'bg-tile'}">{l}</span></label>
 				{/each}
 			</div>
+		</div>
+		<div>
+			<p class="text-sm {dark ? 'text-white/60' : 'label'}">Which businesses do you want as clients?</p>
+			<div class="mt-2 flex flex-wrap gap-2">
+				{#each [['small', 'Small local businesses'], ['big', 'Bigger companies'], ['any', 'Both']] as [k, l] (k)}
+					<label class="cursor-pointer"><input type="radio" name="target" value={k} checked={(profile.target ?? 'small') === k} class="peer sr-only" /><span class="inline-block rounded-full px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink {dark ? 'bg-white/10' : 'bg-tile'}">{l}</span></label>
+				{/each}
+			</div>
+			<p class="mt-1.5 text-xs {dark ? 'text-white/45' : 'text-muted'}">Small: shops, restaurants, salons, independents. Bigger: hotels, clinics, law and accounting firms, offices.</p>
 		</div>
 		{#if profile.needs}<p class="text-sm {dark ? 'text-accent' : 'text-warn'}">{profile.needs}</p>{/if}
 	{/if}

@@ -3,7 +3,7 @@
 // Optional: Claude refines the result when ANTHROPIC_API_KEY is set.
 import * as env from '$app/env/private';
 
-export type Service = 'web' | 'app' | 'social' | 'seo' | 'branding' | 'ads';
+export type Service = 'web' | 'app' | 'social' | 'seo' | 'branding' | 'ads' | 'video';
 export type AgencyProfile = {
 	url: string;
 	name: string;
@@ -16,9 +16,10 @@ export type AgencyProfile = {
 	needs?: string; // what could not be detected
 	color?: string; // brand colour found on the site (#rrggbb)
 	platform?: string; // when built from a social profile: Instagram, TikTok, LinkedIn…
+	target?: 'small' | 'big' | 'any'; // which businesses the agency wants as prospects (default: small local businesses)
 };
 
-export const SERVICE_LABEL: Record<Service, string> = { web: 'Websites', app: 'Mobile apps', social: 'Social media', seo: 'SEO', branding: 'Branding & design', ads: 'Ads' };
+export const SERVICE_LABEL: Record<Service, string> = { web: 'Websites', app: 'Mobile apps', social: 'Social media', seo: 'SEO', branding: 'Branding & design', ads: 'Ads', video: 'Photo & video' };
 
 const DICT: Record<Service, RegExp> = {
 	web: /\b(site(s)? (web|internet|vitrine)|website|webdesign|web design|webdevelop|développement web|creation de site|création de site|wordpress|webflow|shopify|e-?commerce|webshop|landing page|websites?)\b/i,
@@ -26,6 +27,7 @@ const DICT: Record<Service, RegExp> = {
 	social: /\b(réseaux sociaux|reseaux sociaux|social media|community manag|instagram|tiktok|facebook|linkedin|sociale media|contenu|content creat|influen)/i,
 	seo: /\b(seo|référencement|referencement|zoekmachine|search engine|google ads|sea)\b/i,
 	branding: /\b(branding|identité visuelle|identite visuelle|logo|graphi|design graphique|huisstijl|brand identity)\b/i,
+	video: /\b(vidéo|video|vidéaste|videograph|photograph|photographe|fotograaf|shooting|tournage|montage|motion design|reels?|film)\b/i,
 	ads: /\b(publicité|publicite|ads|advertising|campagne(s)? (meta|google)|adverteren|paid media|meta ads|google ads)\b/i
 };
 

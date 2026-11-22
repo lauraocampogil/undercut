@@ -15,7 +15,7 @@ function allow(ip: string) {
 	if (hits.size > 5000) hits.clear();
 	return true;
 }
-const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
+const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', 'video'];
 
 export const load = ({ url }) => ({ url: url.searchParams.get('url') ?? '' });
 

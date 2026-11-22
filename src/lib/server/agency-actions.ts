@@ -4,7 +4,7 @@ import { profileFromUrl, type Service } from './agency-profile.ts';
 import { applyAsk, dismissBuilt, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
 import { isHex } from '#lib/theme.ts';
 
-const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
+const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', 'video'];
 const STAGES: Stage[] = ['new', 'contacted', 'talking', 'won', 'lost'];
 type E = RequestEvent;
 
@@ -29,6 +29,8 @@ export const agencyActions = {
 		if (f.has('city')) p.city = city || p.city;
 		if (f.has('name') && name) p.name = name;
 		if (f.has('servicesSent')) p.services = picked.length ? picked : p.services;
+		const t = String(f.get('target') ?? '');
+		if (t === 'small' || t === 'big' || t === 'any') p.target = t;
 		p.needs = p.city ? undefined : p.needs || 'Which city do you work in?';
 		setProfile(p);
 		return { setupOk: true };

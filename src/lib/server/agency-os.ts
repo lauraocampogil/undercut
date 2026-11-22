@@ -112,7 +112,8 @@ export function layoutFor(p: AgencyProfile) {
 	const social = has('social');
 	const app = has('app');
 	const brand = has('branding');
-	const parts = [web && 'Web', social && 'Social media', app && 'Apps', brand && !web && 'Branding'].filter(Boolean) as string[];
+	const video = has('video');
+	const parts = [web && 'Web', social && 'Social media', app && 'Apps', video && 'Photo & video', brand && !web && 'Branding'].filter(Boolean) as string[];
 	const kind = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} & ${parts.at(-1)} agency` : parts[0] === 'Apps' ? 'App studio' : `${parts[0] ?? 'Web'} agency`;
 
 	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;

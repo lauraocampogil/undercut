@@ -94,7 +94,7 @@
 			<p class="text-sm text-white/60">✦ Built from {p.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</p>
 			<h2 class="mt-2 text-[28px] leading-tight font-medium tracking-[-0.03em] sm:text-[34px]">We built this dashboard for {p.name}.</h2>
 			<div class="mt-5 flex flex-wrap gap-2 text-sm">
-				{#each [data.os.built.kind, p.city, p.services.map((x) => ({ web: 'Websites', app: 'Apps', social: 'Social media', seo: 'SEO', branding: 'Branding', ads: 'Ads' })[x] ?? x).join(', '), { fr: 'Français', nl: 'Nederlands', en: 'English' }[p.lang]].filter(Boolean) as t, i (i)}
+				{#each [data.os.built.kind, p.city, p.services.map((x) => ({ web: 'Websites', app: 'Apps', social: 'Social media', seo: 'SEO', branding: 'Branding', ads: 'Ads', video: 'Photo & video' })[x] ?? x).join(', '), { fr: 'Français', nl: 'Nederlands', en: 'English' }[p.lang]].filter(Boolean) as t, i (i)}
 					<span class="rounded-full bg-white/10 px-3 py-1.5 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{i * 120}ms">{t}</span>
 				{/each}
 				{#if data.accent}<span class="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5"><span class="size-3 rounded-full" style="background:{data.accent}"></span>Your colour</span>{/if}

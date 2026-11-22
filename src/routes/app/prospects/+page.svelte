@@ -27,7 +27,7 @@
 		setTimeout(() => (copied = ''), 1600);
 	};
 	const mailto = (p: (typeof data.pipeline)[number]) => `mailto:${p.email}?subject=${encodeURIComponent(p.name)}&body=${encodeURIComponent(p.message)}`;
-	const SERVICE: Record<string, string> = { web: 'websites', app: 'apps', social: 'social media', seo: 'SEO', branding: 'branding', ads: 'ads' };
+	const SERVICE: Record<string, string> = { web: 'websites', app: 'apps', social: 'social media', seo: 'SEO', branding: 'branding', ads: 'ads', video: 'photo & video' };
 </script>
 
 <svelte:head><title>Prospects · Undercut</title></svelte:head>

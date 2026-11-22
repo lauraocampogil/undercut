@@ -1,0 +1,260 @@
+From d96b7c494517ec7d427d301483f5bd51786486e5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 15:13:02 +0100
+Subject: [PATCH] Messages fit every kind of agency: the service that fixes
+ each business's biggest problem (web, social, SEO, ads, branding, apps); new
+ photo & video agencies with their own check
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/AgencySetup.svelte |  3 +-
+ src/lib/server/agency-actions.ts      |  2 +-
+ src/lib/server/agency-os.ts           |  3 +-
+ src/lib/server/agency-profile.ts      |  5 +--
+ src/lib/server/prospects.ts           | 47 ++++++++++++++++++---------
+ src/routes/app/+page.svelte           |  2 +-
+ src/routes/app/prospects/+page.svelte |  2 +-
+ src/routes/prospects/+page.server.ts  |  2 +-
+ src/routes/prospects/+page.svelte     |  3 +-
+ 9 files changed, 45 insertions(+), 24 deletions(-)
+
+diff --git a/src/lib/components/AgencySetup.svelte b/src/lib/components/AgencySetup.svelte
+index b7602d2..a82e558 100644
+--- a/src/lib/components/AgencySetup.svelte
++++ b/src/lib/components/AgencySetup.svelte
+@@ -19,7 +19,8 @@
+ 		['social', 'Social media'],
+ 		['seo', 'SEO'],
+ 		['branding', 'Branding'],
+-		['ads', 'Ads']
++		['ads', 'Ads'],
++		['video', 'Photo & video']
+ 	] as const;
+ 	const field = $derived(dark ? 'bg-white/10 text-white placeholder:text-white/35' : 'bg-tile text-ink placeholder:text-muted');
+ </script>
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index 3b2d451..e0aba02 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -4,7 +4,7 @@ import { profileFromUrl, type Service } from './agency-profile.ts';
+ import { applyAsk, dismissBuilt, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
+ import { isHex } from '#lib/theme.ts';
+ 
+-const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
++const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', 'video'];
+ const STAGES: Stage[] = ['new', 'contacted', 'talking', 'won', 'lost'];
+ type E = RequestEvent;
+ 
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index e706516..353d55e 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -112,7 +112,8 @@ export function layoutFor(p: AgencyProfile) {
+ 	const social = has('social');
+ 	const app = has('app');
+ 	const brand = has('branding');
+-	const parts = [web && 'Web', social && 'Social media', app && 'Apps', brand && !web && 'Branding'].filter(Boolean) as string[];
++	const video = has('video');
++	const parts = [web && 'Web', social && 'Social media', app && 'Apps', video && 'Photo & video', brand && !web && 'Branding'].filter(Boolean) as string[];
+ 	const kind = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} & ${parts.at(-1)} agency` : parts[0] === 'Apps' ? 'App studio' : `${parts[0] ?? 'Web'} agency`;
+ 
+ 	const blocks = Object.fromEntries(BLOCKS.map((b) => [b.id, true])) as Record<BlockId, boolean>;
+diff --git a/src/lib/server/agency-profile.ts b/src/lib/server/agency-profile.ts
+index 010c53b..445dd39 100644
+--- a/src/lib/server/agency-profile.ts
++++ b/src/lib/server/agency-profile.ts
+@@ -3,7 +3,7 @@
+ // Optional: Claude refines the result when ANTHROPIC_API_KEY is set.
+ import * as env from '$app/env/private';
+ 
+-export type Service = 'web' | 'app' | 'social' | 'seo' | 'branding' | 'ads';
++export type Service = 'web' | 'app' | 'social' | 'seo' | 'branding' | 'ads' | 'video';
+ export type AgencyProfile = {
+ 	url: string;
+ 	name: string;
+@@ -19,7 +19,7 @@ export type AgencyProfile = {
+ 	target?: 'small' | 'big' | 'any'; // which businesses the agency wants as prospects (default: small local businesses)
+ };
+ 
+-export const SERVICE_LABEL: Record<Service, string> = { web: 'Websites', app: 'Mobile apps', social: 'Social media', seo: 'SEO', branding: 'Branding & design', ads: 'Ads' };
++export const SERVICE_LABEL: Record<Service, string> = { web: 'Websites', app: 'Mobile apps', social: 'Social media', seo: 'SEO', branding: 'Branding & design', ads: 'Ads', video: 'Photo & video' };
+ 
+ const DICT: Record<Service, RegExp> = {
+ 	web: /\b(site(s)? (web|internet|vitrine)|website|webdesign|web design|webdevelop|développement web|creation de site|création de site|wordpress|webflow|shopify|e-?commerce|webshop|landing page|websites?)\b/i,
+@@ -27,6 +27,7 @@ const DICT: Record<Service, RegExp> = {
+ 	social: /\b(réseaux sociaux|reseaux sociaux|social media|community manag|instagram|tiktok|facebook|linkedin|sociale media|contenu|content creat|influen)/i,
+ 	seo: /\b(seo|référencement|referencement|zoekmachine|search engine|google ads|sea)\b/i,
+ 	branding: /\b(branding|identité visuelle|identite visuelle|logo|graphi|design graphique|huisstijl|brand identity)\b/i,
++	video: /\b(vidéo|video|vidéaste|videograph|photograph|photographe|fotograaf|shooting|tournage|montage|motion design|reels?|film)\b/i,
+ 	ads: /\b(publicité|publicite|ads|advertising|campagne(s)? (meta|google)|adverteren|paid media|meta ads|google ads)\b/i
+ };
+ 
+diff --git a/src/lib/server/prospects.ts b/src/lib/server/prospects.ts
+index 29d6af8..7722f77 100644
+--- a/src/lib/server/prospects.ts
++++ b/src/lib/server/prospects.ts
+@@ -54,6 +54,7 @@ const GEO: Record<Service, string[]> = {
+ 	social: ['catering.restaurant', 'catering.cafe', 'catering.bar', 'catering.ice_cream', 'service.beauty', 'service.beauty.hairdresser', 'service.beauty.tattoo', 'commercial.clothing', 'commercial.florist', 'commercial.food_and_drink.bakery', 'commercial.food_and_drink.chocolate', 'commercial.jewelry', 'commercial.health_and_beauty.cosmetics', 'sport.fitness.fitness_centre', 'accommodation.hotel', 'accommodation.guest_house'],
+ 	app: ['sport.fitness.fitness_centre', 'sport.sports_centre', 'catering.restaurant', 'education.driving_school', 'education.language_school', 'healthcare.dentist', 'healthcare.clinic_or_praxis', 'service.beauty.hairdresser', 'service.beauty', 'accommodation.hotel', 'accommodation.guest_house'],
+ 	branding: ['commercial.food_and_drink.bakery', 'commercial.food_and_drink.chocolate', 'commercial.food_and_drink.deli', 'commercial.food_and_drink.drinks', 'commercial.clothing', 'commercial.florist', 'commercial.gift_and_souvenir', 'commercial.health_and_beauty.cosmetics', 'catering.restaurant', 'catering.cafe', 'catering.bar'],
++	video: ['catering.restaurant', 'catering.cafe', 'catering.bar', 'accommodation.guest_house', 'accommodation.hotel', 'office.estate_agent', 'sport.fitness.fitness_centre', 'service.beauty', 'service.beauty.hairdresser', 'commercial.clothing', 'commercial.jewelry', 'commercial.furniture_and_interior'],
+ 	ads: ['commercial.furniture_and_interior', 'commercial.outdoor_and_sport.bicycle', 'commercial.health_and_beauty.optician', 'commercial.jewelry', 'office.estate_agent', 'office.insurance', 'sport.fitness.fitness_centre']
+ };
+ const OSM: Record<Service, string[]> = {
+@@ -62,6 +63,7 @@ const OSM: Record<Service, string[]> = {
+ 	social: ['amenity~"^(restaurant|cafe|bar|ice_cream)$"', 'shop~"^(beauty|hairdresser|clothes|florist|bakery|chocolate|jewelry|cosmetics|tattoo)$"', 'leisure~"^(fitness_centre)$"', 'tourism~"^(hotel|guest_house)$"'],
+ 	app: ['leisure~"^(fitness_centre|sports_centre)$"', 'amenity~"^(restaurant|driving_school|language_school|clinic|dentist)$"', 'shop~"^(hairdresser|beauty)$"', 'tourism~"^(hotel|guest_house)$"'],
+ 	branding: ['shop~"^(bakery|clothes|florist|chocolate|deli|wine|gift|cosmetics)$"', 'amenity~"^(restaurant|cafe|bar)$"'],
++	video: ['amenity~"^(restaurant|cafe|bar)$"', 'tourism~"^(hotel|guest_house)$"', 'office~"^(estate_agent)$"', 'leisure~"^(fitness_centre)$"', 'shop~"^(beauty|hairdresser|clothes|jewelry|furniture)$"'],
+ 	ads: ['shop~"^(furniture|bicycle|optician|jewelry)$"', 'office~"^(estate_agent|insurance)$"', 'leisure~"^(fitness_centre)$"']
+ };
+ 
+@@ -72,31 +74,31 @@ const CAT: Record<Lang, Record<string, string>> = {
+ 	nl: { restaurant: 'Restaurant', cafe: 'Café', bar: 'Bar', pub: 'Café', ice_cream: 'IJssalon', dentist: 'Tandarts', doctors: 'Dokter', clinic: 'Kliniek', clinic_or_praxis: 'Praktijk', veterinary: 'Dierenarts', driving_school: 'Rijschool', language_school: 'Taalschool', bakery: 'Bakkerij', butcher: 'Slagerij', hairdresser: 'Kapper', beauty: 'Schoonheidssalon', tattoo: 'Tattooshop', florist: 'Bloemist', clothes: 'Kledingwinkel', clothing: 'Kledingwinkel', optician: 'Opticien', jewelry: 'Juwelier', furniture: 'Meubelwinkel', furniture_and_interior: 'Interieurwinkel', bicycle: 'Fietsenwinkel', deli: 'Delicatessen', drinks: 'Wijnhandel', wine: 'Wijnhandel', chocolate: 'Chocolatier', gift: 'Cadeauwinkel', gift_and_souvenir: 'Cadeauwinkel', cosmetics: 'Cosmetica', carpenter: 'Schrijnwerker', electrician: 'Elektricien', plumber: 'Loodgieter', photographer: 'Fotograaf', lawyer: 'Advocaat', accountant: 'Boekhouder', estate_agent: 'Immokantoor', architect: 'Architect', notary: 'Notaris', insurance: 'Verzekeringen', fitness_centre: 'Fitness', sports_centre: 'Sportcentrum', hotel: 'Hotel', guest_house: 'B&B' }
+ };
+ const L: Record<Lang, Record<string, (x?: string) => string>> = {
+-	en: { 'no-site': () => 'no website found', down: () => 'website not responding', http: () => 'not secure (no https)', mobile: () => 'not mobile-friendly', slow: (x) => `slow on mobile (${x} s)`, old: (x) => `not updated since ${x}`, title: () => 'no Google title', builder: (x) => `built with ${x}`, 'no-insta': () => 'no Instagram linked on the website', 'no-tiktok': () => 'no TikTok linked on the website', 'no-social': () => 'no social media linked on the website', 'no-app': () => 'no app or online booking' },
+-	fr: { 'no-site': () => 'pas de site web trouvé', down: () => 'le site ne répond pas', http: () => 'site non sécurisé (pas de https)', mobile: () => 'site pas adapté au mobile', slow: (x) => `site lent sur mobile (${x} s)`, old: (x) => `pas mis à jour depuis ${x}`, title: () => 'pas de titre Google', builder: (x) => `site fait avec ${x}`, 'no-insta': () => 'pas d’Instagram relié au site', 'no-tiktok': () => 'pas de TikTok relié au site', 'no-social': () => 'aucun réseau social relié au site', 'no-app': () => 'pas d’app ni de réservation en ligne' },
+-	nl: { 'no-site': () => 'geen website gevonden', down: () => 'website reageert niet', http: () => 'niet beveiligd (geen https)', mobile: () => 'niet mobielvriendelijk', slow: (x) => `traag op mobiel (${x} s)`, old: (x) => `niet bijgewerkt sinds ${x}`, title: () => 'geen Google-titel', builder: (x) => `gemaakt met ${x}`, 'no-insta': () => 'geen Instagram gelinkt op de website', 'no-tiktok': () => 'geen TikTok gelinkt op de website', 'no-social': () => 'geen sociale media gelinkt op de website', 'no-app': () => 'geen app of online boeking' }
++	en: { 'no-site': () => 'no website found', down: () => 'website not responding', http: () => 'not secure (no https)', mobile: () => 'not mobile-friendly', slow: (x) => `slow on mobile (${x} s)`, old: (x) => `not updated since ${x}`, title: () => 'no Google title', builder: (x) => `built with ${x}`, 'no-insta': () => 'no Instagram linked on the website', 'no-tiktok': () => 'no TikTok linked on the website', 'no-social': () => 'no social media linked on the website', 'no-app': () => 'no app or online booking', 'no-video': () => 'no photos or videos that show the place' },
++	fr: { 'no-site': () => 'pas de site web trouvé', down: () => 'le site ne répond pas', http: () => 'site non sécurisé (pas de https)', mobile: () => 'site pas adapté au mobile', slow: (x) => `site lent sur mobile (${x} s)`, old: (x) => `pas mis à jour depuis ${x}`, title: () => 'pas de titre Google', builder: (x) => `site fait avec ${x}`, 'no-insta': () => 'pas d’Instagram relié au site', 'no-tiktok': () => 'pas de TikTok relié au site', 'no-social': () => 'aucun réseau social relié au site', 'no-app': () => 'pas d’app ni de réservation en ligne', 'no-video': () => 'pas de photos ni de vidéos qui montrent le lieu' },
++	nl: { 'no-site': () => 'geen website gevonden', down: () => 'website reageert niet', http: () => 'niet beveiligd (geen https)', mobile: () => 'niet mobielvriendelijk', slow: (x) => `traag op mobiel (${x} s)`, old: (x) => `niet bijgewerkt sinds ${x}`, title: () => 'geen Google-titel', builder: (x) => `gemaakt met ${x}`, 'no-insta': () => 'geen Instagram gelinkt op de website', 'no-tiktok': () => 'geen TikTok gelinkt op de website', 'no-social': () => 'geen sociale media gelinkt op de website', 'no-app': () => 'geen app of online boeking', 'no-video': () => 'geen foto’s of video’s die de zaak tonen' }
+ };
+ 
+ // first message, shaped by what the agency sells
+ // ---------- the first message: in the business's language, built to get a "yes" (no call required) ----------
+-type Main = 'web' | 'social' | 'app' | 'branding';
++type Main = 'web' | 'social' | 'app' | 'branding' | 'seo' | 'ads' | 'video';
+ const VALUE: Record<Lang, Record<Main, string>> = {
+-	fr: { web: 'des sites rapides, clairs sur mobile, qui transforment les visites en appels et en réservations', social: 'des comptes Instagram et TikTok qui donnent envie de venir, avec du contenu régulier et simple à gérer', app: 'une réservation en ligne ou une petite app pour que vos clients réservent en deux clics et reviennent', branding: 'une image claire et reconnaissable, du logo à la vitrine, pour qu’on se souvienne de vous' },
+-	nl: { web: 'snelle websites die op gsm duidelijk zijn en bezoekers omzetten in telefoontjes en reservaties', social: 'Instagram- en TikTok-accounts die zin geven om langs te komen, met regelmatige content die eenvoudig blijft', app: 'online reserveren of een kleine app, zodat klanten in twee klikken boeken en terugkomen', branding: 'een duidelijk en herkenbaar beeld, van logo tot etalage, zodat men u onthoudt' },
+-	en: { web: 'fast websites that are clear on mobile and turn visits into calls and bookings', social: 'Instagram and TikTok accounts that make people want to come by, with regular content that stays easy to run', app: 'online booking or a small app so customers book in two taps and come back', branding: 'a clear, recognisable look, from logo to shopfront, so people remember you' }
++	fr: { web: 'des sites rapides, clairs sur mobile, qui transforment les visites en appels et en réservations', social: 'des comptes Instagram et TikTok qui donnent envie de venir, avec du contenu régulier et simple à gérer', app: 'une réservation en ligne ou une petite app pour que vos clients réservent en deux clics et reviennent', branding: 'une image claire et reconnaissable, du logo à la vitrine, pour qu’on se souvienne de vous', seo: 'faire remonter les commerces locaux sur Google et Google Maps, là où les clients cherchent', video: 'des photos et des vidéos courtes qui donnent envie de pousser la porte, pour votre site et vos réseaux', ads: 'des campagnes Google et Instagram ciblées sur votre quartier, avec un budget que vous maîtrisez' },
++	nl: { web: 'snelle websites die op gsm duidelijk zijn en bezoekers omzetten in telefoontjes en reservaties', social: 'Instagram- en TikTok-accounts die zin geven om langs te komen, met regelmatige content die eenvoudig blijft', app: 'online reserveren of een kleine app, zodat klanten in twee klikken boeken en terugkomen', branding: 'een duidelijk en herkenbaar beeld, van logo tot etalage, zodat men u onthoudt', seo: 'lokale zaken hoger laten verschijnen in Google en Google Maps, waar klanten zoeken', video: 'foto’s en korte video’s die zin geven om binnen te stappen, voor uw website en sociale media', ads: 'Google- en Instagram-campagnes gericht op uw buurt, met een budget dat u zelf bepaalt' },
++	en: { web: 'fast websites that are clear on mobile and turn visits into calls and bookings', social: 'Instagram and TikTok accounts that make people want to come by, with regular content that stays easy to run', app: 'online booking or a small app so customers book in two taps and come back', branding: 'a clear, recognisable look, from logo to shopfront, so people remember you', seo: 'getting local businesses higher on Google and Google Maps, where customers search', video: 'photos and short videos that make people want to walk in, for your website and socials', ads: 'Google and Instagram campaigns aimed at your neighbourhood, on a budget you control' }
+ };
+ const COST: Record<Lang, Record<Main, string>> = {
+-	fr: { web: 'Concrètement, une partie des personnes qui vous cherchent sur leur téléphone repartent sans vous contacter.', social: 'Aujourd’hui, beaucoup de clients regardent Instagram avant de choisir où aller : sans présence, ils choisissent quelqu’un d’autre.', app: 'Beaucoup de clients préfèrent réserver en ligne plutôt que d’appeler, surtout le soir.', branding: 'Quand l’image ne marque pas, les clients ont plus de mal à se souvenir de vous et à vous recommander.' },
+-	nl: { web: 'Concreet: een deel van de mensen die u op hun gsm zoeken, haakt af zonder contact op te nemen.', social: 'Veel klanten kijken eerst op Instagram voor ze kiezen waar ze heen gaan: zonder aanwezigheid kiezen ze iemand anders.', app: 'Veel klanten boeken liever online dan te bellen, zeker ’s avonds.', branding: 'Als het beeld niet blijft hangen, onthouden en aanbevelen klanten u minder snel.' },
+-	en: { web: 'In practice, some of the people looking for you on their phone leave without getting in touch.', social: 'Many customers check Instagram before choosing where to go: without a presence, they pick someone else.', app: 'Many customers would rather book online than call, especially in the evening.', branding: 'When a brand doesn’t stick, customers find it harder to remember and recommend you.' }
++	fr: { web: 'Concrètement, une partie des personnes qui vous cherchent sur leur téléphone repartent sans vous contacter.', social: 'Aujourd’hui, beaucoup de clients regardent Instagram avant de choisir où aller : sans présence, ils choisissent quelqu’un d’autre.', app: 'Beaucoup de clients préfèrent réserver en ligne plutôt que d’appeler, surtout le soir.', branding: 'Quand l’image ne marque pas, les clients ont plus de mal à se souvenir de vous et à vous recommander.', seo: 'Quand on vous cherche sur Google, ce sont souvent vos concurrents qui apparaissent en premier.', video: 'Avant de venir, les clients veulent voir l’endroit : sans images, ils hésitent.', ads: 'Sans visibilité en ligne, les personnes du quartier qui cherchent ce que vous proposez ne vous voient pas.' },
++	nl: { web: 'Concreet: een deel van de mensen die u op hun gsm zoeken, haakt af zonder contact op te nemen.', social: 'Veel klanten kijken eerst op Instagram voor ze kiezen waar ze heen gaan: zonder aanwezigheid kiezen ze iemand anders.', app: 'Veel klanten boeken liever online dan te bellen, zeker ’s avonds.', branding: 'Als het beeld niet blijft hangen, onthouden en aanbevelen klanten u minder snel.', seo: 'Wie u zoekt op Google, ziet vaak eerst uw concurrenten.', video: 'Klanten willen de zaak zien voor ze komen: zonder beelden twijfelen ze.', ads: 'Zonder online zichtbaarheid zien mensen uit de buurt die zoeken wat u aanbiedt, u niet.' },
++	en: { web: 'In practice, some of the people looking for you on their phone leave without getting in touch.', social: 'Many customers check Instagram before choosing where to go: without a presence, they pick someone else.', app: 'Many customers would rather book online than call, especially in the evening.', branding: 'When a brand doesn’t stick, customers find it harder to remember and recommend you.', seo: 'When people search for you on Google, your competitors often show up first.', video: 'Before coming, customers want to see the place: without images, they hesitate.', ads: 'Without visibility online, people nearby looking for what you offer don’t see you.' }
+ };
+ // GDPR / good practice: every first message says how to stop receiving them
+ export const OPT_OUT: Record<Lang, string> = { en: 'If you’d rather not hear from me, just reply “no” and I won’t write again.', fr: 'Si vous préférez ne plus recevoir de message de ma part, répondez simplement « non ».', nl: 'Liever geen berichten meer van mij? Antwoord gewoon “nee”.' };
+ type MsgIn = { biz: string; agency: string; issues: string[]; main: Main; category: string; city: string };
+ export const SUBJECT: Record<Lang, (p: MsgIn) => string> = {
+-	fr: ({ biz, main }) => `${biz} : ${main === 'social' ? 'une idée pour attirer plus de clients via Instagram' : main === 'app' ? 'une idée pour remplir plus facilement votre agenda' : main === 'branding' ? 'une idée pour vous démarquer' : 'une idée pour avoir plus de clients via votre site'}`,
+-	nl: ({ biz, main }) => `${biz}: ${main === 'social' ? 'een idee om meer klanten via Instagram te krijgen' : main === 'app' ? 'een idee om uw agenda makkelijker te vullen' : main === 'branding' ? 'een idee om op te vallen' : 'een idee voor meer klanten via uw website'}`,
+-	en: ({ biz, main }) => `${biz}: ${main === 'social' ? 'an idea to bring in more customers through Instagram' : main === 'app' ? 'an idea to fill your bookings more easily' : main === 'branding' ? 'an idea to stand out' : 'an idea to get more customers from your website'}`
++	fr: ({ biz, main }) => `${biz} : ${main === 'social' ? 'une idée pour attirer plus de clients via Instagram' : main === 'app' ? 'une idée pour remplir plus facilement votre agenda' : main === 'branding' ? 'une idée pour vous démarquer' : main === 'seo' ? 'une idée pour être mieux trouvé sur Google' : main === 'video' ? 'une idée pour montrer votre lieu' : main === 'ads' ? 'une idée pour attirer les clients du quartier' : 'une idée pour avoir plus de clients via votre site'}`,
++	nl: ({ biz, main }) => `${biz}: ${main === 'social' ? 'een idee om meer klanten via Instagram te krijgen' : main === 'app' ? 'een idee om uw agenda makkelijker te vullen' : main === 'branding' ? 'een idee om op te vallen' : main === 'seo' ? 'een idee om beter gevonden te worden op Google' : main === 'video' ? 'een idee om uw zaak te tonen' : main === 'ads' ? 'een idee om klanten uit de buurt aan te trekken' : 'een idee voor meer klanten via uw website'}`,
++	en: ({ biz, main }) => `${biz}: ${main === 'social' ? 'an idea to bring in more customers through Instagram' : main === 'app' ? 'an idea to fill your bookings more easily' : main === 'branding' ? 'an idea to stand out' : main === 'seo' ? 'an idea to be found more easily on Google' : main === 'video' ? 'an idea to show off your place' : main === 'ads' ? 'an idea to bring in customers from your area' : 'an idea to get more customers from your website'}`
+ };
+ const MSG: Record<Lang, (p: MsgIn) => string> = {
+ 	fr: (p) => `Bonjour,\n\nEn cherchant « ${p.category.toLowerCase()} ${p.city} », j’ai découvert ${p.biz} et j’ai remarqué : ${p.issues.join(' ; ')}.\n${COST.fr[p.main]}\n\nC’est exactement ce que nous faisons chez ${p.agency} : ${VALUE.fr[p.main]}.\n\nJe vous propose quelque chose de simple : je vous envoie gratuitement 3 améliorations concrètes pour ${p.biz}, que vous pourrez appliquer avec ou sans nous. Répondez simplement « oui ».\nSi vous préférez un coup de fil ou que je passe vous voir, dites-moi ce qui vous arrange.\n\nBelle journée,\n${p.agency}\n\n${OPT_OUT.fr}`,
+@@ -104,6 +106,19 @@ const MSG: Record<Lang, (p: MsgIn) => string> = {
+ 	en: (p) => `Hi,\n\nSearching for “${p.category.toLowerCase()} ${p.city}”, I came across ${p.biz} and noticed: ${p.issues.join('; ')}.\n${COST.en[p.main]}\n\nThat’s exactly what we do at ${p.agency}: ${VALUE.en[p.main]}.\n\nHere’s a simple offer: I’ll send you 3 concrete improvements for ${p.biz}, free, that you can use with or without us. Just reply “yes”.\nIf you’d rather have a quick call or have me drop by, tell me what suits you.\n\nBest,\n${p.agency}\n\n${OPT_OUT.en}`
+ };
+ 
++// The message talks about the agency's service that fixes this business's biggest problem
++// (a web + social agency writes about Instagram to a shop whose problem is Instagram).
++const ISSUE_SERVICE: Record<string, Main> = { 'no-site': 'web', down: 'web', http: 'web', mobile: 'web', slow: 'web', old: 'web', builder: 'branding', title: 'seo', 'no-social': 'social', 'no-insta': 'social', 'no-tiktok': 'social', 'no-app': 'app', 'no-video': 'video' };
++function mainFor(issues: Issue[], sells: Set<string>, fallback: Main): Main {
++	for (const x of [...issues].sort((a, b) => b.weight - a.weight)) {
++		const sv = ISSUE_SERVICE[x.key];
++		if (sv && sells.has(sv)) return sv;
++		// web problems are also SEO, ads or branding problems for agencies that sell those
++		if (sv === 'web') for (const alt of ['seo', 'ads', 'branding'] as Main[]) if (sells.has(alt)) return alt;
++	}
++	return fallback;
++}
++
+ // ---------- the business's language ----------
+ // Its own website says it (<html lang>); otherwise the postcode: Brussels and Wallonia → French, Flanders → Dutch.
+ export function prospectLang(html: string, address: string, country: string, fallback: Lang): Lang {
+@@ -329,7 +344,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 	}
+ 	const sells = new Set(services);
+ 	const webish = sells.has('web') || sells.has('seo') || sells.has('branding') || sells.has('ads');
+-	const main: 'web' | 'social' | 'app' | 'branding' = sells.has('web') || sells.has('seo') || sells.has('ads') ? 'web' : sells.has('social') ? 'social' : sells.has('app') ? 'app' : 'branding';
++	const main: Main = sells.has('web') ? 'web' : sells.has('social') ? 'social' : sells.has('seo') ? 'seo' : sells.has('ads') ? 'ads' : sells.has('video') ? 'video' : sells.has('app') ? 'app' : 'branding';
+ 	const T = L[lang];
+ 
+ 	// candidates: no chains, not seen before, deterministic shuffle per agency so two agencies don't get the same list
+@@ -388,6 +403,8 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 						if (!hasTikTok) add('no-tiktok', 10);
+ 					}
+ 				}
++				// photo & video agencies: a site with no video and almost no photos of the place
++				if (sells.has('video') && html && !/(youtube\.com|youtu\.be|vimeo\.com|<video|tiktok\.com|instagram\.com\/reel)/i.test(html) && (html.match(/<img/gi)?.length ?? 0) < 6) add('no-video', 30);
+ 				if (sells.has('app') && BOOKING_KINDS.test(pl.kind) && !/(apps\.apple\.com|play\.google\.com|calendly|planity|treatwell|resengo|booksy|fresha|zenchef|thefork|opentable|booking\.com|reserv|book now|rendez-vous|boeken)/i.test(html)) add('no-app', 30);
+ 
+ 				// contacts the map doesn't have, from their own site
+@@ -401,7 +418,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 				pages.set(pl.id, html);
+ 				// the message speaks the business's language (its site, else its postcode)
+ 				const plang = prospectLang(html, `${pl.address} ${pl.city}`, profile.country || '', lang);
+-				const mi: MsgIn = { biz: pl.name, agency: profile.name, main, category: CAT[plang][pl.kind] ?? CAT.en[pl.kind] ?? pl.kind.replace(/_/g, ' '), city: pl.city || profile.city, issues: [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => L[plang][x.key](x.label.match(/[\d.]+(?= s)|\d{4}|Wix|Jimdo/)?.[0])) };
++				const mi: MsgIn = { biz: pl.name, agency: profile.name, main: mainFor(issues, sells, main), category: CAT[plang][pl.kind] ?? CAT.en[pl.kind] ?? pl.kind.replace(/_/g, ' '), city: pl.city || profile.city, issues: [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => L[plang][x.key](x.label.match(/[\d.]+(?= s)|\d{4}|Wix|Jimdo/)?.[0])) };
+ 				const budget = budgetOf(pl, checked);
+ 				const score = Math.min(100, Math.round(issues.reduce((s, x) => s + x.weight, 0) * (target === 'big' ? BUDGET_WEIGHT_BIG : BUDGET_WEIGHT)[budget]));
+ 				if (score < 15) return null;
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index 8c26fe2..e9734f3 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -94,7 +94,7 @@
+ 			<p class="text-sm text-white/60">✦ Built from {p.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</p>
+ 			<h2 class="mt-2 text-[28px] leading-tight font-medium tracking-[-0.03em] sm:text-[34px]">We built this dashboard for {p.name}.</h2>
+ 			<div class="mt-5 flex flex-wrap gap-2 text-sm">
+-				{#each [data.os.built.kind, p.city, p.services.map((x) => ({ web: 'Websites', app: 'Apps', social: 'Social media', seo: 'SEO', branding: 'Branding', ads: 'Ads' })[x] ?? x).join(', '), { fr: 'Français', nl: 'Nederlands', en: 'English' }[p.lang]].filter(Boolean) as t, i (i)}
++				{#each [data.os.built.kind, p.city, p.services.map((x) => ({ web: 'Websites', app: 'Apps', social: 'Social media', seo: 'SEO', branding: 'Branding', ads: 'Ads', video: 'Photo & video' })[x] ?? x).join(', '), { fr: 'Français', nl: 'Nederlands', en: 'English' }[p.lang]].filter(Boolean) as t, i (i)}
+ 					<span class="rounded-full bg-white/10 px-3 py-1.5 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{i * 120}ms">{t}</span>
+ 				{/each}
+ 				{#if data.accent}<span class="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5"><span class="size-3 rounded-full" style="background:{data.accent}"></span>Your colour</span>{/if}
+diff --git a/src/routes/app/prospects/+page.svelte b/src/routes/app/prospects/+page.svelte
+index df58fda..4d75350 100644
+--- a/src/routes/app/prospects/+page.svelte
++++ b/src/routes/app/prospects/+page.svelte
+@@ -27,7 +27,7 @@
+ 		setTimeout(() => (copied = ''), 1600);
+ 	};
+ 	const mailto = (p: (typeof data.pipeline)[number]) => `mailto:${p.email}?subject=${encodeURIComponent(p.name)}&body=${encodeURIComponent(p.message)}`;
+-	const SERVICE: Record<string, string> = { web: 'websites', app: 'apps', social: 'social media', seo: 'SEO', branding: 'branding', ads: 'ads' };
++	const SERVICE: Record<string, string> = { web: 'websites', app: 'apps', social: 'social media', seo: 'SEO', branding: 'branding', ads: 'ads', video: 'photo & video' };
+ </script>
+ 
+ <svelte:head><title>Prospects · Undercut</title></svelte:head>
+diff --git a/src/routes/prospects/+page.server.ts b/src/routes/prospects/+page.server.ts
+index 2892afc..8d1072a 100644
+--- a/src/routes/prospects/+page.server.ts
++++ b/src/routes/prospects/+page.server.ts
+@@ -15,7 +15,7 @@ function allow(ip: string) {
+ 	if (hits.size > 5000) hits.clear();
+ 	return true;
+ }
+-const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads'];
++const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', 'video'];
+ 
+ export const load = ({ url }) => ({ url: url.searchParams.get('url') ?? '' });
+ 
+diff --git a/src/routes/prospects/+page.svelte b/src/routes/prospects/+page.svelte
+index 4ed6f8c..55f165a 100644
+--- a/src/routes/prospects/+page.svelte
++++ b/src/routes/prospects/+page.svelte
+@@ -11,7 +11,8 @@
+ 		['social', 'Social media'],
+ 		['seo', 'SEO'],
+ 		['branding', 'Branding'],
+-		['ads', 'Ads']
++		['ads', 'Ads'],
++		['video', 'Photo & video']
+ 	] as const;
+ 	const steps = ['Reading your site…', 'Understanding what you sell…', 'Looking at businesses around you…', 'Checking their websites…', 'Writing the first messages…'];
+ 	let si = $state(0);
+-- 
+2.43.0
+

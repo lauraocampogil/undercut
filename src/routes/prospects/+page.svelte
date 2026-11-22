@@ -11,7 +11,8 @@
 		['social', 'Social media'],
 		['seo', 'SEO'],
 		['branding', 'Branding'],
-		['ads', 'Ads']
+		['ads', 'Ads'],
+		['video', 'Photo & video']
 	] as const;
 	const steps = ['Reading your site…', 'Understanding what you sell…', 'Looking at businesses around you…', 'Checking their websites…', 'Writing the first messages…'];
 	let si = $state(0);
