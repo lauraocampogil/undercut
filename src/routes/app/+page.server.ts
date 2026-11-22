@@ -3,7 +3,7 @@ import { agencyActions } from '#lib/server/agency-actions.ts';
 import { businessActions } from '#lib/server/business-actions.ts';
 import { agenda, getBiz, money } from '#lib/server/business.ts';
 import { analyticsRows } from '#lib/server/analytics-rows.ts';
-import { inboxItems } from '#lib/server/inbox.ts';
+import { inboxItems, weekStats } from '#lib/server/inbox.ts';
 import { emailReady } from '#lib/server/email.ts';
 
 export const load = async () => {
@@ -13,6 +13,9 @@ export const load = async () => {
 	const names = Object.fromEntries(b.clients.map((c) => [c.id, c.name]));
 	return {
 		inbox: os.profile ? inboxItems() : [],
+		started: os.pipeline.length > 0,
+		week: weekStats(),
+		waiting: os.pipeline.filter((p) => p.stage === 'new').length,
 		brief: { on: os.brief !== false, ready: emailReady() },
 		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, built: os.built && !os.built.seen ? os.built : null, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
 		stats: { counts: stats.counts, wonMonth: stats.wonMonth, wonValue: stats.wonValue, replyRate: stats.replyRate },

@@ -17,9 +17,17 @@ export type InboxItem = {
 	message: string;
 	step?: number; // follow-up number / reminder number
 	late?: boolean;
+	// for the one-card-at-a-time "Today" view
+	name: string; // the business or the person
+	meta: string; // one line under the name
+	reasonsTitle?: string;
+	reasons?: string[]; // why they need the agency (or what you told them)
+	proof?: { label: string; url: string }[]; // links to check it yourself
+	lang?: Lang;
+	instagram?: string;
 };
 
-const FIRST_PER_DAY = 3;
+const FIRST_PER_DAY = 5; // first messages a day (sent today count against it)
 const MAX_FOLLOWUPS = 2; // after the first message: 2 follow-ups, then it moves to "Not now"
 
 const money = (n: number, lang: Lang) => new Intl.NumberFormat(lang === 'nl' ? 'nl-BE' : lang === 'fr' ? 'fr-BE' : 'en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
@@ -73,7 +81,7 @@ export function inboxItems(): InboxItem[] {
 		const step = Math.min(2, (p.reminders ?? 0) + 1);
 		const c = cname(p.clientId);
 		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || p.who, label: p.label || (lang === 'fr' ? 'ma facture' : lang === 'nl' ? 'mijn factuur' : 'my invoice'), amount: money(p.amount, lang), due: date(p.due, lang), agency, step, iban: b.details.iban });
-		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
+		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, name: p.who, meta: `${p.label || 'Invoice'} · due ${date(p.due, 'en')} · ${p.reminders ? `${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : 'no reminder sent yet'}`, lang, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
 	}
 	for (const d of b.docs) {
 		if (d.kind !== 'invoice' || d.status !== 'sent' || !d.due || d.due >= t || recent(d.lastReminder)) continue;
@@ -81,7 +89,7 @@ export function inboxItems(): InboxItem[] {
 		const step = Math.min(2, (d.reminders ?? 0) + 1);
 		const total = docTotal(d).total;
 		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || c?.name || '', label: lang === 'fr' ? `la facture ${d.number}` : lang === 'nl' ? `factuur ${d.number}` : `invoice ${d.number}`, amount: money(total, lang), due: date(d.due, lang), agency, step, iban: b.details.iban });
-		items.push({ key: `payment:${d.id}`, kind: 'payment', id: d.id, title: `${c?.name ?? 'Client'} owes ${money(total, 'en')}`, why: `Invoice ${d.number} · due ${d.due}`, to: c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
+		items.push({ key: `payment:${d.id}`, kind: 'payment', id: d.id, name: c?.name ?? 'Client', meta: `Invoice ${d.number} · due ${date(d.due, 'en')} · ${d.reminders ? `${d.reminders} reminder${d.reminders > 1 ? 's' : ''} sent` : 'no reminder sent yet'}`, lang, title: `${c?.name ?? 'Client'} owes ${money(total, 'en')}`, why: `Invoice ${d.number} · due ${d.due}`, to: c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
 	}
 
 	// 2) follow-ups that are due; a week after the last follow-up with no answer, the prospect moves to "Not now"
@@ -92,12 +100,27 @@ export function inboxItems(): InboxItem[] {
 	for (const p of due) {
 		const step = Math.min(MAX_FOLLOWUPS, (p.followups ?? 0) + 1);
 		const m = FOLLOW[p.lang ?? lang](step, p.name, agency);
-		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
+		const wrote = p.contactedAt ? date(p.contactedAt, 'en') : '';
+		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, name: p.name, meta: [p.category, p.city, wrote && `you wrote on ${wrote}`].filter(Boolean).join(' · '), reasonsTitle: 'What you told them', reasons: [p.detail || p.pitch].filter(Boolean), lang: p.lang ?? lang, instagram: p.instagram, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
 	}
 
 	// 3) first messages: the best new prospects, a few a day
-	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, FIRST_PER_DAY);
-	for (const p of fresh) items.push({ key: `first:${p.id}`, kind: 'first', id: p.id, title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });
+	const sentToday = os.pipeline.filter((p) => p.contactedAt === t).length;
+	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, Math.max(0, FIRST_PER_DAY - sentToday));
+	const BUDGET = { high: 'Good budget', medium: 'Medium budget', low: 'Small budget' } as const;
+	for (const p of fresh)
+		items.push({
+			key: `first:${p.id}`,
+			kind: 'first',
+			id: p.id,
+			name: p.name,
+			meta: [p.category, p.address || p.city, p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
+			reasonsTitle: 'Why they need you',
+			reasons: [...(p.detail ? [p.detail] : []), ...p.issues.map((i) => i.label)].slice(0, 3),
+			proof: p.proof,
+			lang: p.lang ?? lang,
+			instagram: p.instagram,
+			title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });
 
 	return items;
 }
@@ -122,4 +145,16 @@ export function resolveItem(kind: InboxKind, id: string, sent: boolean) {
 	}
 	if (p.next === undefined) delete p.next;
 	saveOS(s);
+}
+
+/** This week's numbers for the Today page: real counts from the pipeline. */
+export function weekStats() {
+	const os = getOS();
+	const from = addDays(today(), -6);
+	const since = (d?: string) => Boolean(d && d.slice(0, 10) >= from);
+	return {
+		sent: os.pipeline.filter((p) => since(p.contactedAt)).length,
+		replied: os.pipeline.filter((p) => (p.stage === 'talking' || p.stage === 'won') && p.contactedAt && since(p.updatedAt)).length,
+		won: os.pipeline.filter((p) => p.stage === 'won' && since(p.updatedAt)).length
+	};
 }

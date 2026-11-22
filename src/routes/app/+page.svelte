@@ -4,7 +4,7 @@
 	import { n } from '#lib/format.ts';
 	import { enhance } from '$app/forms';
 	import { act } from '#lib/act.ts';
-	import AgencySetup from '#lib/components/AgencySetup.svelte';
+	import StartSetup from '#lib/components/StartSetup.svelte';
 	import Inbox from '#lib/components/Inbox.svelte';
 	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
 	import { eur, dayLabel, todayIso } from '#lib/biz-format.ts';
@@ -67,13 +67,13 @@
 
 <svelte:head><title>Dashboard · Undercut</title></svelte:head>
 
-{#if !data.os.profile}
+{#if !data.os.profile || !data.started}
 	<section class="card-dark relative overflow-hidden p-6 sm:p-10">
 		<div class="pointer-events-none absolute -right-24 -bottom-24 size-96 rounded-full bg-accent/30 blur-3xl"></div>
-		<p class="relative text-sm text-accent">Build your dashboard</p>
-		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">Paste your agency’s URL. Your dashboard builds itself.</h1>
-		<p class="relative mt-3 max-w-xl text-white/60">We read what you sell and where you work. Then you get real prospects nearby, a pipeline, tasks and agenda, clients, quotes and invoices.</p>
-		<div class="relative mt-6 max-w-2xl"><AgencySetup profile={null} error={form?.setupError ?? ''} /></div>
+		<p class="relative text-sm text-accent">Takes 1 minute</p>
+		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">Who should we find for you?</h1>
+		<p class="relative mt-3 max-w-xl text-white/60">Paste your site or profile and answer 3 questions. Undercut finds local businesses that need exactly what you sell, and writes the first message.</p>
+		<div class="relative mt-6 max-w-2xl"><StartSetup profile={data.os.profile} error={form?.setupError ?? form?.findError ?? ''} /></div>
 	</section>
 {:else}
 	<section class="flex flex-wrap items-end justify-between gap-6">
@@ -110,7 +110,7 @@
 		</section>
 	{/if}
 
-	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} brief={data.brief} briefMsg={form?.briefMsg ?? ''} /></div>
+	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} brief={data.brief} briefMsg={form?.briefMsg ?? ''} week={data.week} waiting={data.waiting} /></div>
 
 	<!-- ask to change: plain-language edits to the dashboard -->
 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">

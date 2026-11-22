@@ -1,0 +1,1428 @@
+From fb2be98e3e0b273081fd1114c1d9f6f9fbaf8a49 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 16:25:54 +0100
+Subject: [PATCH] Redesign: one simple flow. Top nav Today / Pipeline / Clients
+ (the rest in the account menu); Today is a one-card-at-a-time queue with why
+ they need you, proof links and the message in their language; 3-question
+ start that finds the first 5 right away; 3-column pipeline; calm new look
+ (Inter + Space Grotesk, one blue accent)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ package-lock.json                       |  20 +
+ package.json                            |   2 +
+ src/lib/components/StartSetup.svelte    | 101 +++++
+ src/lib/server/agency-actions.ts        |  61 +--
+ src/lib/server/inbox.ts                 |  47 ++-
+ src/routes/+layout.svelte               |   2 +
+ src/routes/app/+layout.server.ts        |   1 +
+ src/routes/app/+layout.svelte           | 164 ++++----
+ src/routes/app/+page.server.ts          |  31 +-
+ src/routes/app/+page.svelte             | 502 ++++++++++--------------
+ src/routes/app/pipeline/+page.server.ts |  28 ++
+ src/routes/app/pipeline/+page.svelte    |  96 +++++
+ src/routes/layout.css                   |  99 +++++
+ 13 files changed, 726 insertions(+), 428 deletions(-)
+ create mode 100644 src/lib/components/StartSetup.svelte
+ create mode 100644 src/routes/app/pipeline/+page.server.ts
+ create mode 100644 src/routes/app/pipeline/+page.svelte
+
+diff --git a/package-lock.json b/package-lock.json
+index 5358bac..d3af5af 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -10,7 +10,9 @@
+ 			"dependencies": {
+ 				"@fontsource-variable/geist": "^5.3.0",
+ 				"@fontsource-variable/geist-mono": "^5.3.0",
++				"@fontsource-variable/inter": "^5.3.0",
+ 				"@fontsource-variable/plus-jakarta-sans": "^5.3.0",
++				"@fontsource-variable/space-grotesk": "^5.3.0",
+ 				"@fontsource/instrument-serif": "^5.3.0",
+ 				"fast-xml-parser": "^5.12.0",
+ 				"lighthouse": "^13.6.0",
+@@ -83,6 +85,15 @@
+ 				"url": "https://github.com/sponsors/ayuhito"
+ 			}
+ 		},
++		"node_modules/@fontsource-variable/inter": {
++			"version": "5.3.0",
++			"resolved": "https://registry.npmjs.org/@fontsource-variable/inter/-/inter-5.3.0.tgz",
++			"integrity": "sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==",
++			"license": "OFL-1.1",
++			"funding": {
++				"url": "https://github.com/sponsors/ayuhito"
++			}
++		},
+ 		"node_modules/@fontsource-variable/plus-jakarta-sans": {
+ 			"version": "5.3.0",
+ 			"resolved": "https://registry.npmjs.org/@fontsource-variable/plus-jakarta-sans/-/plus-jakarta-sans-5.3.0.tgz",
+@@ -92,6 +103,15 @@
+ 				"url": "https://github.com/sponsors/ayuhito"
+ 			}
+ 		},
++		"node_modules/@fontsource-variable/space-grotesk": {
++			"version": "5.3.0",
++			"resolved": "https://registry.npmjs.org/@fontsource-variable/space-grotesk/-/space-grotesk-5.3.0.tgz",
++			"integrity": "sha512-2IxmvfB08i9vnGB3Ym/AXvhRE+8XOjWMXIyDum03c+tPwH0FUoMNQfGpU8NXPxjbws0Vvss3AH0Zqt4oJBBAdw==",
++			"license": "OFL-1.1",
++			"funding": {
++				"url": "https://github.com/sponsors/ayuhito"
++			}
++		},
+ 		"node_modules/@fontsource/instrument-serif": {
+ 			"version": "5.3.0",
+ 			"resolved": "https://registry.npmjs.org/@fontsource/instrument-serif/-/instrument-serif-5.3.0.tgz",
+diff --git a/package.json b/package.json
+index a687e30..755beb2 100644
+--- a/package.json
++++ b/package.json
+@@ -30,7 +30,9 @@
+ 	"dependencies": {
+ 		"@fontsource-variable/geist": "^5.3.0",
+ 		"@fontsource-variable/geist-mono": "^5.3.0",
++		"@fontsource-variable/inter": "^5.3.0",
+ 		"@fontsource-variable/plus-jakarta-sans": "^5.3.0",
++		"@fontsource-variable/space-grotesk": "^5.3.0",
+ 		"@fontsource/instrument-serif": "^5.3.0",
+ 		"fast-xml-parser": "^5.12.0",
+ 		"lighthouse": "^13.6.0",
+diff --git a/src/lib/components/StartSetup.svelte b/src/lib/components/StartSetup.svelte
+new file mode 100644
+index 0000000..b45a623
+--- /dev/null
++++ b/src/lib/components/StartSetup.svelte
+@@ -0,0 +1,101 @@
++<script lang="ts">
++	// First run: 3 questions, then Undercut finds the first 5 businesses right away.
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	type Profile = { url: string; name: string; city: string; services: string[]; target: string } | null;
++	let { profile, error = '' }: { profile: Profile; error?: string } = $props();
++
++	const SERVICES = [
++		['web', 'Websites'],
++		['branding', 'Branding'],
++		['social', 'Social media'],
++		['seo', 'SEO'],
++		['ads', 'Ads'],
++		['video', 'Photo & video'],
++		['app', 'Apps']
++	] as const;
++	const TARGETS = [
++		['small', 'Small local shops', 'Bakeries, salons, cafés, independents'],
++		['big', 'Bigger companies', 'Hotels, clinics, law and accounting firms'],
++		['any', 'Both', 'Best match first']
++	] as const;
++
++	let busy = $state(false);
++	let si = $state(0);
++	const steps = $derived(['Reading your site…', `Looking around ${profile?.city || 'your city'}…`, 'Checking each business…', 'Writing the messages in their language…', 'Almost there…']);
++	$effect(() => {
++		if (!busy) return;
++		si = 0;
++		const t = setInterval(() => (si = Math.min(steps.length - 1, si + 1)), 4000);
++		return () => clearInterval(t);
++	});
++	const SVC: Record<string, string> = Object.fromEntries(SERVICES);
++</script>
++
++<div class="mx-auto max-w-[640px]">
++	<p class="text-sm text-muted">Takes 1 minute</p>
++	<h1 class="mt-1.5 text-[34px] leading-[1.1] font-semibold sm:text-[40px]">Who should we find for you?</h1>
++	<p class="mt-2.5 text-ink-2">Undercut reads your site or profile, then looks for local businesses that need exactly what you sell.</p>
++
++	<form
++		method="POST"
++		action={act('start')}
++		class="mt-7 flex flex-col gap-4"
++		use:enhance={() => {
++			busy = true;
++			return async ({ update }) => {
++				await update({ reset: false });
++				busy = false;
++			};
++		}}
++	>
++		<div class="card p-5 sm:p-6">
++			<label for="start-url" class="flex items-center gap-2.5 font-semibold"><span class="grid size-[26px] place-items-center rounded-full bg-ink text-[13px] text-white">1</span>Your website, Instagram, TikTok or LinkedIn</label>
++			<input id="start-url" name="url" value={profile?.url ?? ''} required inputmode="url" placeholder="youragency.be or instagram.com/youragency" class="input mt-3 !min-h-12 text-base" />
++			{#if profile}
++				<p class="mt-2.5 flex items-center gap-1.5 text-[13px] text-good">
++					<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
++					Found: {profile.name}{profile.city ? `, ${profile.city}` : ''}{profile.services.length ? ` · ${profile.services.map((s) => SVC[s] ?? s).join(', ').toLowerCase()}` : ''}
++				</p>
++			{/if}
++		</div>
++
++		<fieldset class="card p-5 sm:p-6">
++			<legend class="sr-only">What do you sell?</legend>
++			<p class="flex flex-wrap items-center gap-2.5 font-semibold" aria-hidden="true"><span class="grid size-[26px] place-items-center rounded-full bg-ink text-[13px] text-white">2</span>What do you sell? <span class="text-[13px] font-normal text-muted">{profile ? 'We guessed, fix it if needed' : 'We’ll guess from your site if you skip this'}</span></p>
++			<input type="hidden" name="servicesSent" value="1" />
++			<div class="mt-3.5 flex flex-wrap gap-2">
++				{#each SERVICES as [k, l] (k)}
++					<label class="cursor-pointer">
++						<input type="checkbox" name="services" value={k} checked={profile?.services.includes(k) ?? false} class="peer sr-only" />
++						<span class="inline-flex min-h-11 items-center rounded-full border border-[#D6D3C8] bg-white px-4 peer-checked:border-ink peer-checked:bg-ink peer-checked:font-medium peer-checked:text-white peer-focus-visible:outline-2 peer-focus-visible:outline-accent">{l}</span>
++					</label>
++				{/each}
++			</div>
++		</fieldset>
++
++		<fieldset class="card p-5 sm:p-6">
++			<legend class="sr-only">Which clients do you want?</legend>
++			<p class="flex items-center gap-2.5 font-semibold" aria-hidden="true"><span class="grid size-[26px] place-items-center rounded-full bg-ink text-[13px] text-white">3</span>Which clients do you want?</p>
++			<div class="mt-3.5 grid gap-2.5 sm:grid-cols-3">
++				{#each TARGETS as [k, l, help] (k)}
++					<label class="cursor-pointer">
++						<input type="radio" name="target" value={k} checked={(profile?.target ?? 'small') === k} class="peer sr-only" />
++						<span class="flex h-full flex-col gap-0.5 rounded-[14px] border border-[#D6D3C8] p-3.5 peer-checked:border-2 peer-checked:border-accent peer-checked:bg-[#F0F2FC] peer-focus-visible:outline-2 peer-focus-visible:outline-accent">
++							<span class="font-semibold">{l}</span>
++							<span class="text-[13px] text-ink-2">{help}</span>
++						</span>
++					</label>
++				{/each}
++			</div>
++			<div class="mt-4 flex flex-wrap items-center gap-2.5">
++				<label for="start-city" class="font-medium">Around</label>
++				<input id="start-city" name="city" value={profile?.city ?? ''} placeholder={profile ? 'Your city' : 'Detected from your site, or type it'} class="input min-w-0 flex-1 basis-40" />
++			</div>
++		</fieldset>
++
++		{#if error}<p class="rounded-[14px] bg-warn-bg p-4 text-sm text-warn" role="alert">{error}</p>{/if}
++		<button class="flex min-h-14 items-center justify-center rounded-[14px] bg-accent text-base font-semibold text-white hover:bg-[#1E36A0] disabled:opacity-80" disabled={busy}>{busy ? steps[si] : 'Find my first 5 clients'}</button>
++		<p class="text-center text-[13px] text-muted">{busy ? 'This takes up to a minute: every business is checked before you see it.' : 'You’ll see each business and its message before anything is sent.'}</p>
++	</form>
++</div>
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index e0aba02..250a80d 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -8,32 +8,43 @@ const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', '
+ const STAGES: Stage[] = ['new', 'contacted', 'talking', 'won', 'lost'];
+ type E = RequestEvent;
+ 
++async function saveSetup(f: FormData) {
++	const raw = String(f.get('url') ?? '').trim();
++	const city = String(f.get('city') ?? '').trim().slice(0, 60);
++	const name = String(f.get('name') ?? '').trim().slice(0, 60);
++	const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
++	const current = getOS().profile;
++	let p;
++	if (raw && raw !== current?.url) {
++		try {
++			p = await profileFromUrl(raw);
++		} catch {
++			return fail(400, { setupError: 'That doesn’t look like a web address.' });
++		}
++	} else if (current) p = { ...current };
++	else return fail(400, { setupError: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.' });
++	// what the user typed always wins over what we detected (only when the form sent those fields)
++	if (f.has('city')) p.city = city || p.city;
++	if (f.has('name') && name) p.name = name;
++	if (f.has('servicesSent')) p.services = picked.length ? picked : p.services;
++	const t = String(f.get('target') ?? '');
++	if (t === 'small' || t === 'big' || t === 'any') p.target = t;
++	p.needs = p.city ? undefined : p.needs || 'Which city do you work in?';
++	setProfile(p);
++	return { setupOk: true };
++}
++
+ export const agencyActions = {
+-	setup: async ({ request }: E) => {
+-		const f = await request.formData();
+-		const raw = String(f.get('url') ?? '').trim();
+-		const city = String(f.get('city') ?? '').trim().slice(0, 60);
+-		const name = String(f.get('name') ?? '').trim().slice(0, 60);
+-		const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
+-		const current = getOS().profile;
+-		let p;
+-		if (raw && raw !== current?.url) {
+-			try {
+-				p = await profileFromUrl(raw);
+-			} catch {
+-				return fail(400, { setupError: 'That doesn’t look like a web address.' });
+-			}
+-		} else if (current) p = { ...current };
+-		else return fail(400, { setupError: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.' });
+-		// what the user typed always wins over what we detected (only when the form sent those fields)
+-		if (f.has('city')) p.city = city || p.city;
+-		if (f.has('name') && name) p.name = name;
+-		if (f.has('servicesSent')) p.services = picked.length ? picked : p.services;
+-		const t = String(f.get('target') ?? '');
+-		if (t === 'small' || t === 'big' || t === 'any') p.target = t;
+-		p.needs = p.city ? undefined : p.needs || 'Which city do you work in?';
+-		setProfile(p);
+-		return { setupOk: true };
++	setup: async ({ request }: E) => saveSetup(await request.formData()),
++	// first run: save what the agency sells and who it wants, then find the first 5 businesses right away
++	start: async ({ request }: E) => {
++		const r = await saveSetup(await request.formData());
++		if ('status' in r) return r;
++		const p = getOS().profile;
++		if (p?.needs) return fail(400, { setupError: p.needs });
++		const found = await findMore(5);
++		if (found.error) return fail(400, { findError: found.error });
++		return { found: found.added };
+ 	},
+ 	find: async () => {
+ 		const r = await findMore(5);
+diff --git a/src/lib/server/inbox.ts b/src/lib/server/inbox.ts
+index 2de17e5..7bc41a1 100644
+--- a/src/lib/server/inbox.ts
++++ b/src/lib/server/inbox.ts
+@@ -17,9 +17,17 @@ export type InboxItem = {
+ 	message: string;
+ 	step?: number; // follow-up number / reminder number
+ 	late?: boolean;
++	// for the one-card-at-a-time "Today" view
++	name: string; // the business or the person
++	meta: string; // one line under the name
++	reasonsTitle?: string;
++	reasons?: string[]; // why they need the agency (or what you told them)
++	proof?: { label: string; url: string }[]; // links to check it yourself
++	lang?: Lang;
++	instagram?: string;
+ };
+ 
+-const FIRST_PER_DAY = 3;
++const FIRST_PER_DAY = 5; // first messages a day (sent today count against it)
+ const MAX_FOLLOWUPS = 2; // after the first message: 2 follow-ups, then it moves to "Not now"
+ 
+ const money = (n: number, lang: Lang) => new Intl.NumberFormat(lang === 'nl' ? 'nl-BE' : lang === 'fr' ? 'fr-BE' : 'en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
+@@ -73,7 +81,7 @@ export function inboxItems(): InboxItem[] {
+ 		const step = Math.min(2, (p.reminders ?? 0) + 1);
+ 		const c = cname(p.clientId);
+ 		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || p.who, label: p.label || (lang === 'fr' ? 'ma facture' : lang === 'nl' ? 'mijn factuur' : 'my invoice'), amount: money(p.amount, lang), due: date(p.due, lang), agency, step, iban: b.details.iban });
+-		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
++		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, name: p.who, meta: `${p.label || 'Invoice'} · due ${date(p.due, 'en')} · ${p.reminders ? `${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : 'no reminder sent yet'}`, lang, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
+ 	}
+ 	for (const d of b.docs) {
+ 		if (d.kind !== 'invoice' || d.status !== 'sent' || !d.due || d.due >= t || recent(d.lastReminder)) continue;
+@@ -81,7 +89,7 @@ export function inboxItems(): InboxItem[] {
+ 		const step = Math.min(2, (d.reminders ?? 0) + 1);
+ 		const total = docTotal(d).total;
+ 		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || c?.name || '', label: lang === 'fr' ? `la facture ${d.number}` : lang === 'nl' ? `factuur ${d.number}` : `invoice ${d.number}`, amount: money(total, lang), due: date(d.due, lang), agency, step, iban: b.details.iban });
+-		items.push({ key: `payment:${d.id}`, kind: 'payment', id: d.id, title: `${c?.name ?? 'Client'} owes ${money(total, 'en')}`, why: `Invoice ${d.number} · due ${d.due}`, to: c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
++		items.push({ key: `payment:${d.id}`, kind: 'payment', id: d.id, name: c?.name ?? 'Client', meta: `Invoice ${d.number} · due ${date(d.due, 'en')} · ${d.reminders ? `${d.reminders} reminder${d.reminders > 1 ? 's' : ''} sent` : 'no reminder sent yet'}`, lang, title: `${c?.name ?? 'Client'} owes ${money(total, 'en')}`, why: `Invoice ${d.number} · due ${d.due}`, to: c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
+ 	}
+ 
+ 	// 2) follow-ups that are due; a week after the last follow-up with no answer, the prospect moves to "Not now"
+@@ -92,12 +100,27 @@ export function inboxItems(): InboxItem[] {
+ 	for (const p of due) {
+ 		const step = Math.min(MAX_FOLLOWUPS, (p.followups ?? 0) + 1);
+ 		const m = FOLLOW[p.lang ?? lang](step, p.name, agency);
+-		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
++		const wrote = p.contactedAt ? date(p.contactedAt, 'en') : '';
++		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, name: p.name, meta: [p.category, p.city, wrote && `you wrote on ${wrote}`].filter(Boolean).join(' · '), reasonsTitle: 'What you told them', reasons: [p.detail || p.pitch].filter(Boolean), lang: p.lang ?? lang, instagram: p.instagram, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
+ 	}
+ 
+ 	// 3) first messages: the best new prospects, a few a day
+-	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, FIRST_PER_DAY);
+-	for (const p of fresh) items.push({ key: `first:${p.id}`, kind: 'first', id: p.id, title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });
++	const sentToday = os.pipeline.filter((p) => p.contactedAt === t).length;
++	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, Math.max(0, FIRST_PER_DAY - sentToday));
++	const BUDGET = { high: 'Good budget', medium: 'Medium budget', low: 'Small budget' } as const;
++	for (const p of fresh)
++		items.push({
++			key: `first:${p.id}`,
++			kind: 'first',
++			id: p.id,
++			name: p.name,
++			meta: [p.category, p.address || p.city, p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
++			reasonsTitle: 'Why they need you',
++			reasons: [...(p.detail ? [p.detail] : []), ...p.issues.map((i) => i.label)].slice(0, 3),
++			proof: p.proof,
++			lang: p.lang ?? lang,
++			instagram: p.instagram,
++			title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });
+ 
+ 	return items;
+ }
+@@ -123,3 +146,15 @@ export function resolveItem(kind: InboxKind, id: string, sent: boolean) {
+ 	if (p.next === undefined) delete p.next;
+ 	saveOS(s);
+ }
++
++/** This week's numbers for the Today page: real counts from the pipeline. */
++export function weekStats() {
++	const os = getOS();
++	const from = addDays(today(), -6);
++	const since = (d?: string) => Boolean(d && d.slice(0, 10) >= from);
++	return {
++		sent: os.pipeline.filter((p) => since(p.contactedAt)).length,
++		replied: os.pipeline.filter((p) => (p.stage === 'talking' || p.stage === 'won') && p.contactedAt && since(p.updatedAt)).length,
++		won: os.pipeline.filter((p) => p.stage === 'won' && since(p.updatedAt)).length
++	};
++}
+diff --git a/src/routes/+layout.svelte b/src/routes/+layout.svelte
+index 298772e..db1a057 100644
+--- a/src/routes/+layout.svelte
++++ b/src/routes/+layout.svelte
+@@ -1,6 +1,8 @@
+ <script lang="ts">
+ 	import '@fontsource-variable/plus-jakarta-sans';
+ 	import '@fontsource-variable/geist';
++	import '@fontsource-variable/inter';
++	import '@fontsource-variable/space-grotesk';
+ 	import '@fontsource-variable/geist-mono';
+ 	import '@fontsource/instrument-serif/400.css';
+ 	import '@fontsource/instrument-serif/400-italic.css';
+diff --git a/src/routes/app/+layout.server.ts b/src/routes/app/+layout.server.ts
+index a4a2e59..1849d00 100644
+--- a/src/routes/app/+layout.server.ts
++++ b/src/routes/app/+layout.server.ts
+@@ -21,6 +21,7 @@ export const load = ({ locals }) => {
+ 		billing: getBilling(),
+ 		unread: unreadCount(),
+ 		toApprove: os.profile ? inboxItems().length : 0,
++		hasProfile: Boolean(os.profile),
+ 		beta: dbOn(),
+ 		isAdmin: dbOn() ? isAdmin(u?.email) : u?.role === 'owner',
+ 		clients: listClients()
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index f342294..87090a1 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -1,17 +1,12 @@
+ <script lang="ts">
+ 	import { page } from '$app/state';
+-	import Logo from '#lib/components/Logo.svelte';
++	import { enhance } from '$app/forms';
++	import { goto } from '$app/navigation';
+ 	import Icon from '#lib/components/Icon.svelte';
+ 	import Assistant from '#lib/components/Assistant.svelte';
+ 	let { data, children } = $props();
+ 
+-	let drawer = $state(false); // mobile sidebar
+-	// lock the page behind the open mobile sidebar
+-	$effect(() => {
+-		document.documentElement.style.overflow = drawer ? 'hidden' : '';
+-		return () => (document.documentElement.style.overflow = '');
+-	});
+-	let menu = $state<'clients' | 'account' | null>(null);
++	let menu = $state<'account' | null>(null);
+ 
+ 	const path = $derived(page.url.pathname);
+ 	const current = $derived(data.clients.find((c) => path.startsWith(`/app/clients/${c.id}`)));
+@@ -21,16 +16,21 @@
+ 
+ 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 	type Item = { href: string; label: string; icon: any; badge?: number };
+-	const agencyNav = $derived([
++	// one simple flow: find → approve → follow. Everything else lives in the account menu.
++	const mainNav = $derived([
+ 		{ href: '/app', label: 'Today', icon: 'grid', badge: data.toApprove },
+-		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
++		{ href: '/app/pipeline', label: 'Pipeline', icon: 'target' },
+ 		{ href: '/app/crm', label: 'Clients', icon: 'team' }
+ 	] as Item[]);
+ 	const moreNav = [
++		{ href: '/app/prospects', label: 'All prospects & who to find', icon: 'target' },
+ 		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
+ 		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
+ 		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
+ 	] as Item[];
++	const mainActive = (href: string) => (href === '/app' ? path === '/app' : href === '/app/pipeline' ? path.startsWith('/app/pipeline') : path.startsWith(href));
++	let finding = $state(false);
++	let findMsg = $state('');
+ 	const clientNav = $derived.by(() => {
+ 		if (!current) return [] as { group: string; items: Item[] }[];
+ 		const b = `/app/clients/${current.id}`;
+@@ -65,105 +65,91 @@
+ 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
+ 			return path === hp && (hq === 'mode=app') === appMode;
+ 		}
+-		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics'].includes(hp)) return path === hp || path.startsWith(hp + '/');
++		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline'].includes(hp)) return path === hp || path.startsWith(hp + '/');
+ 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
+ 	};
+ 
+ 	$effect(() => {
+ 		path;
+-		drawer = false;
+ 		menu = null;
+ 	});
+ </script>
+ 
+ {#snippet link(it: Item)}
+-	<a
+-		href={it.href + (it.href.includes('/clients/') && !it.href.endsWith('/settings') ? (it.href.includes('?') ? q.replace('?', '&') : q) : '')}
+-		class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors {isActive(it.href) ? 'bg-ink text-white' : 'text-ink-2 hover:bg-black/5'}"
+-	>
+-		<Icon name={it.icon} />
+-		<span class="flex-1 truncate">{it.label}</span>
+-		{#if it.badge}<span class="rounded-full px-1.5 text-[10px] font-semibold {isActive(it.href) ? 'bg-white text-ink' : 'bg-ink text-white'}">{it.badge}</span>{/if}
++	<a href={it.href + (it.href.includes('/clients/') && !it.href.endsWith('/settings') ? (it.href.includes('?') ? q.replace('?', '&') : q) : '')} class="flex shrink-0 items-center gap-2 rounded-[10px] px-3 py-2 text-sm whitespace-nowrap {isActive(it.href) ? 'bg-ink text-white' : 'text-ink-2 hover:bg-tile'}">
++		<Icon name={it.icon} size={15} />{it.label}
+ 	</a>
+ {/snippet}
+ 
+-<div class="app-shell min-h-dvh lg:grid lg:grid-cols-[264px_1fr]" style={data.theme}>
+-	<!-- mobile top bar -->
+-	<header class="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/60 bg-white/50 px-4 py-3 backdrop-blur-xl lg:hidden">
+-		<button class="icon-btn" onclick={() => (drawer = true)} aria-label="Open menu"><Icon name="menu" /></button>
+-		<a href="/app"><Logo size={26} /></a>
+-		<span class="size-10"></span>
+-	</header>
+-
+-	<!-- sidebar -->
+-	<aside
+-		class="no-print fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col gap-1 overflow-y-auto border-r border-white/60 bg-white/80 lg:bg-white/40 backdrop-blur-2xl px-3 py-4 transition-transform lg:sticky lg:top-0 lg:z-40 lg:h-dvh lg:w-auto lg:translate-x-0"
+-		class:-translate-x-full={!drawer}
+-	>
+-		<div class="flex items-center justify-between px-2 pb-3">
+-			<a href="/app"><Logo /></a>
+-			<span class="flex items-center gap-2"><button class="icon-btn size-9 lg:hidden" onclick={() => (drawer = false)} aria-label="Close menu"><Icon name="x" /></button></span>
+-		</div>
+-
+-		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Agency">
+-			{#each agencyNav as it (it.href)}{@render link(it)}{/each}
+-		</nav>
+-		<nav class="mt-4 flex flex-col gap-0.5" aria-label="More">
+-			<p class="px-3 pb-1 text-[10px] font-medium tracking-wider text-muted uppercase">More</p>
+-			{#each moreNav as it (it.href)}{@render link(it)}{/each}
+-		</nav>
+-
+-		{#if current}
+-			<nav class="mt-4 flex flex-col gap-0.5 border-t border-line pt-4" aria-label="{current.name} sections">
+-				<p class="flex items-center gap-2 px-3 pb-1 text-[11px] font-medium text-muted"><span class="size-2 rounded-full" style="background:{current.color}"></span><span class="truncate">{current.name}</span></p>
+-				{#each clientNav as g, gi (gi)}
+-					{#if g.group}<p class="mt-2 px-3 pb-0.5 text-[10px] font-medium tracking-wider text-muted uppercase">{g.group}</p>{/if}
+-					{#each g.items as it (it.href)}{@render link(it)}{/each}
++<div class="app-shell min-h-dvh">
++	<header class="no-print sticky top-0 z-30 border-b border-line bg-white">
++		<div class="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6">
++			<a href="/app" class="font-display text-xl font-semibold tracking-[-0.02em]" aria-label="Undercut, Today">undercut</a>
++			<nav aria-label="Main" class="order-last -mx-1 flex w-full gap-1 sm:order-none sm:mx-0 sm:mr-auto sm:ml-4 sm:w-auto">
++				{#each mainNav as it (it.href)}
++					<a href={it.href} class="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[10px] px-3.5 text-[15px] font-medium sm:flex-none {mainActive(it.href) ? 'bg-ink text-white' : 'text-ink hover:bg-tile'}" aria-current={mainActive(it.href) ? 'page' : undefined}>
++						{it.label}
++						{#if it.badge}<span class="rounded-full px-[7px] text-xs font-semibold {mainActive(it.href) ? 'bg-white text-ink' : 'bg-accent text-white'}">{it.badge}</span>{/if}
++					</a>
+ 				{/each}
+ 			</nav>
+-		{/if}
+-
+-		<div class="mt-auto flex flex-col gap-2 pt-4">
+-			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
+-				<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+-				<span class="flex-1 text-left">Ask Undercut AI</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
+-			</button>
+-
+-			<!-- account & settings -->
+-			<div class="relative">
+-				{#if menu === 'account'}
+-					<div class="absolute right-0 bottom-full left-0 z-40 mb-2 rounded-[20px] bg-white py-2 text-sm shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
+-						<p class="label px-4 pt-1 pb-1">Agency</p>
+-						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 font-medium hover:bg-tile">
+-							<span class="grid size-6 place-items-center rounded-md bg-accent text-[11px] text-accent-ink">{initial(data.agency.name)}</span>
+-							<span class="flex-1 truncate">{data.agency.name}</span><span class="rounded-full bg-tile px-2 py-0.5 text-[10px] font-normal">{data.beta ? 'Beta' : planLabel}</span>
+-						</a>
+-						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>Agency settings</a>
+-						<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>Team</a>
+-						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>Billing & usage</a>
+-						<div class="my-2 border-t border-line"></div>
+-						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>My account</a>
+-						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>Log out</a>
+-					</div>
++			<div class="flex items-center gap-2">
++				{#if data.hasProfile}
++					<form
++						method="POST"
++						action="/app?/find"
++						use:enhance={() => {
++							finding = true;
++							findMsg = '';
++							return async ({ result }) => {
++								finding = false;
++								if (result.type === 'success') {
++									const n = Number(result.data?.found ?? 0);
++									findMsg = `${n} new ${n === 1 ? 'business' : 'businesses'} added to Today.`;
++									await goto('/app', { invalidateAll: true });
++								} else if (result.type === 'failure') findMsg = String(result.data?.findError ?? 'Could not search right now.');
++								setTimeout(() => (findMsg = ''), 6000);
++							};
++						}}
++					>
++						<button class="min-h-11 rounded-[10px] border border-[#D6D3C8] bg-white px-4 text-sm font-medium hover:border-ink disabled:opacity-60" disabled={finding}>{finding ? 'Searching…' : 'Find 5 more'}</button>
++					</form>
+ 				{/if}
+-				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
+-					<span class="relative grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-ink">
+-						{initial(data.account.name)}
+-					</span>
+-					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">Account & settings</span></span>
+-					<Icon name="cog" size={15} />
+-				</button>
++				<div class="relative">
++					<button class="grid size-11 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account, settings and more">{initial(data.agency.name || data.account.name)}</button>
++					{#if menu === 'account'}
++						<div class="absolute top-full right-0 z-40 mt-2 w-72 rounded-[16px] border border-line bg-white py-2 text-sm shadow-[0_20px_50px_-20px_rgba(0,0,0,.3)]">
++							<a href="/app/settings" class="flex items-center gap-3 px-4 py-2.5 font-medium hover:bg-tile">
++								<span class="flex-1 truncate">{data.agency.name}</span><span class="rounded-full bg-tile px-2 py-0.5 text-[11px] font-normal">{data.beta ? 'Beta' : planLabel}</span>
++							</a>
++							<div class="my-1.5 border-t border-line"></div>
++							<p class="px-4 pt-1 pb-1 text-xs font-medium text-muted">More</p>
++							{#each moreNav as it (it.href)}<a href={it.href} class="flex items-center gap-3 px-4 py-2.5 hover:bg-tile"><span class="grid w-5 place-items-center text-ink-2"><Icon name={it.icon} size={15} /></span>{it.label}</a>{/each}
++							<button class="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-tile" onclick={() => { menu = null; window.dispatchEvent(new CustomEvent('undercut:open')); }}><span class="grid w-5 place-items-center text-ink-2">✦</span>Ask Undercut AI<kbd class="ml-auto rounded bg-tile px-1.5 text-[10px]">⌘J</kbd></button>
++							<div class="my-1.5 border-t border-line"></div>
++							<a href="/app/settings" class="flex items-center gap-3 px-4 py-2.5 hover:bg-tile"><span class="grid w-5 place-items-center text-ink-2"><Icon name="cog" size={15} /></span>Agency settings</a>
++							<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2.5 hover:bg-tile"><span class="grid w-5 place-items-center text-ink-2"><Icon name="team" size={15} /></span>Team</a>
++							<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2.5 hover:bg-tile"><span class="grid w-5 place-items-center text-ink-2"><Icon name="bill" size={15} /></span>Billing & usage</a>
++							<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2.5 hover:bg-tile"><span class="grid w-5 place-items-center text-ink-2"><Icon name="team" size={15} /></span>My account</a>
++							<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2.5 hover:bg-tile"><span class="grid w-5 place-items-center text-ink-2"><Icon name="logout" size={15} /></span>Log out</a>
++						</div>
++					{/if}
++				</div>
+ 			</div>
+ 		</div>
+-	</aside>
++		{#if current}
++			<nav class="scrollbar-none mx-auto flex max-w-[1180px] gap-1 overflow-x-auto px-4 pb-3 sm:px-6" aria-label="{current.name} sections">
++				<span class="flex shrink-0 items-center gap-2 pr-2 text-sm font-medium"><span class="size-2 rounded-full" style="background:{current.color}"></span>{current.name}</span>
++				{#each clientNav as g, gi (gi)}{#each g.items as it (it.href)}{@render link(it)}{/each}{/each}
++			</nav>
++		{/if}
++	</header>
+ 
+-	{#if drawer}<button class="fixed inset-0 z-40 bg-black/30 lg:hidden" aria-label="Close menu" onclick={() => (drawer = false)}></button>{/if}
+-	{#if menu}<button class="fixed inset-0 z-30 cursor-default" aria-label="Close" onclick={() => (menu = null)}></button>{/if}
++	{#if findMsg}<p class="no-print fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-ink px-4 py-2.5 text-sm text-white shadow-lg" role="status">{findMsg}</p>{/if}
++	{#if menu}<button class="fixed inset-0 z-20 cursor-default" aria-label="Close menu" onclick={() => (menu = null)}></button>{/if}
+ 
+-	<main class="min-w-0 px-4 py-6 sm:px-8 lg:py-8">
+-		<div class="mx-auto max-w-[1240px] pb-20">
+-			{@render children()}
+-		</div>
++	<main class="mx-auto max-w-[1180px] min-w-0 px-4 pt-8 pb-24 sm:px-6">
++		{@render children()}
+ 	</main>
+ 	<Assistant clients={data.clients} />
+ </div>
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index 45580f4..16725c0 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -1,33 +1,24 @@
+-import { getOS, monthlyQuota, pipelineStats, usedThisMonth } from '#lib/server/agency-os.ts';
++import { getOS, monthlyQuota, usedThisMonth } from '#lib/server/agency-os.ts';
+ import { agencyActions } from '#lib/server/agency-actions.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
+-import { agenda, getBiz, money } from '#lib/server/business.ts';
+-import { analyticsRows } from '#lib/server/analytics-rows.ts';
+-import { inboxItems } from '#lib/server/inbox.ts';
++import { getBiz } from '#lib/server/business.ts';
++import { inboxItems, weekStats } from '#lib/server/inbox.ts';
+ import { emailReady } from '#lib/server/email.ts';
+ 
+-export const load = async () => {
++// Today: one queue of things to approve (first messages, follow-ups, payment reminders), one card at a time.
++export const load = () => {
+ 	const os = getOS();
+ 	const b = getBiz();
+-	const stats = pipelineStats(os);
+-	const names = Object.fromEntries(b.clients.map((c) => [c.id, c.name]));
+ 	return {
++		profile: os.profile ? { url: os.profile.url, name: os.profile.name, city: os.profile.city, services: os.profile.services, target: os.profile.target ?? 'small' } : null,
++		started: os.pipeline.length > 0,
+ 		inbox: os.profile ? inboxItems() : [],
+-		brief: { on: os.brief !== false, ready: emailReady() },
+-		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, built: os.built && !os.built.seen ? os.built : null, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
+-		stats: { counts: stats.counts, wonMonth: stats.wonMonth, wonValue: stats.wonValue, replyRate: stats.replyRate },
++		week: weekStats(),
++		waiting: os.pipeline.filter((p) => p.stage === 'new').length,
+ 		quota: monthlyQuota(),
+ 		used: usedThisMonth(os),
+-		tasks: b.tasks.filter((t) => !t.done).sort((a, z) => (a.due ?? '9').localeCompare(z.due ?? '9')).slice(0, 6).map((t) => ({ ...t, client: t.clientId ? names[t.clientId] : undefined })),
+-		openTasks: b.tasks.filter((t) => !t.done).length,
+-		agenda: agenda(b, os.pipeline, 7).slice(0, 7),
+-		clients: b.clients.filter((c) => c.status === 'active').sort((a, z) => (z.fee ?? 0) - (a.fee ?? 0)).slice(0, 6).map((c) => ({ id: c.id, name: c.name, services: c.services, fee: c.fee, site: c.site ? c.site.status >= 200 && c.site.status < 400 : null })),
+-		clientCount: b.clients.length,
+-		clientOptions: b.clients.filter((c) => c.status !== 'ended').map((c) => ({ id: c.id, name: c.name })),
+-		money: money(b),
+-		currency: b.details.currency,
+-		// analytics block: only read the tracked sites when the block is shown
+-		analytics: os.blocks.analytics ? (await analyticsRows()).slice(0, 3) : []
++		brief: { on: os.brief !== false, ready: emailReady() },
++		clientOptions: b.clients.filter((c) => c.status !== 'ended').map((c) => ({ id: c.id, name: c.name }))
+ 	};
+ };
+ 
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index e9734f3..2f84cb1 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -1,311 +1,237 @@
+ <script lang="ts">
+-	import ArrowLink from '#lib/components/ArrowLink.svelte';
+-	import HealthRing from '#lib/components/HealthRing.svelte';
+-	import { n } from '#lib/format.ts';
++	// Today: everything Undercut prepared, one card at a time. Send or skip, and the next one comes up.
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+-	import AgencySetup from '#lib/components/AgencySetup.svelte';
+-	import Inbox from '#lib/components/Inbox.svelte';
+-	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
+-	import { eur, dayLabel, todayIso } from '#lib/biz-format.ts';
+-	import { flip } from 'svelte/animate';
++	import StartSetup from '#lib/components/StartSetup.svelte';
+ 	let { data, form } = $props();
+ 
+-	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+-	const clear = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update();
++	type Item = (typeof data.inbox)[number];
++	let hidden = $state<Record<string, boolean>>({});
++	let done = $state<{ key: string; name: string; label: string }[]>([]);
++	let sent = $state(0);
++	let editing = $state(false);
++	let edited = $state<Record<string, string>>({});
++	let copied = $state(false);
++	let addingPayment = $state(false);
+ 	let finding = $state(false);
+-	let customise = $state(false);
+-	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', tasks: 'Tasks', agenda: 'Agenda', clients: 'Clients', money: 'Revenue', analytics: 'Analytics' };
+-	const SPAN: Record<string, string> = { s: 'lg:col-span-4', m: 'lg:col-span-6', l: 'lg:col-span-8', xl: 'lg:col-span-12' };
+-	const SIZE_LABEL: Record<string, string> = { s: '⅓', m: '½', l: '⅔', xl: 'Full' };
+-	type B = (typeof data.os.order)[number];
+-	// local, editable copy of the layout (drag & drop, sizes, visibility); saved to the server after each change
+-	let order = $state<B[]>([]);
+-	let sizes = $state<Record<string, string>>({});
+-	let visible = $state<Record<string, boolean>>({});
+-	$effect.pre(() => {
+-		order = [...data.os.order];
+-		sizes = { ...data.os.sizes };
+-		visible = { ...data.os.blocks };
+-	});
+-	const shown = $derived(order.filter((b) => visible[b]));
+-	const hiddenBlocks = $derived(order.filter((b) => !visible[b]));
+-	let dragging = $state<B | null>(null);
+-	let saving = $state(false);
+-	async function saveLayout() {
+-		saving = true;
+-		const f = new FormData();
+-		f.set('order', JSON.stringify(order));
+-		f.set('sizes', JSON.stringify(sizes));
+-		f.set('visible', JSON.stringify(order.filter((b) => visible[b])));
+-		await fetch(act('layout'), { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true' } });
+-		saving = false;
+-	}
+-	const moveTo = (b: B, target: B) => {
+-		if (b === target) return;
+-		const next = order.filter((x) => x !== b);
+-		next.splice(next.indexOf(target), 0, b);
+-		order = next;
+-	};
+-	const cycleSize = (b: B) => {
+-		const list = ['s', 'm', 'l', 'xl'];
+-		sizes = { ...sizes, [b]: list[(list.indexOf(sizes[b] ?? 'm') + 1) % list.length] };
+-		saveLayout();
+-	};
+-	const setVisible = (b: B, on: boolean) => {
+-		visible = { ...visible, [b]: on };
+-		saveLayout();
+-	};
+-	const hour = new Date().getHours();
+-	const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+-	const t = todayIso();
+-	const cur = $derived(data.currency);
+-	const STAGE_LABEL = { new: 'To contact', contacted: 'Contacted', talking: 'Talking', won: 'Won' } as const;
+-	const KIND: Record<string, string> = { meeting: 'Meeting', task: 'Task', followup: 'Follow-up', invoice: 'Invoice' };
+-	const todayCount = $derived(data.inbox.length);
++
++	const queue = $derived(data.inbox.filter((i) => !hidden[i.key]));
++	const cur = $derived<Item | undefined>(queue[0]);
++	const total = $derived(queue.length + done.length);
++	const pct = $derived(total ? Math.round((done.length / total) * 100) : 100);
++	const left = $derived(Math.max(0, data.quota - data.used));
++	const today = new Date();
++	const dateLabel = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
++	const isoToday = today.toISOString().slice(0, 10);
++
++	const LANG = { fr: 'French', nl: 'Dutch', en: 'English' } as const;
++	const text = (it: Item) => edited[it.key] ?? it.message;
++	const mailto = (it: Item) => `mailto:${it.to ?? ''}?subject=${encodeURIComponent(it.subject)}&body=${encodeURIComponent(text(it))}`;
++	const tag = (it: Item) => (it.kind === 'first' ? 'New prospect' : it.kind === 'followup' ? `Follow-up ${it.step} of 2` : it.step === 2 ? 'Payment · 2nd reminder' : 'Payment');
++	const TAG_STYLE = { first: 'bg-accent-soft text-accent', followup: 'bg-good-bg text-[#1E6A43]', payment: 'bg-warn-bg text-warn' } as const;
++	const DOT = { first: 'bg-accent', followup: 'bg-good', payment: 'bg-[#C2620A]' } as const;
++	const small = (it: Item) => (it.kind === 'first' ? 'First message' : it.kind === 'followup' ? (it.step === 2 ? 'Last follow-up' : 'No reply yet') : it.title.replace(`${it.name} owes `, ''));
++	const heading = (it: Item) => (it.kind === 'payment' ? it.title.replace('owes', 'owes you') : it.name);
+ </script>
+ 
+-<svelte:head><title>Dashboard · Undercut</title></svelte:head>
++<svelte:head><title>Today · Undercut</title></svelte:head>
+ 
+-{#if !data.os.profile}
+-	<section class="card-dark relative overflow-hidden p-6 sm:p-10">
+-		<div class="pointer-events-none absolute -right-24 -bottom-24 size-96 rounded-full bg-accent/30 blur-3xl"></div>
+-		<p class="relative text-sm text-accent">Build your dashboard</p>
+-		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">Paste your agency’s URL. Your dashboard builds itself.</h1>
+-		<p class="relative mt-3 max-w-xl text-white/60">We read what you sell and where you work. Then you get real prospects nearby, a pipeline, tasks and agenda, clients, quotes and invoices.</p>
+-		<div class="relative mt-6 max-w-2xl"><AgencySetup profile={null} error={form?.setupError ?? ''} /></div>
+-	</section>
++{#if !data.profile || !data.started}
++	<StartSetup profile={data.profile} error={form?.setupError ?? form?.findError ?? ''} />
+ {:else}
+-	<section class="flex flex-wrap items-end justify-between gap-6">
++	<div class="flex flex-wrap items-end justify-between gap-4">
+ 		<div>
+-			<p class="label">{hello} · {data.os.profile.name}</p>
+-			<h1 class="display mt-2 text-[48px] sm:text-[76px]"><em>Today</em></h1>
+-		</div>
+-		<div class="flex flex-wrap gap-x-10 gap-y-4">
+-			<div><p class="big text-5xl">{todayCount}</p><p class="mt-1 text-sm text-muted">to approve</p></div>
+-			<div><p class="big text-5xl">{data.openTasks}</p><p class="mt-1 text-sm text-muted">open tasks</p></div>
+-			<div><p class="big text-5xl">{eur(data.money.mrr, cur)}</p><p class="mt-1 text-sm text-muted">per month</p></div>
++			<p class="text-sm text-muted">{dateLabel}</p>
++			<h1 class="mt-1 text-[34px] leading-[1.1] font-semibold sm:text-[40px]">{cur ? `${queue.length} ${queue.length === 1 ? 'thing' : 'things'} to approve` : done.length ? 'Nice work.' : 'Nothing to approve'}</h1>
+ 		</div>
+-	</section>
+-
+-	{#if data.os.built}
+-		{@const p = data.os.profile}
+-		<section class="card-dark relative mt-6 overflow-hidden p-6 sm:p-8">
+-			<p class="text-sm text-white/60">✦ Built from {p.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</p>
+-			<h2 class="mt-2 text-[28px] leading-tight font-medium tracking-[-0.03em] sm:text-[34px]">We built this dashboard for {p.name}.</h2>
+-			<div class="mt-5 flex flex-wrap gap-2 text-sm">
+-				{#each [data.os.built.kind, p.city, p.services.map((x) => ({ web: 'Websites', app: 'Apps', social: 'Social media', seo: 'SEO', branding: 'Branding', ads: 'Ads', video: 'Photo & video' })[x] ?? x).join(', '), { fr: 'Français', nl: 'Nederlands', en: 'English' }[p.lang]].filter(Boolean) as t, i (i)}
+-					<span class="rounded-full bg-white/10 px-3 py-1.5 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{i * 120}ms">{t}</span>
+-				{/each}
+-				{#if data.accent}<span class="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5"><span class="size-3 rounded-full" style="background:{data.accent}"></span>Your colour</span>{/if}
+-			</div>
+-			<ul class="mt-5 grid gap-1.5 text-sm text-white/75 sm:grid-cols-2">
+-				{#each data.os.built.why as w, i (w)}<li class="flex items-center gap-2 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{500 + i * 120}ms"><span class="text-white">✓</span>{w}</li>{/each}
+-			</ul>
+-			<div class="mt-6 flex flex-wrap items-center gap-3">
+-				<form method="POST" action={act('built')} use:enhance={keep}><button class="btn bg-white text-ink hover:bg-white/90">Looks good</button></form>
+-				<button type="button" class="btn btn-ghost border-white/20 text-white" onclick={() => (customise = true)}>Change it</button>
+-				<span class="text-xs text-white/50">Or type below: “tasks first”, “hide agenda”…</span>
++		{#if total}
++			<div class="w-full sm:w-60">
++				<p class="mb-1.5 text-[13px] text-ink-2">{done.length} of {total} done today</p>
++				<div class="h-1.5 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Done today"><div class="h-1.5 rounded-full bg-accent transition-[width] duration-500" style="width:{pct}%"></div></div>
+ 			</div>
+-		</section>
+-	{/if}
+-
+-	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} brief={data.brief} briefMsg={form?.briefMsg ?? ''} /></div>
++		{/if}
++	</div>
+ 
+-	<!-- ask to change: plain-language edits to the dashboard -->
+-	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
+-		<span class="hidden pl-3 text-muted sm:block">✦</span>
+-		<input name="q" placeholder="Change your dashboard: “hide agenda”, “tasks first”, “make it blue”…" class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none" />
+-		<div class="flex gap-2"><button class="btn btn-accent text-sm">Change</button><button type="button" class="pill text-sm {customise ? 'pill-active' : ''}" onclick={() => (customise = !customise)}>{customise ? 'Done' : 'Customise'}</button></div>
+-	</form>
+-	{#if form?.asked}<p class="mt-2 text-sm text-muted">{form.asked}</p>{/if}
+-	{#if customise}
+-		<div class="card mt-3 grid gap-5 p-5">
+-		<div>
+-			<p class="label">Colour</p>
+-			<div class="mt-2 flex flex-wrap items-center gap-2">
+-				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="" /><button class="pill text-sm {!data.accent || data.accent === NEUTRAL ? 'pill-active' : ''}"><span class="size-3.5 rounded-full border border-line bg-[linear-gradient(135deg,#fff_50%,#0d0d0d_50%)]"></span>Black & white</button></form>
+-				{#if data.siteColor}
+-					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="site" /><button class="pill text-sm {data.accent === data.siteColor ? 'pill-active' : ''}"><span class="size-3.5 rounded-full" style="background:{data.siteColor}"></span>Your site’s colour</button></form>
+-				{/if}
+-				{#each SWATCHES as c (c)}
+-					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value={c} /><button class="grid size-9 place-items-center rounded-full ring-offset-2 {data.accent?.toLowerCase() === c.toLowerCase() ? 'ring-2 ring-ink' : ''}" style="background:{c}" aria-label="Use {c}"></button></form>
+-				{/each}
+-				<form method="POST" action={act('theme')} use:enhance={keep} class="flex items-center gap-2">
+-					<label class="relative grid size-9 cursor-pointer place-items-center overflow-hidden rounded-full border border-line bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]" title="Any colour"><input type="color" name="accent" value={data.accent ?? '#2f6bff'} class="absolute inset-0 cursor-pointer opacity-0" onchange={(e) => e.currentTarget.form?.requestSubmit()} /></label>
+-				</form>
+-			</div>
+-		</div>
+-		<div class="flex flex-wrap items-center justify-between gap-3 rounded-[18px] bg-black/[.03] px-4 py-3 text-sm">
+-			<p class="text-ink-2"><b class="font-medium text-ink">Edit mode:</b> drag blocks to move them, change their width, hide them, or add new ones below.</p>
+-			<span class="text-xs text-muted">{saving ? 'Saving…' : 'Saved automatically'}</span>
+-		</div>
+-		</div>
+-	{/if}
++	<div class="mt-7 flex flex-wrap items-start gap-6">
++		<section class="min-w-0 flex-[999_1_600px]" aria-label="Current item">
++			{#if cur}
++				{#key cur.key}
++					<article class="overflow-hidden rounded-[20px] border border-line bg-white">
++						<div class="flex flex-col gap-3.5 p-5 sm:p-7 sm:pb-5">
++							<div class="flex flex-wrap items-center justify-between gap-3">
++								<span class="rounded-full px-2.5 py-1 text-[13px] font-semibold {TAG_STYLE[cur.kind]}">{tag(cur)}</span>
++								<span class="text-[13px] text-muted">{done.length + 1} of {total}</span>
++							</div>
++							<div>
++								<h2 class="font-display text-[26px] leading-tight font-semibold tracking-[-0.02em] sm:text-[30px]">{heading(cur)}</h2>
++								<p class="mt-1.5 text-ink-2">{cur.meta}</p>
++							</div>
++							{#if cur.reasons?.length}
++								<div class="rounded-[14px] bg-paper px-4 py-4 sm:px-[18px]">
++									<p class="mb-2.5 text-xs font-semibold tracking-[0.06em] text-ink-2 uppercase">{cur.reasonsTitle}</p>
++									<ul class="flex flex-col gap-2">
++										{#each cur.reasons as r, i (i)}
++											<li class="flex items-baseline gap-2.5">
++												<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1E7A4C" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="flex-none translate-y-0.5"><path d="M20 6 9 17l-5-5" /></svg>
++												<span>{r}</span>
++											</li>
++										{/each}
++									</ul>
++									{#if cur.proof?.length}
++										<p class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
++											<span class="text-muted">Check it yourself:</span>
++											{#each cur.proof as p (p.url)}<a href={p.url} target="_blank" rel="noopener noreferrer" class="font-medium text-accent hover:underline">{p.label}</a>{/each}
++										</p>
++									{/if}
++								</div>
++							{/if}
++						</div>
+ 
+-	<!-- 12-column grid: blocks on the same row share the same height -->
+-	<div class="mt-5 grid gap-4 lg:auto-rows-[minmax(330px,auto)] lg:grid-flow-dense lg:grid-cols-12">
+-		{#each shown as b (b)}
+-			<div
+-				class="relative flex min-w-0 flex-col transition-[opacity,transform] duration-200 {SPAN[sizes[b] ?? 'm']} {customise ? 'cursor-grab rounded-[30px] outline-2 outline-offset-4 outline-dashed outline-black/15 active:cursor-grabbing' : ''} {dragging === b ? 'scale-[.98] opacity-40' : ''}"
+-				animate:flip={{ duration: 300 }}
+-				draggable={customise}
+-				role="listitem"
+-				ondragstart={(e) => {
+-					dragging = b;
+-					e.dataTransfer?.setData('text/plain', b);
+-				}}
+-				ondragover={(e) => {
+-					if (!dragging) return;
+-					e.preventDefault();
+-					moveTo(dragging, b);
+-				}}
+-				ondragend={() => {
+-					if (dragging) saveLayout();
+-					dragging = null;
+-				}}
+-			>
+-				{#if customise}
+-					<div class="absolute -top-3 right-4 z-20 flex items-center gap-1 rounded-full bg-ink p-1 text-xs text-white shadow-lg">
+-						<span class="px-2 select-none" title="Drag to move">⠿ {LABEL[b]}</span>
+-						<button type="button" class="rounded-full bg-white/10 px-2.5 py-1 hover:bg-white/20" onclick={() => cycleSize(b)} title="Change width">{SIZE_LABEL[sizes[b] ?? 'm']}</button>
+-						<button type="button" class="grid size-6 place-items-center rounded-full hover:bg-white/20" onclick={() => setVisible(b, false)} aria-label="Hide {LABEL[b]}">✕</button>
+-					</div>
+-				{/if}
+-				<div class="flex flex-1 flex-col {customise ? 'pointer-events-none select-none' : ''}">
+-				{#if b === 'prospects'}
+-					<section class="card-dark relative flex flex-1 flex-col overflow-hidden p-5 sm:p-7">
+-						<div class="pointer-events-none absolute -top-20 -right-20 size-72 rounded-full bg-accent/20 blur-3xl"></div>
+-						<div class="relative flex flex-wrap items-start justify-between gap-3">
+-							<div><p class="font-medium">New prospects</p><p class="mt-1 text-sm text-white/50">Around {data.os.profile.city} · {Math.max(0, data.quota - data.used)} of {data.quota} left this month</p></div>
+-							<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; }; }}>
+-								<button class="btn btn-accent text-sm" disabled={finding || data.used >= data.quota}>{finding ? 'Looking…' : '+ Find 5'}</button>
+-							</form>
++						<div class="flex flex-col gap-2.5 border-t border-line px-5 py-5 sm:px-7">
++							<div class="flex flex-wrap justify-between gap-2 text-[13px] text-muted">
++								<span>{#if cur.to}To: <b class="font-medium text-ink">{cur.to}</b>{:else}No email found: copy it for a DM{cur.phone ? ' or call' : ''}{/if}</span>
++								{#if cur.lang}<span>Written in {LANG[cur.lang]}</span>{/if}
++							</div>
++							<p class="font-semibold">{cur.subject}</p>
++							{#if editing}
++								<label class="sr-only" for="msg">Message</label>
++								<textarea id="msg" rows="12" class="w-full rounded-[12px] border border-[#D6D3C8] bg-[#FBFAF7] px-4 py-3.5 text-[14.5px] leading-relaxed" value={text(cur)} oninput={(e) => (edited[cur!.key] = e.currentTarget.value)}></textarea>
++							{:else}
++								<div class="rounded-[12px] border border-[#ECEAE3] bg-[#FBFAF7] px-4 py-4 text-[14.5px] leading-relaxed whitespace-pre-line text-[#2A2A30] sm:px-[18px]">{text(cur)}</div>
++							{/if}
++							<button type="button" class="min-h-11 self-start text-sm font-medium text-accent" onclick={() => (editing = !editing)}>{editing ? 'Done editing' : 'Edit message'}</button>
+ 						</div>
+-						{#if form?.findError}<p class="relative mt-3 text-sm text-[#ffb4a8]">{form.findError}</p>{/if}
+-						<ul class="relative mt-5 grid min-w-0 flex-1 grid-cols-1 content-start gap-2">
+-							{#each data.os.fresh as p (p.id)}
+-								<li class="min-w-0"><a href="/app/prospects" class="flex min-w-0 items-center gap-3 rounded-[18px] bg-white/[.06] p-3 hover:bg-white/10">
+-									<span class="grid size-10 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold text-accent-ink">{p.score}</span>
+-									<span class="min-w-0"><b class="block truncate text-sm font-medium">{p.name}</b><span class="block truncate text-xs text-white/50">{p.category} · {p.pitch}</span></span>
+-								</a></li>
++
++						<form
++							method="POST"
++							action={act('inbox')}
++							class="flex flex-wrap items-center gap-2.5 border-t border-line bg-[#FBFAF7] px-5 py-4 sm:px-7"
++							use:enhance={({ submitter }) => {
++								const it = cur!;
++								const how = (submitter as HTMLButtonElement | null)?.dataset.how;
++								if (how === 'mail') window.location.href = mailto(it);
++								if (how === 'copy' || how === 'dm') {
++									navigator.clipboard?.writeText(text(it));
++									copied = true;
++									setTimeout(() => (copied = false), 2500);
++									if (how === 'dm' && it.instagram) window.open(it.instagram, '_blank', 'noopener');
++								}
++								if (how !== 'skip' && how !== 'paid') sent++;
++								hidden[it.key] = true;
++								done = [...done, { key: it.key, name: it.name, label: how === 'skip' ? (it.kind === 'first' ? 'Skipped' : 'Later') : how === 'paid' ? 'Paid' : 'Sent' }];
++								editing = false;
++								return async ({ update }) => update({ reset: false });
++							}}
++						>
++							<input type="hidden" name="kind" value={cur.kind} />
++							<input type="hidden" name="id" value={cur.id} />
++							{#if cur.to}
++								<button name="sent" value="1" data-how="mail" class="min-h-12 rounded-[12px] bg-accent px-5 font-semibold text-white hover:bg-[#1E36A0]">{cur.kind === 'payment' ? 'Send reminder' : 'Send from my email'}</button>
+ 							{:else}
+-								<li class="rounded-[18px] bg-white/[.06] p-4 text-sm text-white/60">{finding ? 'Checking the websites of businesses around you…' : 'Press “Find 5”: we look at real businesses around you, check each website and write the first message.'}</li>
+-							{/each}
+-						</ul>
+-						{#if data.os.fresh.length}<a href="/app/prospects" class="relative mt-4 inline-block text-sm text-white/80 hover:underline">See all and contact them →</a>{/if}
+-					</section>
+-				{:else if b === 'pipeline'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between"><p class="font-medium">Pipeline</p><ArrowLink href="/app/prospects" label="Open pipeline" /></div>
+-						<ul class="mt-5 grid gap-3">
+-							{#each Object.entries(STAGE_LABEL) as [k, l] (k)}
+-								{@const c = data.stats.counts[k as keyof typeof STAGE_LABEL]}
+-								{@const max = Math.max(1, ...Object.keys(STAGE_LABEL).map((x) => data.stats.counts[x as keyof typeof STAGE_LABEL]))}
+-								<li class="grid grid-cols-[88px_1fr_28px] items-center gap-3 text-sm"><span class="text-muted">{l}</span><span class="h-2.5 overflow-hidden rounded-full bg-tile"><span class="block h-full rounded-full bg-ink" style="width:{(c / max) * 100}%"></span></span><b class="text-right font-medium">{c}</b></li>
+-							{/each}
+-						</ul>
+-						<p class="mt-auto pt-4 text-xs text-muted">{data.stats.replyRate != null ? `${data.stats.replyRate}% of contacted businesses answered.` : 'Move prospects along as you contact them. When one signs, press “Make client”.'}</p>
+-					</section>
+-				{:else if b === 'tasks'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between"><p class="font-medium">Tasks <span class="text-sm font-normal text-muted">· {data.openTasks} open</span></p><ArrowLink href="/app/tasks" label="All tasks" /></div>
+-						<form method="POST" action={act('task')} use:enhance={clear} class="mt-4 flex gap-2">
+-							<input name="title" required placeholder="Add a task…" class="input text-sm" />
+-							<input name="due" type="date" class="input hidden w-36 min-w-0 shrink-0 text-sm sm:block" aria-label="Due date" />
+-							<button class="pill text-sm">Add</button>
++								<button name="sent" value="1" data-how="copy" class="min-h-12 rounded-[12px] bg-accent px-5 font-semibold text-white hover:bg-[#1E36A0]">Copy & mark sent</button>
++							{/if}
++							{#if cur.kind === 'payment'}
++								<button formaction={act('paid')} data-how="paid" class="min-h-12 rounded-[12px] border border-[#D6D3C8] bg-white px-4 font-medium hover:border-ink">They paid</button>
++							{:else if cur.to}
++								<button name="sent" value="1" data-how="dm" class="min-h-12 rounded-[12px] border border-[#D6D3C8] bg-white px-4 font-medium hover:border-ink">{cur.instagram ? 'Copy for Instagram DM' : 'Copy for a DM'}</button>
++							{/if}
++							{#if cur.phone}<a href="tel:{cur.phone}" class="flex min-h-12 items-center rounded-[12px] px-3 font-medium text-ink-2 hover:bg-tile">Call</a>{/if}
++							<span class="flex-1"></span>
++							<button name="sent" value="0" data-how="skip" class="min-h-12 rounded-[12px] px-4 font-medium text-ink-2 hover:bg-tile">{cur.kind === 'first' ? 'Not a fit' : 'Later'}</button>
+ 						</form>
+-						<ul class="mt-3 flex-1 divide-y divide-line">
+-							{#each data.tasks as k (k.id)}
+-								<li class="flex items-center gap-3 py-2 text-sm">
+-									<form method="POST" action={act('toggleTask')} use:enhance={keep}><input type="hidden" name="id" value={k.id} /><button class="grid size-5 place-items-center rounded-md border border-ink/25 hover:border-ink" aria-label="Mark as done"></button></form>
+-									<span class="min-w-0 flex-1"><span class="block truncate">{k.title}</span>{#if k.client}<span class="block truncate text-xs text-muted">{k.client}</span>{/if}</span>
+-									{#if k.due}<span class="shrink-0 text-xs {k.due < t ? 'text-bad' : 'text-muted'}">{k.due === t ? 'Today' : dayLabel(k.due)}</span>{/if}
+-								</li>
+-							{:else}
+-								<li class="py-2 text-sm text-muted">Nothing to do yet. Add your first task above.</li>
+-							{/each}
+-						</ul>
+-					</section>
+-				{:else if b === 'agenda'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between"><p class="font-medium">Agenda <span class="text-sm font-normal text-muted">· next 7 days</span></p><ArrowLink href="/app/tasks" label="Open agenda" /></div>
+-						<ul class="mt-4 flex-1 space-y-1.5">
+-							{#each data.agenda as a (a.kind + a.id)}
+-								<li><a href={a.href} class="flex items-center gap-3 rounded-[14px] bg-tile px-3 py-2 text-sm hover:bg-[#e6e6e1]">
+-									<span class="w-[88px] shrink-0 text-xs {a.late ? 'text-bad' : 'text-muted'}">{a.late ? 'Late' : a.date === t ? 'Today' : dayLabel(a.date)}{a.time ? ` ${a.time}` : ''}</span>
+-									<span class="min-w-0 flex-1 truncate">{a.title}{#if a.sub}<span class="text-muted"> · {a.sub}</span>{/if}</span>
+-									<span class="hidden shrink-0 text-[11px] text-muted sm:inline">{KIND[a.kind]}</span>
+-								</a></li>
+-							{:else}
+-								<li class="text-sm text-muted">Nothing planned this week. Meetings, tasks with a date, follow-ups and invoices due show up here.</li>
+-							{/each}
+-						</ul>
+-						<a href="/app/tasks" class="mt-4 text-sm text-ink-2 hover:underline">+ Add a meeting</a>
+-					</section>
+-				{:else if b === 'clients'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between gap-3"><p class="font-medium">Clients <span class="text-sm font-normal text-muted">· {data.money.active} active</span></p><ArrowLink href="/app/crm" label="All clients" /></div>
+-						{#if data.clients.length}
+-							<ul class="mt-4 flex-1 divide-y divide-line">
+-								{#each data.clients as c (c.id)}
+-									<li><a href="/app/crm/{c.id}" class="flex items-center gap-3 py-2.5 text-sm hover:underline">
+-										<span class="grid size-8 shrink-0 place-items-center rounded-full bg-tile text-xs font-semibold">{c.name.slice(0, 1).toUpperCase()}</span>
+-										<span class="min-w-0 flex-1"><span class="block truncate font-medium">{c.name}</span><span class="block truncate text-xs text-muted">{c.services.join(', ') || 'No services listed'}</span></span>
+-										{#if c.site !== null}<span class="text-xs {c.site ? 'text-good' : 'text-bad'}" title="Website check">{c.site ? '● site online' : '● site down'}</span>{/if}
+-										<span class="w-20 shrink-0 text-right">{c.fee ? eur(c.fee, cur) : '—'}</span>
+-									</a></li>
+-								{/each}
+-							</ul>
+-						{:else}
+-							<p class="mt-4 flex-1 text-sm text-muted">{data.clientCount ? 'No active clients right now.' : 'Add the clients you already work for, or turn a won prospect into a client from your pipeline.'}</p>
+-						{/if}
+-						<a href="/app/crm" class="btn btn-primary mt-4 self-start text-sm">+ Add client</a>
+-					</section>
+-				{:else if b === 'money'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between"><p class="font-medium">Revenue</p><ArrowLink href="/app/invoices" label="Quotes & invoices" /></div>
+-						<p class="mt-4 text-xs text-muted">Monthly retainers</p>
+-						<p class="big text-5xl">{eur(data.money.mrr, cur)}</p>
+-						<dl class="mt-4 grid grid-cols-2 gap-2 text-sm">
+-							<div class="rounded-[14px] bg-tile p-3"><dt class="text-xs text-muted">Paid this month</dt><dd class="mt-0.5 font-medium">{eur(data.money.paidMonth, cur)}</dd></div>
+-							<div class="rounded-[14px] bg-tile p-3"><dt class="text-xs text-muted">Waiting</dt><dd class="mt-0.5 font-medium {data.money.overdue ? 'text-bad' : ''}">{eur(data.money.unpaid, cur)}{data.money.overdue ? ` · ${data.money.overdue} late` : ''}</dd></div>
+-						</dl>
+-						<div class="mt-auto pt-5">
+-							<div class="flex items-baseline justify-between text-sm"><span class="text-muted">New clients this month</span><b class="font-medium">{data.stats.wonMonth} / {data.os.goal.wonPerMonth}</b></div>
+-							<div class="mt-2 h-2 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full bg-ink" style="width:{Math.min(100, (data.stats.wonMonth / data.os.goal.wonPerMonth) * 100)}%"></div></div>
+-							<form method="POST" action={act('goal')} use:enhance={keep} class="mt-2 flex items-center gap-2 text-xs text-muted">Goal <input name="won" type="number" min="1" max="100" value={data.os.goal.wonPerMonth} class="input w-16 py-1 text-sm" /> per month <button class="pill text-xs">Save</button></form>
++					</article>
++				{/key}
++				{#if copied}<p class="mt-3 text-sm text-good" role="status">Copied. Paste it in your DM or email.</p>{/if}
++			{:else}
++				<article class="flex flex-col items-center gap-3 rounded-[20px] border border-line bg-white px-6 py-14 text-center">
++					<svg aria-hidden="true" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#1E7A4C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="m8 12 3 3 5-6" /></svg>
++					<h2 class="font-display text-[28px] font-semibold tracking-[-0.02em]">All done for today</h2>
++					<p class="max-w-md text-ink-2">
++						{sent ? `You sent ${sent} message${sent === 1 ? '' : 's'}. ` : ''}Undercut follows up for you after 4 days if nobody answers, and payment reminders come back here when they’re due.
++						{data.waiting ? `${data.waiting} more ${data.waiting === 1 ? 'business is' : 'businesses are'} ready for tomorrow.` : ''}
++					</p>
++					<form
++						method="POST"
++						action={act('find')}
++						class="mt-2 flex flex-col items-center gap-1.5"
++						use:enhance={() => {
++							finding = true;
++							return async ({ update }) => {
++								await update({ reset: false });
++								finding = false;
++							};
++						}}
++					>
++						<button class="min-h-12 rounded-[12px] bg-accent px-6 font-semibold text-white hover:bg-[#1E36A0] disabled:opacity-70" disabled={finding || !left}>{finding ? `Looking around ${data.profile.city}…` : 'Find 5 more now'}</button>
++						<span class="text-xs text-muted">{left} of {data.quota} searches left this month</span>
++					</form>
++					{#if form?.findError}<p class="text-sm text-warn" role="alert">{form.findError}</p>{/if}
++				</article>
++			{/if}
++		</section>
++
++		<aside class="flex min-w-0 flex-[1_1_300px] flex-col gap-4">
++			{#if total}
++				<div class="rounded-[20px] border border-line bg-white p-5">
++					<h2 class="mb-3 font-semibold">Today’s queue</h2>
++					<ol class="flex flex-col gap-1">
++						{#each done as d (d.key)}
++							<li class="flex items-center gap-3 rounded-[12px] px-3 py-2.5 opacity-60">
++								<span class="size-2 flex-none rounded-full bg-[#BDBAB0]"></span>
++								<span class="min-w-0 flex-1 truncate font-medium">{d.name}</span>
++								<span class="text-[12.5px] text-ink-2">{d.label}</span>
++							</li>
++						{/each}
++						{#each queue as q, i (q.key)}
++							<li class="flex items-center gap-3 rounded-[12px] px-3 py-2.5 {i === 0 ? 'bg-[#F0F2FC]' : ''}">
++								<span class="size-2 flex-none rounded-full {DOT[q.kind]}"></span>
++								<span class="min-w-0 flex-1"><span class="block truncate font-medium">{q.name}</span><span class="block text-[12.5px] text-muted">{small(q)}</span></span>
++								{#if i === 0}<span class="text-[12.5px] text-ink-2">Now</span>{/if}
++							</li>
++						{/each}
++					</ol>
++				</div>
++			{/if}
++
++			<div class="rounded-[20px] border border-line bg-white p-5">
++				<h2 class="mb-3 font-semibold">This week</h2>
++				<div class="grid grid-cols-3 gap-2">
++					<div><p class="font-display text-[28px] font-semibold">{data.week.sent}</p><p class="text-[12.5px] text-muted">messages sent</p></div>
++					<div><p class="font-display text-[28px] font-semibold">{data.week.replied}</p><p class="text-[12.5px] text-muted">replied</p></div>
++					<div><p class="font-display text-[28px] font-semibold">{data.week.won}</p><p class="text-[12.5px] text-muted">new {data.week.won === 1 ? 'client' : 'clients'}</p></div>
++				</div>
++				<a href="/app/pipeline" class="mt-3.5 inline-block text-sm font-medium text-accent hover:underline">See who replied →</a>
++			</div>
++
++			<div class="rounded-[20px] border border-line bg-white p-5">
++				<button type="button" class="flex w-full items-center justify-between gap-3 text-left font-semibold" onclick={() => (addingPayment = !addingPayment)} aria-expanded={addingPayment}>Someone owes you money? <span class="text-muted" aria-hidden="true">{addingPayment ? '−' : '+'}</span></button>
++				{#if addingPayment}
++					<form method="POST" action={act('payment')} class="mt-3.5 grid gap-3" use:enhance={() => async ({ update, result }) => { await update(); if (result.type === 'success') addingPayment = false; }}>
++						<label class="text-sm"><span class="label">Who</span>
++							<select name="clientId" class="input mt-1.5"><option value="">Someone else (type below)</option>{#each data.clientOptions as c (c.id)}<option value={c.id}>{c.name}</option>{/each}</select>
++						</label>
++						<label class="text-sm"><span class="label">Or their name</span><input name="who" class="input mt-1.5" placeholder="Corner Bakery" /></label>
++						<div class="grid grid-cols-2 gap-3">
++							<label class="text-sm"><span class="label">Amount (€)</span><input name="amount" inputmode="decimal" required class="input mt-1.5" placeholder="450" /></label>
++							<label class="text-sm"><span class="label">Due on</span><input name="due" type="date" required value={isoToday} class="input mt-1.5" /></label>
+ 						</div>
+-					</section>
+-				{:else if b === 'analytics'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between gap-3"><p class="font-medium">Analytics <span class="text-sm font-normal text-muted">· your clients’ sites and apps</span></p><ArrowLink href="/app/analytics" label="All analytics" /></div>
+-						{#if data.analytics.length}
+-							<div class="mt-4 grid flex-1 gap-3 sm:grid-cols-3">
+-								{#each data.analytics as r (r.client.id)}
+-									<a href="/app/clients/{r.client.id}" class="flex flex-col rounded-[20px] bg-tile p-4 hover:bg-[#e6e6e1]">
+-										<div class="flex items-center justify-between gap-3"><b class="truncate text-sm font-medium">{r.client.name}</b><HealthRing score={r.health.score} size={40} /></div>
+-										{#if r.main && (r.main.value || r.main.prev)}<p class="mt-3 big text-3xl">{n(r.main.value)}</p><p class="text-xs text-muted">{r.main.label}, 28 days</p>{:else}<p class="mt-3 text-sm text-muted">No data yet: connect Google or the snippet.</p>{/if}
+-										{#if r.tasks[0]}<p class="mt-auto truncate pt-3 text-xs text-ink-2">→ {r.tasks[0].title}</p>{/if}
+-									</a>
+-								{/each}
+-							</div>
+-						{:else}
+-							<p class="mt-4 flex-1 text-sm text-muted">Track your clients’ websites and apps: visits, leads, Google, heatmaps, SEO fixes, app users. Real data only, from the tools you connect.</p>
+-						{/if}
+-						<a href="/app/clients/new" class="pill mt-4 self-start text-sm">+ Track a site or app</a>
+-					</section>
++						<label class="text-sm"><span class="label">What for</span><input name="label" class="input mt-1.5" placeholder="facture 2026-014" /></label>
++						<label class="text-sm"><span class="label">Their email</span><input name="email" type="email" class="input mt-1.5" /></label>
++						{#if form?.paymentError}<p class="text-sm text-bad">{form.paymentError}</p>{/if}
++						<button class="btn btn-primary">Save</button>
++						<p class="text-xs text-muted">When the date passes, the reminder shows up here, written for you.</p>
++					</form>
++				{:else}
++					<p class="mt-1 text-[13px] text-muted">Add it once; Undercut writes the reminders when it’s late.</p>
+ 				{/if}
+-				</div>
+ 			</div>
+-		{/each}
+-	</div>
+-	{#if customise && hiddenBlocks.length}
+-		<div class="mt-6 rounded-[28px] border-2 border-dashed border-black/10 p-5">
+-			<p class="label">Add a block</p>
+-			<div class="mt-3 flex flex-wrap gap-2">
+-				{#each hiddenBlocks as b (b)}<button type="button" class="pill text-sm" onclick={() => setVisible(b, true)}>+ {LABEL[b]}</button>{/each}
++
++			<div class="flex flex-wrap items-center gap-2 px-2 text-[13px] text-muted">
++				<span>Morning email at 7:00:</span>
++				<form method="POST" action={act('brief')} use:enhance={() => async ({ update }) => update({ reset: false })}><input type="hidden" name="on" value={data.brief.on ? '0' : '1'} /><button class="rounded-full px-2.5 py-1 font-medium {data.brief.on ? 'bg-ink text-white' : 'bg-tile text-ink'}">{data.brief.on ? 'On' : 'Off'}</button></form>
++				{#if !data.brief.ready}<span>(starts once email is set up)</span>{/if}
+ 			</div>
+-		</div>
+-	{/if}
++			<p class="px-2 text-[13px] text-muted">Nothing is sent without your click. Messages go from your own email, so replies land in your inbox.</p>
++		</aside>
++	</div>
+ {/if}
+diff --git a/src/routes/app/pipeline/+page.server.ts b/src/routes/app/pipeline/+page.server.ts
+new file mode 100644
+index 0000000..c67e3ae
+--- /dev/null
++++ b/src/routes/app/pipeline/+page.server.ts
+@@ -0,0 +1,28 @@
++import { getOS } from '#lib/server/agency-os.ts';
++import { agencyActions } from '#lib/server/agency-actions.ts';
++import { businessActions } from '#lib/server/business-actions.ts';
++import { getBiz } from '#lib/server/business.ts';
++
++// Pipeline: everyone you wrote to, in three steps. Undercut moves them (follow-ups, "Not now" after 2 without answer).
++export const load = () => {
++	const os = getOS();
++	const clients = Object.fromEntries(getBiz().clients.filter((c) => c.fromProspect).map((c) => [c.fromProspect!, c.id]));
++	const card = (p: (typeof os.pipeline)[number]) => ({
++		id: p.id,
++		name: p.name,
++		category: p.category,
++		contactedAt: p.contactedAt,
++		updatedAt: p.updatedAt.slice(0, 10),
++		next: p.next,
++		followups: p.followups ?? 0,
++		note: p.note,
++		value: p.value,
++		email: p.email,
++		phone: p.phone,
++		clientId: clients[p.id]
++	});
++	const by = (s: string) => os.pipeline.filter((p) => p.stage === s).sort((a, z) => z.updatedAt.localeCompare(a.updatedAt)).map(card);
++	return { waiting: by('contacted'), replied: by('talking'), won: by('won'), lost: by('lost'), toSend: os.pipeline.filter((p) => p.stage === 'new').length };
++};
++
++export const actions = { stage: agencyActions.stage, item: agencyActions.item, makeClient: businessActions.makeClient };
+diff --git a/src/routes/app/pipeline/+page.svelte b/src/routes/app/pipeline/+page.svelte
+new file mode 100644
+index 0000000..dcdae73
+--- /dev/null
++++ b/src/routes/app/pipeline/+page.svelte
+@@ -0,0 +1,96 @@
++<script lang="ts">
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	import { eur } from '#lib/biz-format.ts';
++	let { data } = $props();
++
++	type Card = (typeof data.waiting)[number];
++	let showLost = $state(false);
++	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
++	const DAY = 86400000;
++	const ago = (d?: string) => {
++		if (!d) return '';
++		const n = Math.round((Date.now() - new Date(d + 'T12:00:00').getTime()) / DAY);
++		return n <= 0 ? 'Today' : n === 1 ? 'Yesterday' : `${n} days`;
++	};
++	const day = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
++	const waitingLine = (c: Card) => {
++		if (!c.next) return 'Waiting for their answer';
++		if (c.followups >= 2) return `Last follow-up sent · moves to Not now on ${day(c.next)}`;
++		return `Follow-up ${c.followups + 1} on ${day(c.next)}${c.followups ? ' · last one after that' : ''}`;
++	};
++	const cols = $derived([
++		{ key: 'waiting', title: 'Waiting for a reply', hint: 'Undercut follows up', cards: data.waiting, empty: 'Messages you send from Today land here.' },
++		{ key: 'replied', title: 'Replied', hint: 'Your turn', cards: data.replied, empty: 'When someone answers, tap “They replied” on their card.' },
++		{ key: 'won', title: 'Clients', hint: 'Won', cards: data.won, empty: 'Signed clients show up here.' }
++	]);
++</script>
++
++<svelte:head><title>Pipeline · Undercut</title></svelte:head>
++
++<h1 class="text-[34px] leading-[1.1] font-semibold sm:text-[40px]">Pipeline</h1>
++<p class="mt-1.5 text-ink-2">
++	Everyone you wrote to, in three steps. Undercut follows up for you; move a card when someone answers.
++	{#if data.toSend}<a href="/app" class="font-medium text-accent hover:underline">{data.toSend} found and waiting in Today →</a>{/if}
++</p>
++
++<div class="mt-7 grid items-start gap-5 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
++	{#each cols as col (col.key)}
++		<section class="rounded-[20px] bg-tile p-3.5" aria-label={col.title}>
++			<div class="flex items-baseline justify-between px-1.5 pt-1 pb-3">
++				<h2 class="font-semibold">{col.title} <span class="font-medium text-muted">{col.cards.length}</span></h2>
++				<span class="text-[12.5px] text-ink-2">{col.hint}</span>
++			</div>
++			<div class="flex flex-col gap-2.5">
++				{#each col.cards as c (c.id)}
++					<article class="flex flex-col gap-1.5 rounded-[14px] border border-line bg-white px-4 py-3.5">
++						<div class="flex items-baseline justify-between gap-2">
++							<h3 class="min-w-0 truncate font-semibold">{c.name}</h3>
++							<span class="text-[12.5px] whitespace-nowrap text-muted">{col.key === 'waiting' ? (ago(c.contactedAt) === 'Today' ? 'Sent today' : ago(c.contactedAt)) : col.key === 'replied' ? ago(c.updatedAt) : `Since ${new Date(c.updatedAt + 'T12:00:00').toLocaleDateString('en-GB', { month: 'short' })}`}</span>
++						</div>
++						<p class="text-[13.5px] text-ink-2">
++							{#if col.key === 'waiting'}{waitingLine(c)}
++							{:else if col.key === 'replied'}{c.note || c.category}
++							{:else}{[c.category, c.value ? `${eur(c.value)}/month` : ''].filter(Boolean).join(' · ')}{/if}
++						</p>
++						<div class="mt-1 flex flex-wrap items-center gap-2">
++							{#if col.key === 'waiting'}
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="min-h-10 rounded-[10px] bg-accent-soft px-3.5 text-sm font-semibold text-accent">They replied</button></form>
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="min-h-10 rounded-[10px] px-2.5 text-sm text-ink-2 hover:bg-tile">Not now</button></form>
++							{:else if col.key === 'replied'}
++								<form method="POST" action={act('makeClient')}><input type="hidden" name="id" value={c.id} /><button class="min-h-10 rounded-[10px] bg-accent px-3.5 text-sm font-semibold text-white">They signed</button></form>
++								{#if c.email}<a href="mailto:{c.email}" class="flex min-h-10 items-center rounded-[10px] px-2.5 text-sm font-medium text-accent hover:bg-tile">Email</a>{/if}
++								{#if c.phone}<a href="tel:{c.phone}" class="flex min-h-10 items-center rounded-[10px] px-2.5 text-sm font-medium text-accent hover:bg-tile">Call</a>{/if}
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="min-h-10 rounded-[10px] px-2.5 text-sm text-ink-2 hover:bg-tile">Not now</button></form>
++							{:else if c.clientId}
++								<a href="/app/crm/{c.clientId}" class="flex min-h-10 items-center rounded-[10px] bg-accent-soft px-3.5 text-sm font-semibold text-accent">Open client</a>
++							{:else}
++								<form method="POST" action={act('makeClient')}><input type="hidden" name="id" value={c.id} /><button class="min-h-10 rounded-[10px] bg-accent-soft px-3.5 text-sm font-semibold text-accent">Open client</button></form>
++							{/if}
++						</div>
++					</article>
++				{:else}
++					<p class="rounded-[14px] border border-dashed border-[#D6D3C8] px-4 py-5 text-sm text-ink-2">{col.empty}</p>
++				{/each}
++			</div>
++		</section>
++	{/each}
++</div>
++
++<p class="mt-5 text-sm text-ink-2">
++	No answer after 2 follow-ups? They move to
++	<button class="font-medium text-accent hover:underline" onclick={() => (showLost = !showLost)} aria-expanded={showLost}>Not now ({data.lost.length})</button>
++	and you never chase them again.
++</p>
++{#if showLost}
++	<ul class="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
++		{#each data.lost as c (c.id)}
++			<li class="flex items-center justify-between gap-3 rounded-[14px] border border-line bg-white px-4 py-3">
++				<span class="min-w-0"><span class="block truncate font-medium">{c.name}</span><span class="block text-[12.5px] text-muted">{c.category}</span></span>
++				<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="min-h-10 rounded-[10px] px-2.5 text-sm font-medium text-accent hover:bg-tile">They replied</button></form>
++			</li>
++		{:else}
++			<li class="text-sm text-muted">Nobody here.</li>
++		{/each}
++	</ul>
++{/if}
+diff --git a/src/routes/layout.css b/src/routes/layout.css
+index 0fdea40..d752b41 100644
+--- a/src/routes/layout.css
++++ b/src/routes/layout.css
+@@ -675,3 +675,102 @@ html {
+ 		transition: none;
+ 	}
+ }
++
++/* ---------- the app (redesign): calm ground, white cards, one blue accent, Space Grotesk titles ---------- */
++.app-shell {
++	--color-paper: #f5f4ef;
++	--color-card: #ffffff;
++	--color-tile: #edebe4;
++	--color-ink: #17171b;
++	--color-ink-2: #55555e;
++	--color-muted: #6b6b73;
++	--color-line: #e4e2da;
++	--color-accent: #2b4acb;
++	--color-accent-ink: #ffffff;
++	--color-accent-soft: #e8ecfb;
++	--color-good: #1e7a4c;
++	--color-good-bg: #eef6f1;
++	--color-warn: #8a4205;
++	--color-warn-bg: #fdf0e1;
++	--color-bad: #b42318;
++	--color-bad-bg: #fdecea;
++	--radius-card: 20px;
++	--font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
++	background: #f5f4ef;
++	color: var(--color-ink);
++	font-family: var(--font-sans);
++	font-size: 15px;
++	line-height: 1.5;
++}
++.app-shell .font-display,
++.app-shell h1 {
++	font-family: 'Space Grotesk Variable', 'Space Grotesk', var(--font-sans);
++	letter-spacing: -0.03em;
++}
++.app-shell .display {
++	font-family: 'Space Grotesk Variable', 'Space Grotesk', var(--font-sans);
++	font-weight: 600;
++}
++.app-shell .card {
++	background: #ffffff;
++	backdrop-filter: none;
++	-webkit-backdrop-filter: none;
++	border: 1px solid var(--color-line);
++	box-shadow: none;
++	border-radius: 20px;
++}
++.app-shell .tile {
++	background: #f5f4ef;
++	border-radius: 14px;
++}
++.app-shell .btn {
++	border-radius: 12px;
++	min-height: 44px;
++	padding: 0 1.1rem;
++	font-size: 0.9375rem;
++}
++.app-shell .btn-primary {
++	background: var(--color-accent);
++	color: #ffffff;
++	font-weight: 600;
++}
++.app-shell .btn-primary:hover {
++	background: #1e36a0;
++}
++.app-shell .btn-ghost {
++	border-color: #d6d3c8;
++	background: #ffffff;
++}
++.app-shell .pill {
++	background: #ffffff;
++	border: 1px solid #d6d3c8;
++	backdrop-filter: none;
++	-webkit-backdrop-filter: none;
++	box-shadow: none;
++	min-height: 40px;
++}
++.app-shell .pill:hover {
++	border-color: var(--color-ink);
++}
++.app-shell .pill-active {
++	background: var(--color-ink);
++	border-color: var(--color-ink);
++	color: #ffffff;
++}
++.app-shell .input {
++	background: #fbfaf7;
++	border: 1px solid #d6d3c8;
++	border-radius: 12px;
++	min-height: 44px;
++}
++.app-shell .label {
++	color: var(--color-ink-2);
++}
++.app-shell a:not([class]) {
++	color: var(--color-accent);
++}
++@media print {
++	.app-shell {
++		background: white;
++	}
++}
+-- 
+2.43.0
+

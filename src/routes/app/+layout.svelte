@@ -23,10 +23,11 @@
 	type Item = { href: string; label: string; icon: any; badge?: number };
 	const agencyNav = $derived([
 		{ href: '/app', label: 'Today', icon: 'grid', badge: data.toApprove },
-		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
+		{ href: '/app/pipeline', label: 'Pipeline', icon: 'target' },
 		{ href: '/app/crm', label: 'Clients', icon: 'team' }
 	] as Item[]);
 	const moreNav = [
+		{ href: '/app/prospects', label: 'All prospects', icon: 'search' },
 		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
 		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
 		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
@@ -65,7 +66,7 @@
 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
 			return path === hp && (hq === 'mode=app') === appMode;
 		}
-		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics'].includes(hp)) return path === hp || path.startsWith(hp + '/');
+		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline'].includes(hp)) return path === hp || path.startsWith(hp + '/');
 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
 	};
 

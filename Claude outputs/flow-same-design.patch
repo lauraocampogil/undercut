@@ -1,0 +1,762 @@
+From baf276a18c0e9e5684512ccecd19399a46a7e795 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 19:48:44 +0100
+Subject: [PATCH] Same design, new flow: Today's To approve is now one card at
+ a time (why they need you, proof links, message in their language, progress,
+ this week); 3-question start finds the first 5 right away; Pipeline page
+ (waiting / replied / clients) replaces Prospects in the menu
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Inbox.svelte         | 214 +++++++++++++++++-------
+ src/lib/components/StartSetup.svelte    |  83 +++++++++
+ src/lib/server/agency-actions.ts        |  61 ++++---
+ src/lib/server/inbox.ts                 |  47 +++++-
+ src/routes/app/+layout.server.ts        |   1 +
+ src/routes/app/+layout.svelte           |   5 +-
+ src/routes/app/+page.server.ts          |   5 +-
+ src/routes/app/+page.svelte             |  14 +-
+ src/routes/app/pipeline/+page.server.ts |  28 ++++
+ src/routes/app/pipeline/+page.svelte    |  95 +++++++++++
+ 10 files changed, 455 insertions(+), 98 deletions(-)
+ create mode 100644 src/lib/components/StartSetup.svelte
+ create mode 100644 src/routes/app/pipeline/+page.server.ts
+ create mode 100644 src/routes/app/pipeline/+page.svelte
+
+diff --git a/src/lib/components/Inbox.svelte b/src/lib/components/Inbox.svelte
+index a4bf0df..f72ed62 100644
+--- a/src/lib/components/Inbox.svelte
++++ b/src/lib/components/Inbox.svelte
+@@ -1,39 +1,68 @@
+ <script lang="ts">
+-	// "To approve": what Undercut prepared today. Each message can be edited, then sent from the user's own email or copied to a DM.
++	// "To approve": what Undercut prepared today, one card at a time. Send or skip, and the next one comes up.
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+-	type Item = { key: string; kind: 'first' | 'followup' | 'payment'; id: string; title: string; why: string; to?: string; phone?: string; subject: string; message: string; step?: number; late?: boolean };
+-	let { items, clients, error = '', brief, briefMsg = '' }: { items: Item[]; clients: { id: string; name: string }[]; error?: string; brief: { on: boolean; ready: boolean }; briefMsg?: string } = $props();
++	type Item = {
++		key: string;
++		kind: 'first' | 'followup' | 'payment';
++		id: string;
++		title: string;
++		why: string;
++		to?: string;
++		phone?: string;
++		subject: string;
++		message: string;
++		step?: number;
++		late?: boolean;
++		name: string;
++		meta: string;
++		reasonsTitle?: string;
++		reasons?: string[];
++		proof?: { label: string; url: string }[];
++		lang?: 'fr' | 'nl' | 'en';
++		instagram?: string;
++	};
++	let {
++		items,
++		clients,
++		error = '',
++		brief,
++		briefMsg = '',
++		week,
++		waiting = 0
++	}: { items: Item[]; clients: { id: string; name: string }[]; error?: string; brief: { on: boolean; ready: boolean }; briefMsg?: string; week: { sent: number; replied: number; won: number }; waiting?: number } = $props();
+ 
++	let hidden = $state<Record<string, boolean>>({});
++	let done = $state<{ key: string; name: string; label: string }[]>([]);
++	let sent = $state(0);
++	let editing = $state(false);
+ 	let edited = $state<Record<string, string>>({});
+-	let open = $state<string | null>(null);
++	let copied = $state(false);
+ 	let adding = $state(false);
+-	let done = $state<Record<string, string>>({});
++
++	const queue = $derived(items.filter((i) => !hidden[i.key]));
++	const cur = $derived<Item | undefined>(queue[0]);
++	const total = $derived(queue.length + done.length);
++	const pct = $derived(total ? Math.round((done.length / total) * 100) : 100);
++	const today = new Date().toISOString().slice(0, 10);
++	const LANG = { fr: 'French', nl: 'Dutch', en: 'English' } as const;
+ 	const text = (it: Item) => edited[it.key] ?? it.message;
+-	const TAG: Record<string, (it: Item) => string> = {
+-		first: () => 'First message',
+-		followup: (it) => `Follow-up ${it.step}`,
+-		payment: (it) => (it.step === 2 ? 'Payment reminder 2' : 'Payment reminder')
+-	};
+ 	const mailto = (it: Item) => `mailto:${it.to ?? ''}?subject=${encodeURIComponent(it.subject)}&body=${encodeURIComponent(text(it))}`;
+-	const visible = $derived(items.filter((it) => !done[it.key]));
+-	const today = new Date().toISOString().slice(0, 10);
++	const tag = (it: Item) => (it.kind === 'first' ? 'New prospect' : it.kind === 'followup' ? `Follow-up ${it.step} of 2` : it.step === 2 ? 'Payment reminder 2' : 'Payment reminder');
++	const heading = (it: Item) => (it.kind === 'payment' ? it.title.replace('owes', 'owes you') : it.name);
+ </script>
+ 
+ <section class="card p-5 sm:p-6">
+ 	<div class="flex flex-wrap items-center justify-between gap-3">
+ 		<div>
+-			<p class="font-medium">To approve <span class="text-sm font-normal text-muted">· {visible.length} for today</span></p>
+-			<p class="mt-0.5 text-xs text-muted">Undercut wrote these from your prospects, follow-ups and payments. Read, edit if you want, then send. Nothing goes out without you.</p>
++			<p class="font-medium">To approve <span class="text-sm font-normal text-muted">· {queue.length} left{total ? `, ${done.length} of ${total} done` : ''}</span></p>
++			<p class="mt-0.5 text-xs text-muted">One at a time: read it, edit if you want, then send or skip. Nothing goes out without you.</p>
+ 		</div>
+ 		<button type="button" class="pill text-sm" onclick={() => (adding = !adding)}>{adding ? 'Close' : '+ Someone owes me money'}</button>
+ 	</div>
+-	<div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+-		<span>Morning email (weekdays, 7:00):</span>
+-		<form method="POST" action={act('brief')} use:enhance={() => async ({ update }) => update({ reset: false })}><input type="hidden" name="on" value={brief.on ? '0' : '1'} /><button class="rounded-full px-2.5 py-1 {brief.on ? 'bg-ink text-white' : 'bg-tile text-ink'}">{brief.on ? 'On' : 'Off'}</button></form>
+-		{#if brief.ready}<form method="POST" action={act('briefTest')} use:enhance={() => async ({ update }) => update({ reset: false })}><button class="underline">Send me today’s now</button></form>{:else}<span>· starts once email is set up</span>{/if}
+-		{#if briefMsg}<span class="text-ink">{briefMsg}</span>{/if}
+-	</div>
++	{#if total}
++		<div class="mt-3 h-1 overflow-hidden rounded-full bg-tile" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Done today"><div class="h-1 rounded-full bg-ink transition-[width] duration-500" style="width:{pct}%"></div></div>
++	{/if}
+ 
+ 	{#if adding}
+ 		<form method="POST" action={act('payment')} use:enhance={() => async ({ update, result }) => { await update(); if (result.type === 'success') adding = false; }} class="mt-4 grid gap-3 rounded-[18px] bg-tile p-4 sm:grid-cols-2">
+@@ -51,44 +80,115 @@
+ 		</form>
+ 	{/if}
+ 
+-	<ul class="mt-4 grid gap-2">
+-		{#each visible as it (it.key)}
+-			<li class="rounded-[18px] border border-line bg-white">
+-				<button type="button" class="flex w-full items-center gap-3 p-3.5 text-left" onclick={() => (open = open === it.key ? null : it.key)} aria-expanded={open === it.key}>
+-					<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] {it.kind === 'payment' ? 'bg-bad-bg text-bad' : it.kind === 'followup' ? 'bg-tile text-ink' : 'bg-ink text-white'}">{TAG[it.kind](it)}</span>
+-					<span class="min-w-0 flex-1"><b class="block truncate text-sm font-medium">{it.title}</b><span class="block truncate text-xs text-muted">{it.why}</span></span>
+-					<span class="text-muted">{open === it.key ? '−' : '+'}</span>
+-				</button>
+-				{#if open === it.key}
+-					<div class="border-t border-line p-3.5">
+-						<textarea rows="7" class="input text-sm" value={text(it)} oninput={(e) => (edited[it.key] = e.currentTarget.value)} aria-label="Message"></textarea>
+-						<form
+-							method="POST"
+-							action={act('inbox')}
+-							class="mt-3 flex flex-wrap items-center gap-2"
+-							use:enhance={({ submitter }) => {
+-								const how = (submitter as HTMLButtonElement | null)?.dataset.how;
+-								if (how === 'mail') window.location.href = mailto(it);
+-								if (how === 'copy') navigator.clipboard.writeText(text(it));
+-								done[it.key] = how === 'skip' ? 'Skipped' : how === 'copy' ? 'Copied, marked as sent' : 'Marked as sent';
+-								return async ({ update }) => update({ reset: false });
+-							}}
+-						>
+-							<input type="hidden" name="kind" value={it.kind} /><input type="hidden" name="id" value={it.id} />
+-							{#if it.to}<button name="sent" value="1" data-how="mail" class="btn btn-primary text-sm">Send from my email</button>{/if}
+-							<button name="sent" value="1" data-how="copy" class="{it.to ? 'pill' : 'btn btn-primary'} text-sm">Copy {it.kind === 'payment' ? '' : 'for a DM '}& mark sent</button>
+-							{#if it.phone}<a href="tel:{it.phone}" class="pill text-sm">Call {it.phone}</a>{/if}
+-							<button name="sent" value="0" data-how="skip" class="text-sm text-muted underline">{it.kind === 'first' ? 'Not a fit' : 'Later'}</button>
+-						</form>
+-						{#if it.kind === 'payment'}
+-							<form method="POST" action={act('paid')} use:enhance={() => { done[it.key] = 'Paid'; return async ({ update }) => update({ reset: false }); }} class="mt-2"><input type="hidden" name="id" value={it.id} /><button class="text-xs text-good underline">They paid</button></form>
++	<div class="mt-4 grid items-start gap-4 lg:grid-cols-[1fr_260px]">
++		{#if cur}
++			{#key cur.key}
++				<article class="min-w-0 rounded-[22px] border border-line bg-white">
++					<div class="p-4 sm:p-5">
++						<div class="flex flex-wrap items-center justify-between gap-2">
++							<span class="rounded-full px-2.5 py-1 text-[11px] {cur.kind === 'payment' ? 'bg-bad-bg text-bad' : cur.kind === 'followup' ? 'bg-tile text-ink' : 'bg-ink text-white'}">{tag(cur)}</span>
++							<span class="text-xs text-muted">{done.length + 1} of {total}</span>
++						</div>
++						<h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">{heading(cur)}</h3>
++						<p class="mt-1 text-sm text-ink-2">{cur.meta}</p>
++						{#if cur.reasons?.length}
++							<div class="mt-4 rounded-[18px] bg-tile p-4">
++								<p class="label">{cur.reasonsTitle}</p>
++								<ul class="mt-2 grid gap-1.5 text-sm">
++									{#each cur.reasons as r, i (i)}<li class="flex items-baseline gap-2"><span class="text-good">✓</span>{r}</li>{/each}
++								</ul>
++								{#if cur.proof?.length}
++									<p class="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
++										<span class="text-muted">Check it yourself:</span>
++										{#each cur.proof as p (p.url)}<a href={p.url} target="_blank" rel="noopener noreferrer" class="text-ink underline">{p.label}</a>{/each}
++									</p>
++								{/if}
++							</div>
+ 						{/if}
+ 					</div>
+-				{/if}
+-			</li>
++					<div class="border-t border-line p-4 sm:p-5">
++						<div class="flex flex-wrap justify-between gap-2 text-xs text-muted">
++							<span>{#if cur.to}To: <b class="font-medium text-ink">{cur.to}</b>{:else}No email found: copy it for a DM{cur.phone ? ' or call' : ''}{/if}</span>
++							{#if cur.lang}<span>Written in {LANG[cur.lang]}</span>{/if}
++						</div>
++						<p class="mt-2 text-sm font-medium">{cur.subject}</p>
++						{#if editing}
++							<textarea rows="11" class="input mt-2 text-sm" value={text(cur)} oninput={(e) => (edited[cur!.key] = e.currentTarget.value)} aria-label="Message"></textarea>
++						{:else}
++							<div class="mt-2 rounded-[16px] bg-tile p-4 text-sm leading-relaxed whitespace-pre-line text-ink-2">{text(cur)}</div>
++						{/if}
++						<button type="button" class="mt-2 text-xs text-ink-2 underline" onclick={() => (editing = !editing)}>{editing ? 'Done editing' : 'Edit message'}</button>
++					</div>
++					<form
++						method="POST"
++						action={act('inbox')}
++						class="flex flex-wrap items-center gap-2 border-t border-line p-4 sm:p-5"
++						use:enhance={({ submitter }) => {
++							const it = cur!;
++							const how = (submitter as HTMLButtonElement | null)?.dataset.how;
++							if (how === 'mail') window.location.href = mailto(it);
++							if (how === 'copy' || how === 'dm') {
++								navigator.clipboard?.writeText(text(it));
++								copied = true;
++								setTimeout(() => (copied = false), 2500);
++								if (how === 'dm' && it.instagram) window.open(it.instagram, '_blank', 'noopener');
++							}
++							if (how !== 'skip' && how !== 'paid') sent++;
++							hidden[it.key] = true;
++							done = [...done, { key: it.key, name: it.name, label: how === 'skip' ? (it.kind === 'first' ? 'Skipped' : 'Later') : how === 'paid' ? 'Paid' : 'Sent' }];
++							editing = false;
++							return async ({ update }) => update({ reset: false });
++						}}
++					>
++						<input type="hidden" name="kind" value={cur.kind} />
++						<input type="hidden" name="id" value={cur.id} />
++						{#if cur.to}
++							<button name="sent" value="1" data-how="mail" class="btn btn-primary text-sm">{cur.kind === 'payment' ? 'Send reminder' : 'Send from my email'}</button>
++						{:else}
++							<button name="sent" value="1" data-how="copy" class="btn btn-primary text-sm">Copy & mark sent</button>
++						{/if}
++						{#if cur.kind === 'payment'}
++							<button formaction={act('paid')} data-how="paid" class="pill text-sm">They paid</button>
++						{:else if cur.to}
++							<button name="sent" value="1" data-how="dm" class="pill text-sm">{cur.instagram ? 'Copy for Instagram DM' : 'Copy for a DM'}</button>
++						{/if}
++						{#if cur.phone}<a href="tel:{cur.phone}" class="pill text-sm">Call</a>{/if}
++						<span class="flex-1"></span>
++						<button name="sent" value="0" data-how="skip" class="text-sm text-muted underline">{cur.kind === 'first' ? 'Not a fit' : 'Later'}</button>
++					</form>
++				</article>
++			{/key}
+ 		{:else}
+-			<li class="rounded-[18px] bg-tile p-4 text-sm text-ink-2">All done for today. New prospects, follow-ups and payment reminders appear here when they are due.</li>
+-		{/each}
+-	</ul>
+-	{#if Object.keys(done).length}<p class="mt-3 text-xs text-muted">{Object.values(done).length} handled today. Follow-ups come back here in 4 days if nobody answers.</p>{/if}
++			<div class="rounded-[22px] bg-tile p-6 text-center">
++				<p class="text-lg font-medium">All done for today ✓</p>
++				<p class="mx-auto mt-1 max-w-md text-sm text-ink-2">{sent ? `You sent ${sent} message${sent === 1 ? '' : 's'}. ` : ''}Undercut follows up after 4 days if nobody answers, and payment reminders come back here when they’re due.{waiting ? ` ${waiting} more ready for tomorrow.` : ''}</p>
++			</div>
++		{/if}
++
++		<aside class="grid gap-3">
++			{#if total}
++				<ol class="grid gap-1 rounded-[18px] bg-tile p-2 text-sm">
++					{#each done as d (d.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-muted"><span class="truncate">{d.name}</span><span class="text-xs">{d.label}</span></li>{/each}
++					{#each queue as q, i (q.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 {i === 0 ? 'bg-white font-medium' : ''}"><span class="truncate">{q.name}</span><span class="text-xs text-muted">{i === 0 ? 'Now' : q.kind === 'first' ? 'New' : q.kind === 'followup' ? 'Follow-up' : 'Payment'}</span></li>{/each}
++				</ol>
++			{/if}
++			<div class="rounded-[18px] bg-tile p-4">
++				<p class="label">This week</p>
++				<div class="mt-2 grid grid-cols-3 gap-2">
++					<div><p class="big text-3xl">{week.sent}</p><p class="mt-1 text-[11px] text-muted">sent</p></div>
++					<div><p class="big text-3xl">{week.replied}</p><p class="mt-1 text-[11px] text-muted">replied</p></div>
++					<div><p class="big text-3xl">{week.won}</p><p class="mt-1 text-[11px] text-muted">won</p></div>
++				</div>
++				<a href="/app/pipeline" class="mt-3 inline-block text-xs text-ink-2 underline">See who replied →</a>
++			</div>
++		</aside>
++	</div>
++	{#if copied}<p class="mt-3 text-sm text-good" role="status">Copied. Paste it in your DM or email.</p>{/if}
++
++	<div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted">
++		<span>Morning email (weekdays, 7:00):</span>
++		<form method="POST" action={act('brief')} use:enhance={() => async ({ update }) => update({ reset: false })}><input type="hidden" name="on" value={brief.on ? '0' : '1'} /><button class="rounded-full px-2.5 py-1 {brief.on ? 'bg-ink text-white' : 'bg-tile text-ink'}">{brief.on ? 'On' : 'Off'}</button></form>
++		{#if brief.ready}<form method="POST" action={act('briefTest')} use:enhance={() => async ({ update }) => update({ reset: false })}><button class="underline">Send me today’s now</button></form>{:else}<span>· starts once email is set up</span>{/if}
++		{#if briefMsg}<span class="text-ink">{briefMsg}</span>{/if}
++	</div>
+ </section>
+diff --git a/src/lib/components/StartSetup.svelte b/src/lib/components/StartSetup.svelte
+new file mode 100644
+index 0000000..4e9408f
+--- /dev/null
++++ b/src/lib/components/StartSetup.svelte
+@@ -0,0 +1,83 @@
++<script lang="ts">
++	// First run: URL + 3 questions, then Undercut finds the first 5 businesses right away. Styled like AgencySetup (dark card).
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	type Profile = { url: string; name: string; city: string; services: string[]; target?: string } | null;
++	let { profile, error = '' }: { profile: Profile; error?: string } = $props();
++
++	const SERVICES = [
++		['web', 'Websites'],
++		['branding', 'Branding'],
++		['social', 'Social media'],
++		['seo', 'SEO'],
++		['ads', 'Ads'],
++		['video', 'Photo & video'],
++		['app', 'Apps']
++	] as const;
++	const TARGETS = [
++		['small', 'Small local shops'],
++		['big', 'Bigger companies'],
++		['any', 'Both']
++	] as const;
++	const SVC: Record<string, string> = Object.fromEntries(SERVICES);
++
++	let busy = $state(false);
++	let si = $state(0);
++	const steps = $derived(['Reading your site…', `Looking around ${profile?.city || 'your city'}…`, 'Checking each business…', 'Writing the messages in their language…', 'Almost there…']);
++	$effect(() => {
++		if (!busy) return;
++		si = 0;
++		const t = setInterval(() => (si = Math.min(steps.length - 1, si + 1)), 4000);
++		return () => clearInterval(t);
++	});
++	const field = 'bg-white/10 text-white placeholder:text-white/35';
++</script>
++
++<form
++	method="POST"
++	action={act('start')}
++	use:enhance={() => {
++		busy = true;
++		return async ({ update }) => {
++			await update({ reset: false });
++			busy = false;
++		};
++	}}
++	class="grid gap-5"
++>
++	<label class="block text-sm">
++		<span class="text-white/60">1 · Your agency’s website, Instagram, TikTok or LinkedIn</span>
++		<input name="url" value={profile?.url ?? ''} required inputmode="url" placeholder="youragency.com or instagram.com/youragency" class="mt-1.5 w-full rounded-2xl px-4 py-3 text-base outline-none focus:ring-1 focus:ring-accent {field}" />
++		{#if profile}<span class="mt-1.5 block text-xs text-accent">✓ Found: {profile.name}{profile.city ? `, ${profile.city}` : ''}{profile.services.length ? ` · ${profile.services.map((s) => SVC[s] ?? s).join(', ').toLowerCase()}` : ''}</span>{/if}
++	</label>
++
++	<div>
++		<p class="text-sm text-white/60">2 · What you sell <span class="text-white/40">{profile ? '(we guessed, fix it if needed)' : '(we guess from your site if you skip this)'}</span></p>
++		<input type="hidden" name="servicesSent" value="1" />
++		<div class="mt-2 flex flex-wrap gap-2">
++			{#each SERVICES as [k, l] (k)}
++				<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={profile?.services.includes(k) ?? false} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink peer-focus-visible:ring-1 peer-focus-visible:ring-accent">{l}</span></label>
++			{/each}
++		</div>
++	</div>
++
++	<div>
++		<p class="text-sm text-white/60">3 · Which businesses do you want as clients?</p>
++		<div class="mt-2 flex flex-wrap gap-2">
++			{#each TARGETS as [k, l] (k)}
++				<label class="cursor-pointer"><input type="radio" name="target" value={k} checked={(profile?.target ?? 'small') === k} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink peer-focus-visible:ring-1 peer-focus-visible:ring-accent">{l}</span></label>
++			{/each}
++		</div>
++		<p class="mt-1.5 text-xs text-white/45">Small: shops, restaurants, salons, independents. Bigger: hotels, clinics, law and accounting firms, offices.</p>
++		<label class="mt-4 block text-sm">
++			<span class="text-white/60">Around which city?</span>
++			<input name="city" value={profile?.city ?? ''} placeholder={profile ? 'Your city' : 'Detected from your site, or type it'} class="mt-1.5 w-full rounded-2xl px-4 py-3 outline-none focus:ring-1 focus:ring-accent sm:max-w-sm {field}" />
++		</label>
++	</div>
++
++	<div class="flex flex-wrap items-center gap-3">
++		<button class="btn btn-accent" disabled={busy}>{busy ? steps[si] : 'Find my first 5 clients →'}</button>
++		<span class="text-xs text-white/50">{busy ? 'Up to a minute: every business is checked before you see it.' : 'You see each business and its message before anything is sent.'}</span>
++	</div>
++	{#if error}<p class="text-sm text-bad">{error}</p>{/if}
++</form>
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index e0aba02..250a80d 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -8,32 +8,43 @@ const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', '
+ const STAGES: Stage[] = ['new', 'contacted', 'talking', 'won', 'lost'];
+ type E = RequestEvent;
+ 
++async function saveSetup(f: FormData) {
++	const raw = String(f.get('url') ?? '').trim();
++	const city = String(f.get('city') ?? '').trim().slice(0, 60);
++	const name = String(f.get('name') ?? '').trim().slice(0, 60);
++	const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
++	const current = getOS().profile;
++	let p;
++	if (raw && raw !== current?.url) {
++		try {
++			p = await profileFromUrl(raw);
++		} catch {
++			return fail(400, { setupError: 'That doesn’t look like a web address.' });
++		}
++	} else if (current) p = { ...current };
++	else return fail(400, { setupError: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.' });
++	// what the user typed always wins over what we detected (only when the form sent those fields)
++	if (f.has('city')) p.city = city || p.city;
++	if (f.has('name') && name) p.name = name;
++	if (f.has('servicesSent')) p.services = picked.length ? picked : p.services;
++	const t = String(f.get('target') ?? '');
++	if (t === 'small' || t === 'big' || t === 'any') p.target = t;
++	p.needs = p.city ? undefined : p.needs || 'Which city do you work in?';
++	setProfile(p);
++	return { setupOk: true };
++}
++
+ export const agencyActions = {
+-	setup: async ({ request }: E) => {
+-		const f = await request.formData();
+-		const raw = String(f.get('url') ?? '').trim();
+-		const city = String(f.get('city') ?? '').trim().slice(0, 60);
+-		const name = String(f.get('name') ?? '').trim().slice(0, 60);
+-		const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
+-		const current = getOS().profile;
+-		let p;
+-		if (raw && raw !== current?.url) {
+-			try {
+-				p = await profileFromUrl(raw);
+-			} catch {
+-				return fail(400, { setupError: 'That doesn’t look like a web address.' });
+-			}
+-		} else if (current) p = { ...current };
+-		else return fail(400, { setupError: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.' });
+-		// what the user typed always wins over what we detected (only when the form sent those fields)
+-		if (f.has('city')) p.city = city || p.city;
+-		if (f.has('name') && name) p.name = name;
+-		if (f.has('servicesSent')) p.services = picked.length ? picked : p.services;
+-		const t = String(f.get('target') ?? '');
+-		if (t === 'small' || t === 'big' || t === 'any') p.target = t;
+-		p.needs = p.city ? undefined : p.needs || 'Which city do you work in?';
+-		setProfile(p);
+-		return { setupOk: true };
++	setup: async ({ request }: E) => saveSetup(await request.formData()),
++	// first run: save what the agency sells and who it wants, then find the first 5 businesses right away
++	start: async ({ request }: E) => {
++		const r = await saveSetup(await request.formData());
++		if ('status' in r) return r;
++		const p = getOS().profile;
++		if (p?.needs) return fail(400, { setupError: p.needs });
++		const found = await findMore(5);
++		if (found.error) return fail(400, { findError: found.error });
++		return { found: found.added };
+ 	},
+ 	find: async () => {
+ 		const r = await findMore(5);
+diff --git a/src/lib/server/inbox.ts b/src/lib/server/inbox.ts
+index 2de17e5..7bc41a1 100644
+--- a/src/lib/server/inbox.ts
++++ b/src/lib/server/inbox.ts
+@@ -17,9 +17,17 @@ export type InboxItem = {
+ 	message: string;
+ 	step?: number; // follow-up number / reminder number
+ 	late?: boolean;
++	// for the one-card-at-a-time "Today" view
++	name: string; // the business or the person
++	meta: string; // one line under the name
++	reasonsTitle?: string;
++	reasons?: string[]; // why they need the agency (or what you told them)
++	proof?: { label: string; url: string }[]; // links to check it yourself
++	lang?: Lang;
++	instagram?: string;
+ };
+ 
+-const FIRST_PER_DAY = 3;
++const FIRST_PER_DAY = 5; // first messages a day (sent today count against it)
+ const MAX_FOLLOWUPS = 2; // after the first message: 2 follow-ups, then it moves to "Not now"
+ 
+ const money = (n: number, lang: Lang) => new Intl.NumberFormat(lang === 'nl' ? 'nl-BE' : lang === 'fr' ? 'fr-BE' : 'en-IE', { style: 'currency', currency: 'EUR', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n);
+@@ -73,7 +81,7 @@ export function inboxItems(): InboxItem[] {
+ 		const step = Math.min(2, (p.reminders ?? 0) + 1);
+ 		const c = cname(p.clientId);
+ 		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || p.who, label: p.label || (lang === 'fr' ? 'ma facture' : lang === 'nl' ? 'mijn factuur' : 'my invoice'), amount: money(p.amount, lang), due: date(p.due, lang), agency, step, iban: b.details.iban });
+-		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
++		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, name: p.who, meta: `${p.label || 'Invoice'} · due ${date(p.due, 'en')} · ${p.reminders ? `${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : 'no reminder sent yet'}`, lang, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
+ 	}
+ 	for (const d of b.docs) {
+ 		if (d.kind !== 'invoice' || d.status !== 'sent' || !d.due || d.due >= t || recent(d.lastReminder)) continue;
+@@ -81,7 +89,7 @@ export function inboxItems(): InboxItem[] {
+ 		const step = Math.min(2, (d.reminders ?? 0) + 1);
+ 		const total = docTotal(d).total;
+ 		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || c?.name || '', label: lang === 'fr' ? `la facture ${d.number}` : lang === 'nl' ? `factuur ${d.number}` : `invoice ${d.number}`, amount: money(total, lang), due: date(d.due, lang), agency, step, iban: b.details.iban });
+-		items.push({ key: `payment:${d.id}`, kind: 'payment', id: d.id, title: `${c?.name ?? 'Client'} owes ${money(total, 'en')}`, why: `Invoice ${d.number} · due ${d.due}`, to: c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
++		items.push({ key: `payment:${d.id}`, kind: 'payment', id: d.id, name: c?.name ?? 'Client', meta: `Invoice ${d.number} · due ${date(d.due, 'en')} · ${d.reminders ? `${d.reminders} reminder${d.reminders > 1 ? 's' : ''} sent` : 'no reminder sent yet'}`, lang, title: `${c?.name ?? 'Client'} owes ${money(total, 'en')}`, why: `Invoice ${d.number} · due ${d.due}`, to: c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
+ 	}
+ 
+ 	// 2) follow-ups that are due; a week after the last follow-up with no answer, the prospect moves to "Not now"
+@@ -92,12 +100,27 @@ export function inboxItems(): InboxItem[] {
+ 	for (const p of due) {
+ 		const step = Math.min(MAX_FOLLOWUPS, (p.followups ?? 0) + 1);
+ 		const m = FOLLOW[p.lang ?? lang](step, p.name, agency);
+-		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
++		const wrote = p.contactedAt ? date(p.contactedAt, 'en') : '';
++		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, name: p.name, meta: [p.category, p.city, wrote && `you wrote on ${wrote}`].filter(Boolean).join(' · '), reasonsTitle: 'What you told them', reasons: [p.detail || p.pitch].filter(Boolean), lang: p.lang ?? lang, instagram: p.instagram, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
+ 	}
+ 
+ 	// 3) first messages: the best new prospects, a few a day
+-	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, FIRST_PER_DAY);
+-	for (const p of fresh) items.push({ key: `first:${p.id}`, kind: 'first', id: p.id, title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });
++	const sentToday = os.pipeline.filter((p) => p.contactedAt === t).length;
++	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, Math.max(0, FIRST_PER_DAY - sentToday));
++	const BUDGET = { high: 'Good budget', medium: 'Medium budget', low: 'Small budget' } as const;
++	for (const p of fresh)
++		items.push({
++			key: `first:${p.id}`,
++			kind: 'first',
++			id: p.id,
++			name: p.name,
++			meta: [p.category, p.address || p.city, p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
++			reasonsTitle: 'Why they need you',
++			reasons: [...(p.detail ? [p.detail] : []), ...p.issues.map((i) => i.label)].slice(0, 3),
++			proof: p.proof,
++			lang: p.lang ?? lang,
++			instagram: p.instagram,
++			title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });
+ 
+ 	return items;
+ }
+@@ -123,3 +146,15 @@ export function resolveItem(kind: InboxKind, id: string, sent: boolean) {
+ 	if (p.next === undefined) delete p.next;
+ 	saveOS(s);
+ }
++
++/** This week's numbers for the Today page: real counts from the pipeline. */
++export function weekStats() {
++	const os = getOS();
++	const from = addDays(today(), -6);
++	const since = (d?: string) => Boolean(d && d.slice(0, 10) >= from);
++	return {
++		sent: os.pipeline.filter((p) => since(p.contactedAt)).length,
++		replied: os.pipeline.filter((p) => (p.stage === 'talking' || p.stage === 'won') && p.contactedAt && since(p.updatedAt)).length,
++		won: os.pipeline.filter((p) => p.stage === 'won' && since(p.updatedAt)).length
++	};
++}
+diff --git a/src/routes/app/+layout.server.ts b/src/routes/app/+layout.server.ts
+index a4a2e59..1849d00 100644
+--- a/src/routes/app/+layout.server.ts
++++ b/src/routes/app/+layout.server.ts
+@@ -21,6 +21,7 @@ export const load = ({ locals }) => {
+ 		billing: getBilling(),
+ 		unread: unreadCount(),
+ 		toApprove: os.profile ? inboxItems().length : 0,
++		hasProfile: Boolean(os.profile),
+ 		beta: dbOn(),
+ 		isAdmin: dbOn() ? isAdmin(u?.email) : u?.role === 'owner',
+ 		clients: listClients()
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index f342294..f624c15 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -23,10 +23,11 @@
+ 	type Item = { href: string; label: string; icon: any; badge?: number };
+ 	const agencyNav = $derived([
+ 		{ href: '/app', label: 'Today', icon: 'grid', badge: data.toApprove },
+-		{ href: '/app/prospects', label: 'Prospects', icon: 'target' },
++		{ href: '/app/pipeline', label: 'Pipeline', icon: 'target' },
+ 		{ href: '/app/crm', label: 'Clients', icon: 'team' }
+ 	] as Item[]);
+ 	const moreNav = [
++		{ href: '/app/prospects', label: 'All prospects', icon: 'search' },
+ 		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
+ 		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
+ 		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
+@@ -65,7 +66,7 @@
+ 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
+ 			return path === hp && (hq === 'mode=app') === appMode;
+ 		}
+-		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics'].includes(hp)) return path === hp || path.startsWith(hp + '/');
++		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline'].includes(hp)) return path === hp || path.startsWith(hp + '/');
+ 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
+ 	};
+ 
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index 45580f4..9c8c88d 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -3,7 +3,7 @@ import { agencyActions } from '#lib/server/agency-actions.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
+ import { agenda, getBiz, money } from '#lib/server/business.ts';
+ import { analyticsRows } from '#lib/server/analytics-rows.ts';
+-import { inboxItems } from '#lib/server/inbox.ts';
++import { inboxItems, weekStats } from '#lib/server/inbox.ts';
+ import { emailReady } from '#lib/server/email.ts';
+ 
+ export const load = async () => {
+@@ -13,6 +13,9 @@ export const load = async () => {
+ 	const names = Object.fromEntries(b.clients.map((c) => [c.id, c.name]));
+ 	return {
+ 		inbox: os.profile ? inboxItems() : [],
++		started: os.pipeline.length > 0,
++		week: weekStats(),
++		waiting: os.pipeline.filter((p) => p.stage === 'new').length,
+ 		brief: { on: os.brief !== false, ready: emailReady() },
+ 		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, built: os.built && !os.built.seen ? os.built : null, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
+ 		stats: { counts: stats.counts, wonMonth: stats.wonMonth, wonValue: stats.wonValue, replyRate: stats.replyRate },
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index e9734f3..d184d67 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -4,7 +4,7 @@
+ 	import { n } from '#lib/format.ts';
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
+-	import AgencySetup from '#lib/components/AgencySetup.svelte';
++	import StartSetup from '#lib/components/StartSetup.svelte';
+ 	import Inbox from '#lib/components/Inbox.svelte';
+ 	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
+ 	import { eur, dayLabel, todayIso } from '#lib/biz-format.ts';
+@@ -67,13 +67,13 @@
+ 
+ <svelte:head><title>Dashboard · Undercut</title></svelte:head>
+ 
+-{#if !data.os.profile}
++{#if !data.os.profile || !data.started}
+ 	<section class="card-dark relative overflow-hidden p-6 sm:p-10">
+ 		<div class="pointer-events-none absolute -right-24 -bottom-24 size-96 rounded-full bg-accent/30 blur-3xl"></div>
+-		<p class="relative text-sm text-accent">Build your dashboard</p>
+-		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">Paste your agency’s URL. Your dashboard builds itself.</h1>
+-		<p class="relative mt-3 max-w-xl text-white/60">We read what you sell and where you work. Then you get real prospects nearby, a pipeline, tasks and agenda, clients, quotes and invoices.</p>
+-		<div class="relative mt-6 max-w-2xl"><AgencySetup profile={null} error={form?.setupError ?? ''} /></div>
++		<p class="relative text-sm text-accent">Takes 1 minute</p>
++		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">Who should we find for you?</h1>
++		<p class="relative mt-3 max-w-xl text-white/60">Paste your site or profile and answer 3 questions. Undercut finds local businesses that need exactly what you sell, and writes the first message.</p>
++		<div class="relative mt-6 max-w-2xl"><StartSetup profile={data.os.profile} error={form?.setupError ?? form?.findError ?? ''} /></div>
+ 	</section>
+ {:else}
+ 	<section class="flex flex-wrap items-end justify-between gap-6">
+@@ -110,7 +110,7 @@
+ 		</section>
+ 	{/if}
+ 
+-	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} brief={data.brief} briefMsg={form?.briefMsg ?? ''} /></div>
++	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} brief={data.brief} briefMsg={form?.briefMsg ?? ''} week={data.week} waiting={data.waiting} /></div>
+ 
+ 	<!-- ask to change: plain-language edits to the dashboard -->
+ 	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
+diff --git a/src/routes/app/pipeline/+page.server.ts b/src/routes/app/pipeline/+page.server.ts
+new file mode 100644
+index 0000000..c67e3ae
+--- /dev/null
++++ b/src/routes/app/pipeline/+page.server.ts
+@@ -0,0 +1,28 @@
++import { getOS } from '#lib/server/agency-os.ts';
++import { agencyActions } from '#lib/server/agency-actions.ts';
++import { businessActions } from '#lib/server/business-actions.ts';
++import { getBiz } from '#lib/server/business.ts';
++
++// Pipeline: everyone you wrote to, in three steps. Undercut moves them (follow-ups, "Not now" after 2 without answer).
++export const load = () => {
++	const os = getOS();
++	const clients = Object.fromEntries(getBiz().clients.filter((c) => c.fromProspect).map((c) => [c.fromProspect!, c.id]));
++	const card = (p: (typeof os.pipeline)[number]) => ({
++		id: p.id,
++		name: p.name,
++		category: p.category,
++		contactedAt: p.contactedAt,
++		updatedAt: p.updatedAt.slice(0, 10),
++		next: p.next,
++		followups: p.followups ?? 0,
++		note: p.note,
++		value: p.value,
++		email: p.email,
++		phone: p.phone,
++		clientId: clients[p.id]
++	});
++	const by = (s: string) => os.pipeline.filter((p) => p.stage === s).sort((a, z) => z.updatedAt.localeCompare(a.updatedAt)).map(card);
++	return { waiting: by('contacted'), replied: by('talking'), won: by('won'), lost: by('lost'), toSend: os.pipeline.filter((p) => p.stage === 'new').length };
++};
++
++export const actions = { stage: agencyActions.stage, item: agencyActions.item, makeClient: businessActions.makeClient };
+diff --git a/src/routes/app/pipeline/+page.svelte b/src/routes/app/pipeline/+page.svelte
+new file mode 100644
+index 0000000..d6858b6
+--- /dev/null
++++ b/src/routes/app/pipeline/+page.svelte
+@@ -0,0 +1,95 @@
++<script lang="ts">
++	import { enhance } from '$app/forms';
++	import { act } from '#lib/act.ts';
++	import { eur } from '#lib/biz-format.ts';
++	let { data } = $props();
++
++	type Card = (typeof data.waiting)[number];
++	let showLost = $state(false);
++	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
++	const DAY = 86400000;
++	const ago = (d?: string) => {
++		if (!d) return '';
++		const n = Math.round((Date.now() - new Date(d + 'T12:00:00').getTime()) / DAY);
++		return n <= 0 ? 'Today' : n === 1 ? 'Yesterday' : `${n} days`;
++	};
++	const day = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
++	const waitingLine = (c: Card) => {
++		if (!c.next) return 'Waiting for their answer';
++		if (c.followups >= 2) return `Last follow-up sent · moves to Not now on ${day(c.next)}`;
++		return `Follow-up ${c.followups + 1} on ${day(c.next)}${c.followups ? ' · last one after that' : ''}`;
++	};
++	const cols = $derived([
++		{ key: 'waiting', title: 'Waiting for a reply', hint: 'Undercut follows up', cards: data.waiting, empty: 'Messages you send from Today land here.' },
++		{ key: 'replied', title: 'Replied', hint: 'Your turn', cards: data.replied, empty: 'When someone answers, tap “They replied” on their card.' },
++		{ key: 'won', title: 'Clients', hint: 'Won', cards: data.won, empty: 'Signed clients show up here.' }
++	]);
++</script>
++
++<svelte:head><title>Pipeline · Undercut</title></svelte:head>
++
++<section>
++	<p class="label">Everyone you wrote to · Undercut follows up for you{#if data.toSend} · <a href="/app" class="underline">{data.toSend} waiting in Today</a>{/if}</p>
++	<h1 class="display mt-2 text-[48px] sm:text-[72px]">Your <em>pipeline</em></h1>
++</section>
++
++<div class="mt-6 grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
++	{#each cols as col (col.key)}
++		<section class="card p-4" aria-label={col.title}>
++			<div class="flex items-baseline justify-between gap-3 px-1.5 pt-1 pb-3">
++				<h2 class="font-medium">{col.title} <span class="text-muted">{col.cards.length}</span></h2>
++				<span class="text-xs text-muted">{col.hint}</span>
++			</div>
++			<div class="flex flex-col gap-2.5">
++				{#each col.cards as c (c.id)}
++					<article class="flex flex-col gap-1.5 rounded-[18px] bg-tile p-4">
++						<div class="flex items-baseline justify-between gap-2">
++							<h3 class="min-w-0 truncate font-medium">{c.name}</h3>
++							<span class="text-xs whitespace-nowrap text-muted">{col.key === 'waiting' ? (ago(c.contactedAt) === 'Today' ? 'Sent today' : ago(c.contactedAt)) : col.key === 'replied' ? ago(c.updatedAt) : `Since ${new Date(c.updatedAt + 'T12:00:00').toLocaleDateString('en-GB', { month: 'short' })}`}</span>
++						</div>
++						<p class="text-sm text-ink-2">
++							{#if col.key === 'waiting'}{waitingLine(c)}
++							{:else if col.key === 'replied'}{c.note || c.category}
++							{:else}{[c.category, c.value ? `${eur(c.value)}/month` : ''].filter(Boolean).join(' · ')}{/if}
++						</p>
++						<div class="mt-1 flex flex-wrap items-center gap-2">
++							{#if col.key === 'waiting'}
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="btn btn-primary text-sm">They replied</button></form>
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">Not now</button></form>
++							{:else if col.key === 'replied'}
++								<form method="POST" action={act('makeClient')}><input type="hidden" name="id" value={c.id} /><button class="btn btn-primary text-sm">They signed</button></form>
++								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">Email</a>{/if}
++								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">Call</a>{/if}
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">Not now</button></form>
++							{:else if c.clientId}
++								<a href="/app/crm/{c.clientId}" class="pill text-sm">Open client</a>
++							{:else}
++								<form method="POST" action={act('makeClient')}><input type="hidden" name="id" value={c.id} /><button class="pill text-sm">Open client</button></form>
++							{/if}
++						</div>
++					</article>
++				{:else}
++					<p class="rounded-[18px] bg-tile p-4 text-sm text-ink-2">{col.empty}</p>
++				{/each}
++			</div>
++		</section>
++	{/each}
++</div>
++
++<p class="mt-5 text-sm text-muted">
++	No answer after 2 follow-ups? They move to
++	<button class="text-ink underline" onclick={() => (showLost = !showLost)} aria-expanded={showLost}>Not now ({data.lost.length})</button>
++	and you never chase them again.
++</p>
++{#if showLost}
++	<ul class="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
++		{#each data.lost as c (c.id)}
++			<li class="card flex items-center justify-between gap-3 px-4 py-3">
++				<span class="min-w-0"><span class="block truncate font-medium">{c.name}</span><span class="block text-xs text-muted">{c.category}</span></span>
++				<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="pill text-sm">They replied</button></form>
++			</li>
++		{:else}
++			<li class="text-sm text-muted">Nobody here.</li>
++		{/each}
++	</ul>
++{/if}
+-- 
+2.43.0
+

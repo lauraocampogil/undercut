@@ -21,6 +21,7 @@ export const load = ({ locals }) => {
 		billing: getBilling(),
 		unread: unreadCount(),
 		toApprove: os.profile ? inboxItems().length : 0,
+		hasProfile: Boolean(os.profile),
 		beta: dbOn(),
 		isAdmin: dbOn() ? isAdmin(u?.email) : u?.role === 'owner',
 		clients: listClients()

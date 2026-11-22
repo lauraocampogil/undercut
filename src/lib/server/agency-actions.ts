@@ -8,32 +8,43 @@ const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', '
 const STAGES: Stage[] = ['new', 'contacted', 'talking', 'won', 'lost'];
 type E = RequestEvent;
 
+async function saveSetup(f: FormData) {
+	const raw = String(f.get('url') ?? '').trim();
+	const city = String(f.get('city') ?? '').trim().slice(0, 60);
+	const name = String(f.get('name') ?? '').trim().slice(0, 60);
+	const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
+	const current = getOS().profile;
+	let p;
+	if (raw && raw !== current?.url) {
+		try {
+			p = await profileFromUrl(raw);
+		} catch {
+			return fail(400, { setupError: 'That doesn’t look like a web address.' });
+		}
+	} else if (current) p = { ...current };
+	else return fail(400, { setupError: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.' });
+	// what the user typed always wins over what we detected (only when the form sent those fields)
+	if (f.has('city')) p.city = city || p.city;
+	if (f.has('name') && name) p.name = name;
+	if (f.has('servicesSent')) p.services = picked.length ? picked : p.services;
+	const t = String(f.get('target') ?? '');
+	if (t === 'small' || t === 'big' || t === 'any') p.target = t;
+	p.needs = p.city ? undefined : p.needs || 'Which city do you work in?';
+	setProfile(p);
+	return { setupOk: true };
+}
+
 export const agencyActions = {
-	setup: async ({ request }: E) => {
-		const f = await request.formData();
-		const raw = String(f.get('url') ?? '').trim();
-		const city = String(f.get('city') ?? '').trim().slice(0, 60);
-		const name = String(f.get('name') ?? '').trim().slice(0, 60);
-		const picked = f.getAll('services').map(String).filter((s): s is Service => SERVICES.includes(s as Service));
-		const current = getOS().profile;
-		let p;
-		if (raw && raw !== current?.url) {
-			try {
-				p = await profileFromUrl(raw);
-			} catch {
-				return fail(400, { setupError: 'That doesn’t look like a web address.' });
-			}
-		} else if (current) p = { ...current };
-		else return fail(400, { setupError: 'Paste your agency’s website, Instagram, TikTok or LinkedIn.' });
-		// what the user typed always wins over what we detected (only when the form sent those fields)
-		if (f.has('city')) p.city = city || p.city;
-		if (f.has('name') && name) p.name = name;
-		if (f.has('servicesSent')) p.services = picked.length ? picked : p.services;
-		const t = String(f.get('target') ?? '');
-		if (t === 'small' || t === 'big' || t === 'any') p.target = t;
-		p.needs = p.city ? undefined : p.needs || 'Which city do you work in?';
-		setProfile(p);
-		return { setupOk: true };
+	setup: async ({ request }: E) => saveSetup(await request.formData()),
+	// first run: save what the agency sells and who it wants, then find the first 5 businesses right away
+	start: async ({ request }: E) => {
+		const r = await saveSetup(await request.formData());
+		if ('status' in r) return r;
+		const p = getOS().profile;
+		if (p?.needs) return fail(400, { setupError: p.needs });
+		const found = await findMore(5);
+		if (found.error) return fail(400, { findError: found.error });
+		return { found: found.added };
 	},
 	find: async () => {
 		const r = await findMore(5);

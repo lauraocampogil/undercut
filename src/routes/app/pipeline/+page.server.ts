@@ -1,0 +1,28 @@
+import { getOS } from '#lib/server/agency-os.ts';
+import { agencyActions } from '#lib/server/agency-actions.ts';
+import { businessActions } from '#lib/server/business-actions.ts';
+import { getBiz } from '#lib/server/business.ts';
+
+// Pipeline: everyone you wrote to, in three steps. Undercut moves them (follow-ups, "Not now" after 2 without answer).
+export const load = () => {
+	const os = getOS();
+	const clients = Object.fromEntries(getBiz().clients.filter((c) => c.fromProspect).map((c) => [c.fromProspect!, c.id]));
+	const card = (p: (typeof os.pipeline)[number]) => ({
+		id: p.id,
+		name: p.name,
+		category: p.category,
+		contactedAt: p.contactedAt,
+		updatedAt: p.updatedAt.slice(0, 10),
+		next: p.next,
+		followups: p.followups ?? 0,
+		note: p.note,
+		value: p.value,
+		email: p.email,
+		phone: p.phone,
+		clientId: clients[p.id]
+	});
+	const by = (s: string) => os.pipeline.filter((p) => p.stage === s).sort((a, z) => z.updatedAt.localeCompare(a.updatedAt)).map(card);
+	return { waiting: by('contacted'), replied: by('talking'), won: by('won'), lost: by('lost'), toSend: os.pipeline.filter((p) => p.stage === 'new').length };
+};
+
+export const actions = { stage: agencyActions.stage, item: agencyActions.item, makeClient: businessActions.makeClient };
