@@ -282,8 +282,10 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: 
 	// a name seen 3+ times around here = a chain, even without a brand tag
 	const seen = new Map<string, number>();
 	for (const p of places) seen.set(p.name.toLowerCase(), (seen.get(p.name.toLowerCase()) ?? 0) + 1);
+	// well-known chains that OpenStreetMap does not always tag with a brand
+	const CHAIN = /^(nh|ibis|novotel|mercure|radisson|hilton|marriott|sheraton|holiday inn|best western|motel one|b&b hotel|starbucks|mcdonald|burger king|quick|kfc|subway|exki|le pain quotidien|panos|delhaize|carrefour|colruyt|aldi|lidl|albert heijn|basic-fit|jims|kruidvat|di |hema|zara|h&m|o'tacos|pizza hut|domino)\b/i;
 	const cands = places
-		.filter((p) => !p.brand && !p.closed && (seen.get(p.name.toLowerCase()) ?? 0) < 3 && !exclude.has(p.id))
+		.filter((p) => !p.brand && !CHAIN.test(p.name) && !p.closed && (seen.get(p.name.toLowerCase()) ?? 0) < 3 && !exclude.has(p.id))
 		.map((p) => ({ p, r: hash(profile.url + p.id) }))
 		.sort((a, b) => a.r - b.r)
 		.map((x) => x.p)

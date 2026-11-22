@@ -1,27 +1,27 @@
 <script lang="ts">
 	// "Plugs into your tools": a wall of real logos around the Undercut tile.
 	// Tiles light up in a ripple from the centre when scrolled into view; a diagonal sheen (the logo's cut angle) sweeps across.
-	import { siGoogleanalytics, siGooglesearchconsole, siGoogle, siGoogletagmanager, siStripe, siAppstore, siGoogleplay, siWhatsapp, siGmail, siGooglecalendar, siInstagram, siMeta, siNotion, siClaude } from 'simple-icons';
+	import { siGoogleanalytics, siGooglesearchconsole, siGoogle, siGoogletagmanager, siAppstore, siGoogleplay, siWhatsapp, siGmail, siGooglecalendar, siInstagram, siMeta, siClaude, siOpenstreetmap } from 'simple-icons';
 	import { inview } from '#lib/motion.ts';
 	import Logo from '#lib/components/Logo.svelte';
 	type T = { n: string; i: { path: string; hex: string }; soon?: boolean };
+	// left: finding and reaching clients (works today) · right: your clients' sites and apps
 	const left: T[] = [
+		{ n: 'OpenStreetMap', i: siOpenstreetmap },
+		{ n: 'Claude AI', i: siClaude },
+		{ n: 'Your email', i: siGmail },
+		{ n: 'Instagram DMs', i: siInstagram },
+		{ n: 'WhatsApp', i: siWhatsapp },
+		{ n: 'Google Calendar', i: siGooglecalendar, soon: true }
+	];
+	const right: T[] = [
 		{ n: 'Google Analytics', i: siGoogleanalytics },
 		{ n: 'Search Console', i: siGooglesearchconsole },
 		{ n: 'Business Profile', i: siGoogle },
 		{ n: 'Tag Manager', i: siGoogletagmanager },
-		{ n: 'Stripe', i: siStripe },
 		{ n: 'App Store', i: siAppstore },
-		{ n: 'Google Play', i: siGoogleplay }
-	];
-	const right: T[] = [
-		{ n: 'WhatsApp', i: siWhatsapp },
-		{ n: 'Gmail', i: siGmail, soon: true },
-		{ n: 'Google Calendar', i: siGooglecalendar, soon: true },
-		{ n: 'Instagram', i: siInstagram, soon: true },
-		{ n: 'Meta Ads', i: siMeta, soon: true },
-		{ n: 'Notion', i: siNotion, soon: true },
-		{ n: 'Claude', i: siClaude, soon: true }
+		{ n: 'Google Play', i: siGoogleplay },
+		{ n: 'Meta Ads', i: siMeta, soon: true }
 	];
 </script>
 

@@ -263,7 +263,7 @@
 					<SplitChars as="span" class="block" text="Get your next" delay={500} />
 					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['clients.', 'follow-ups.', 'payments.', 'dashboard.']} shift={0.035} /></span>
 				</h1>
-				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut finds local businesses that need what you sell, writes the first message and reminds you to follow up. You just approve. Like the AI sales agents on TikTok, without the terminal, in French, Dutch or English.</p>
+				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut finds local businesses that need what you sell, writes the first message and reminds you to follow up. You just approve.</p>
 				<div class="mt-10" use:reveal={{ delay: 1250 }}>
 					{@render urlForm('hero-url')}
 					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free preview: your first 5 prospects · no account</p>
@@ -291,14 +291,15 @@
 	<section class="relative mx-auto max-w-[1280px] px-5 py-24 sm:px-10 sm:py-36">
 		<div class="text-center">
 			<p class="tag" use:reveal>Plugs into your tools</p>
-			<SplitText text={'Keep your tools.\n*Undercut brings them together.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
-			<p class="mx-auto mt-6 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 150 }}>Connect once. Your numbers, leads and clients land in one dashboard that understands your agency.</p>
+			<SplitText text={'Keep your tools.\n*Undercut does the work around them.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+			<p class="mx-auto mt-6 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 150 }}>Prospects come from OpenStreetMap, Claude writes the messages, and they go out from your own email or as an Instagram or WhatsApp DM. Connect Google to follow your clients’ sites and apps.</p>
 		</div>
 		<div class="mt-16"><ToolWall /></div>
 	</section>
 
 	<!-- ================= LIVE SCAN STRIP ================= -->
 	<div class="relative overflow-hidden border-y border-black/[.07] bg-white/40 py-4 backdrop-blur" aria-hidden="true">
+		<span class="absolute top-1/2 left-0 z-10 -translate-y-1/2 bg-[#ececea] py-1 pr-4 pl-5 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase sm:pl-10">Examples</span>
 		<div class="flex w-max [animation:marquee_45s_linear_infinite]">
 			{#each [0, 1] as k (k)}
 				<div class="flex items-center gap-10 pr-10 text-[12px] tracking-wide text-ink-2 uppercase">

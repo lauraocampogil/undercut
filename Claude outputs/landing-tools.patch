@@ -1,0 +1,108 @@
+From 43d768b5eb67e669ebc97318de31e7673d105be5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 14:01:47 +0100
+Subject: [PATCH] Landing: drop the TikTok line, honest 'works with' tools
+ section, examples labelled; skip well-known chains
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/ToolWall.svelte | 24 ++++++++++++------------
+ src/lib/server/prospects.ts        |  4 +++-
+ src/routes/+page.svelte            |  7 ++++---
+ 3 files changed, 19 insertions(+), 16 deletions(-)
+
+diff --git a/src/lib/components/ToolWall.svelte b/src/lib/components/ToolWall.svelte
+index 11b33fb..c13731e 100644
+--- a/src/lib/components/ToolWall.svelte
++++ b/src/lib/components/ToolWall.svelte
+@@ -1,27 +1,27 @@
+ <script lang="ts">
+ 	// "Plugs into your tools": a wall of real logos around the Undercut tile.
+ 	// Tiles light up in a ripple from the centre when scrolled into view; a diagonal sheen (the logo's cut angle) sweeps across.
+-	import { siGoogleanalytics, siGooglesearchconsole, siGoogle, siGoogletagmanager, siStripe, siAppstore, siGoogleplay, siWhatsapp, siGmail, siGooglecalendar, siInstagram, siMeta, siNotion, siClaude } from 'simple-icons';
++	import { siGoogleanalytics, siGooglesearchconsole, siGoogle, siGoogletagmanager, siAppstore, siGoogleplay, siWhatsapp, siGmail, siGooglecalendar, siInstagram, siMeta, siClaude, siOpenstreetmap } from 'simple-icons';
+ 	import { inview } from '#lib/motion.ts';
+ 	import Logo from '#lib/components/Logo.svelte';
+ 	type T = { n: string; i: { path: string; hex: string }; soon?: boolean };
++	// left: finding and reaching clients (works today) · right: your clients' sites and apps
+ 	const left: T[] = [
++		{ n: 'OpenStreetMap', i: siOpenstreetmap },
++		{ n: 'Claude AI', i: siClaude },
++		{ n: 'Your email', i: siGmail },
++		{ n: 'Instagram DMs', i: siInstagram },
++		{ n: 'WhatsApp', i: siWhatsapp },
++		{ n: 'Google Calendar', i: siGooglecalendar, soon: true }
++	];
++	const right: T[] = [
+ 		{ n: 'Google Analytics', i: siGoogleanalytics },
+ 		{ n: 'Search Console', i: siGooglesearchconsole },
+ 		{ n: 'Business Profile', i: siGoogle },
+ 		{ n: 'Tag Manager', i: siGoogletagmanager },
+-		{ n: 'Stripe', i: siStripe },
+ 		{ n: 'App Store', i: siAppstore },
+-		{ n: 'Google Play', i: siGoogleplay }
+-	];
+-	const right: T[] = [
+-		{ n: 'WhatsApp', i: siWhatsapp },
+-		{ n: 'Gmail', i: siGmail, soon: true },
+-		{ n: 'Google Calendar', i: siGooglecalendar, soon: true },
+-		{ n: 'Instagram', i: siInstagram, soon: true },
+-		{ n: 'Meta Ads', i: siMeta, soon: true },
+-		{ n: 'Notion', i: siNotion, soon: true },
+-		{ n: 'Claude', i: siClaude, soon: true }
++		{ n: 'Google Play', i: siGoogleplay },
++		{ n: 'Meta Ads', i: siMeta, soon: true }
+ 	];
+ </script>
+ 
+diff --git a/src/lib/server/prospects.ts b/src/lib/server/prospects.ts
+index bbe5a8e..3c70c72 100644
+--- a/src/lib/server/prospects.ts
++++ b/src/lib/server/prospects.ts
+@@ -282,8 +282,10 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 	// a name seen 3+ times around here = a chain, even without a brand tag
+ 	const seen = new Map<string, number>();
+ 	for (const p of places) seen.set(p.name.toLowerCase(), (seen.get(p.name.toLowerCase()) ?? 0) + 1);
++	// well-known chains that OpenStreetMap does not always tag with a brand
++	const CHAIN = /^(nh|ibis|novotel|mercure|radisson|hilton|marriott|sheraton|holiday inn|best western|motel one|b&b hotel|starbucks|mcdonald|burger king|quick|kfc|subway|exki|le pain quotidien|panos|delhaize|carrefour|colruyt|aldi|lidl|albert heijn|basic-fit|jims|kruidvat|di |hema|zara|h&m|o'tacos|pizza hut|domino)\b/i;
+ 	const cands = places
+-		.filter((p) => !p.brand && !p.closed && (seen.get(p.name.toLowerCase()) ?? 0) < 3 && !exclude.has(p.id))
++		.filter((p) => !p.brand && !CHAIN.test(p.name) && !p.closed && (seen.get(p.name.toLowerCase()) ?? 0) < 3 && !exclude.has(p.id))
+ 		.map((p) => ({ p, r: hash(profile.url + p.id) }))
+ 		.sort((a, b) => a.r - b.r)
+ 		.map((x) => x.p)
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 15af069..167ea42 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -263,7 +263,7 @@
+ 					<SplitChars as="span" class="block" text="Get your next" delay={500} />
+ 					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['clients.', 'follow-ups.', 'payments.', 'dashboard.']} shift={0.035} /></span>
+ 				</h1>
+-				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut finds local businesses that need what you sell, writes the first message and reminds you to follow up. You just approve. Like the AI sales agents on TikTok, without the terminal, in French, Dutch or English.</p>
++				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut finds local businesses that need what you sell, writes the first message and reminds you to follow up. You just approve.</p>
+ 				<div class="mt-10" use:reveal={{ delay: 1250 }}>
+ 					{@render urlForm('hero-url')}
+ 					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free preview: your first 5 prospects · no account</p>
+@@ -291,14 +291,15 @@
+ 	<section class="relative mx-auto max-w-[1280px] px-5 py-24 sm:px-10 sm:py-36">
+ 		<div class="text-center">
+ 			<p class="tag" use:reveal>Plugs into your tools</p>
+-			<SplitText text={'Keep your tools.\n*Undercut brings them together.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+-			<p class="mx-auto mt-6 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 150 }}>Connect once. Your numbers, leads and clients land in one dashboard that understands your agency.</p>
++			<SplitText text={'Keep your tools.\n*Undercut does the work around them.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
++			<p class="mx-auto mt-6 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 150 }}>Prospects come from OpenStreetMap, Claude writes the messages, and they go out from your own email or as an Instagram or WhatsApp DM. Connect Google to follow your clients’ sites and apps.</p>
+ 		</div>
+ 		<div class="mt-16"><ToolWall /></div>
+ 	</section>
+ 
+ 	<!-- ================= LIVE SCAN STRIP ================= -->
+ 	<div class="relative overflow-hidden border-y border-black/[.07] bg-white/40 py-4 backdrop-blur" aria-hidden="true">
++		<span class="absolute top-1/2 left-0 z-10 -translate-y-1/2 bg-[#ececea] py-1 pr-4 pl-5 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase sm:pl-10">Examples</span>
+ 		<div class="flex w-max [animation:marquee_45s_linear_infinite]">
+ 			{#each [0, 1] as k (k)}
+ 				<div class="flex items-center gap-10 pr-10 text-[12px] tracking-wide text-ink-2 uppercase">
+-- 
+2.43.0
+
