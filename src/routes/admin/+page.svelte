@@ -18,6 +18,24 @@
 	<div class="mx-auto max-w-6xl">
 		<header class="flex items-center justify-between"><a href="/app"><Logo /></a><a href="/app" class="text-sm text-muted hover:text-ink">← Back to the app</a></header>
 		<h1 class="display mt-8 text-[56px] leading-none">Beta <em>agencies</em></h1>
+		<section class="mt-6 grid gap-3 sm:grid-cols-3">
+			<div class="card p-5"><p class="text-xs text-muted">Contacted 3+ prospects (goal 50%)</p><p class="big mt-2 text-[44px] leading-none {data.metrics.gates.activated >= 50 ? 'text-good' : ''}">{data.metrics.gates.activated}%</p></div>
+			<div class="card p-5"><p class="text-xs text-muted">Leads skipped as bad (goal under 20%)</p><p class="big mt-2 text-[44px] leading-none {data.metrics.gates.badLeads != null && data.metrics.gates.badLeads < 20 ? 'text-good' : ''}">{data.metrics.gates.badLeads ?? '—'}{data.metrics.gates.badLeads != null ? '%' : ''}</p></div>
+			<div class="card-dark p-5"><p class="text-xs text-white/50">Agencies with a meeting (goal 3)</p><p class="big mt-2 text-[44px] leading-none">{data.metrics.gates.withMeeting}<span class="text-xl text-white/40">/3</span></p></div>
+		</section>
+		<div class="card mt-3 overflow-x-auto p-2 sm:p-4">
+			<table class="w-full min-w-[760px] text-sm">
+				<thead><tr class="text-left text-xs text-muted"><th class="p-3 font-medium">Agency</th><th class="p-3 font-medium">Found</th><th class="p-3 font-medium">Contacted</th><th class="p-3 font-medium">Not a fit</th><th class="p-3 font-medium">Talking</th><th class="p-3 font-medium">Won</th><th class="p-3 font-medium">Payments</th><th class="p-3 font-medium">Last active</th></tr></thead>
+				<tbody>
+					{#each data.metrics.rows as m (m.ws)}
+						<tr class="border-t border-line"><td class="p-3"><b class="font-medium">{m.name}</b><span class="block text-xs text-muted">{m.city}</span></td><td class="p-3">{m.found}</td><td class="p-3">{m.contacted}</td><td class="p-3">{m.skipped}</td><td class="p-3">{m.talking}</td><td class="p-3">{m.won}</td><td class="p-3">{m.payments}</td><td class="p-3 text-xs text-muted">{m.lastActive ? new Date(m.lastActive).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}</td></tr>
+					{:else}
+						<tr><td colspan="8" class="p-6 text-center text-muted">No agencies yet.</td></tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+		<h2 class="mt-10 text-xl font-medium">Waiting list</h2>
 		<section class="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
 			<div class="card-dark p-5"><p class="text-xs text-white/50">Joined</p><p class="big mt-2 text-[44px] leading-none text-accent">{data.joined}<span class="text-xl text-white/40">/{data.seats}</span></p></div>
 			<div class="card p-5"><p class="text-xs text-muted">Invited, not joined yet</p><p class="big mt-2 text-[44px] leading-none">{counts.invited}</p></div>

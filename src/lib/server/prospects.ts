@@ -7,6 +7,7 @@
 //   app                  → no app and no online booking for businesses where it matters
 // Chains (brand) are skipped. The agency reviews and sends every message itself.
 import * as env from '$app/env/private';
+import { reviewLead } from './lead-ai.ts';
 import type { AgencyProfile, Service } from './agency-profile.ts';
 
 const UA = 'UndercutBot/1.0 (+https://getundercut.app; prospects)';
@@ -31,6 +32,8 @@ export type Prospect = {
 	issues: Issue[];
 	checked: { https?: boolean; mobile?: boolean; ms?: number; title?: string; year?: number; builder?: string; status?: number };
 	pitch: string; // one-line reason
+	detail?: string; // the one real thing the AI noticed about this business
+	reviewed?: boolean; // checked and written by the AI reviewer
 	budget?: 'high' | 'medium' | 'low'; // can they afford an agency? from the kind of business and what they already invest
 	proof?: { label: string; url: string }[]; // links the agency can open (and show the owner) to check the problem
 	message: string;
@@ -78,10 +81,12 @@ const OFFER: Record<Lang, Record<'web' | 'social' | 'app' | 'branding', string>>
 	fr: { web: 'Je peux vous montrer en 15 minutes ce que je changerais concrètement sur votre site — sans engagement.', social: 'Je peux vous montrer en 15 minutes comment attirer plus de clients via Instagram et TikTok — sans engagement.', app: 'Je peux vous montrer en 15 minutes comment vos clients pourraient réserver et revenir grâce à une app simple — sans engagement.', branding: 'Je peux vous montrer en 15 minutes comment une image plus forte vous démarquerait — sans engagement.' },
 	nl: { web: 'Ik toon u graag in 15 minuten wat ik concreet aan uw website zou verbeteren — vrijblijvend.', social: 'Ik toon u graag in 15 minuten hoe u via Instagram en TikTok meer klanten aantrekt — vrijblijvend.', app: 'Ik toon u graag in 15 minuten hoe uw klanten via een eenvoudige app kunnen boeken en terugkomen — vrijblijvend.', branding: 'Ik toon u graag in 15 minuten hoe een sterker merk u laat opvallen — vrijblijvend.' }
 };
+// GDPR / good practice: every first message says how to stop receiving them
+export const OPT_OUT: Record<Lang, string> = { en: 'If you’d rather not hear from me, just reply “no” and I won’t write again.', fr: 'Si vous préférez ne plus recevoir de message de ma part, répondez simplement « non ».', nl: 'Liever geen berichten meer van mij? Antwoord gewoon “nee”.' };
 const MSG: Record<Lang, (p: { biz: string; agency: string; issues: string[]; offer: string }) => string> = {
-	en: ({ biz, agency, issues, offer }) => `Hi ${biz},\n\nI was looking at your business online and noticed: ${issues.join('; ')}.\nThat can cost you customers who are looking for you right now.\n\n${offer}\n\n— ${agency}`,
-	fr: ({ biz, agency, issues, offer }) => `Bonjour ${biz},\n\nEn regardant votre présence en ligne, j'ai remarqué : ${issues.join(' ; ')}.\nCe sont des points qui peuvent vous faire perdre des clients qui vous cherchent en ce moment.\n\n${offer}\n\n— ${agency}`,
-	nl: ({ biz, agency, issues, offer }) => `Hallo ${biz},\n\nBij het bekijken van jullie online aanwezigheid viel me op: ${issues.join('; ')}.\nDaardoor kunnen jullie klanten mislopen die jullie nu zoeken.\n\n${offer}\n\n— ${agency}`
+	en: ({ biz, agency, issues, offer }) => `Hi ${biz},\n\nI was looking at your business online and noticed: ${issues.join('; ')}.\nThat can cost you customers who are looking for you right now.\n\n${offer}\n\n— ${agency}\n\n${OPT_OUT.en}`,
+	fr: ({ biz, agency, issues, offer }) => `Bonjour ${biz},\n\nEn regardant votre présence en ligne, j'ai remarqué : ${issues.join(' ; ')}.\nCe sont des points qui peuvent vous faire perdre des clients qui vous cherchent en ce moment.\n\n${offer}\n\n— ${agency}\n\n${OPT_OUT.fr}`,
+	nl: ({ biz, agency, issues, offer }) => `Hallo ${biz},\n\nBij het bekijken van jullie online aanwezigheid viel me op: ${issues.join('; ')}.\nDaardoor kunnen jullie klanten mislopen die jullie nu zoeken.\n\n${offer}\n\n— ${agency}\n\n${OPT_OUT.nl}`
 };
 
 // ---------- geocoding ----------
@@ -285,6 +290,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: 
 		.slice(0, Math.max(limit * 6, 30));
 
 	const out: Prospect[] = [];
+	const pages = new Map<string, string>(); // site html per prospect, for the AI reviewer
 	for (let i = 0; i < cands.length && out.length < limit * 3; i += 6) {
 		const batch = await Promise.all(
 			cands.slice(i, i + 6).map(async (pl): Promise<Prospect | null> => {
@@ -330,6 +336,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: 
 				if (!email && !phone && !instaUrl && !pl.fb) return null;
 				if (pl.website && (!checked.status || checked.status >= 400) && !phone && !email) return null;
 
+				pages.set(pl.id, html);
 				const budget = budgetOf(pl, checked);
 				const score = Math.min(100, Math.round(issues.reduce((s, x) => s + x.weight, 0) * BUDGET_WEIGHT[budget]));
 				if (score < 15) return null;
@@ -362,5 +369,14 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude: 
 	}
 	// most in need (weighted by budget) first; those you can email before the rest
 	out.sort((a, b) => b.score - a.score || (b.email ? 1 : 0) - (a.email ? 1 : 0) || (b.phone ? 1 : 0) - (a.phone ? 1 : 0));
-	return { center, prospects: out.slice(0, limit), scanned: places.length, source };
+	// AI reviewer + writer on the best few: drop what doesn't fit, personalise the first message
+	const short = out.slice(0, limit + 3);
+	const reviews = await Promise.all(short.map((p) => reviewLead({ name: p.name, category: p.category, city: p.city, website: p.website, issues: p.issues.map((x) => x.label), html: pages.get(p.id) ?? '', agency: profile.name, services, lang, optOut: OPT_OUT[lang] })));
+	const final: Prospect[] = [];
+	short.forEach((p, i) => {
+		const r = reviews.at(i);
+		if (r && !r.keep) return;
+		final.push(r ? { ...p, message: r.message, detail: r.detail || undefined, reviewed: true } : p);
+	});
+	return { center, prospects: final.slice(0, limit), scanned: places.length, source };
 }

@@ -26,17 +26,11 @@
 		const a = e.currentTarget as HTMLElement;
 		ind = { x: a.offsetLeft, w: a.offsetWidth, on: true };
 	};
-	// "scanned today" counter that keeps ticking
-	let scanned = $state(12408);
-	$effect(() => {
-		const t = setInterval(() => (scanned += 1 + Math.floor(Math.random() * 3)), 1400);
-		return () => clearInterval(t);
-	});
 
 	const bars = [3, 5, 4, 7, 6, 9, 8, 11, 10, 13];
 	const steps = [
 		{ n: '01', t: 'Paste your URL', d: 'Your site or your Instagram. We read what you sell, where you work, in which language.', k: 'READING youragency.com' },
-		{ n: '02', t: 'Get prospects', d: 'Real businesses around you. Each website opened and checked: mobile, speed, https, last update, socials.', k: 'SCANNING 1,104 businesses' },
+		{ n: '02', t: 'Get prospects', d: 'Real businesses around you. Each website opened and checked: mobile, speed, https, last update, socials.', k: 'CHECKING businesses near you' },
 		{ n: '03', t: 'Send the message', d: 'The first message is written from what we found. You read it, change it, send it yourself.', k: 'WRITING message 1/5' },
 		{ n: '04', t: 'Keep the client', d: 'Once they sign, their site or app lives in your dashboard: leads, fixes, reports, every Monday.', k: 'TRACKING 3 clients' }
 	];
@@ -67,7 +61,9 @@
 	];
 	const faqs = [
 		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
-		{ q: 'Do you send the messages for me?', a: 'No, on purpose. Undercut writes the first message from what it found; you read it, change it and send it yourself. No spam, no burnt domain.' },
+		{ q: 'Do you send the messages for me?', a: 'Undercut writes every message and puts it in “To approve”. You read it, change it if you want and send it from your own email or as a DM in one click. No spam, no new domain to warm up, nothing goes out without you.' },
+		{ q: 'Why not use a free agent like Harvey?', a: 'Harvey is great if you can install it: a paid Claude plan, Python, the terminal, a second domain and weeks of mailbox warm-up. Undercut works in two minutes from your browser or phone, in French, Dutch or English, and also tracks your follow-ups and who owes you money.' },
+		{ q: 'Is it legal to contact these businesses?', a: 'Undercut only uses public business data (OpenStreetMap). You send a few personal messages yourself, and every first message says how to opt out. You stay responsible for what you send.' },
 		{ q: 'Can I make the dashboard mine?', a: 'Yes. Hide blocks, reorder them, give it your colour — or just type “hide agenda” or “clients first”.' },
 		{ q: 'What if my agency is only on Instagram?', a: 'Paste the Instagram link and tell us your city and what you sell. That’s enough to start.' },
 		{ q: 'What does it track for my clients?', a: 'Leads (forms, calls, WhatsApp), visits, Google Search and Maps, speed and SEO with one-click fixes, heatmaps — and for apps: users, crashes, store reviews and paywall.' },
@@ -257,17 +253,17 @@
 	<!-- ================= HERO ================= -->
 	<section class="relative isolate mx-auto flex min-h-dvh max-w-[1280px] flex-col px-5 pt-32 sm:px-10 sm:pt-40" use:pointer>
 		<div class="flex flex-wrap items-center justify-between gap-3 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase" use:reveal>
-			<span class="tag">For web, app & communication agencies</span>
-			<span class="hidden items-center gap-2 sm:flex"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-ink"></span><span class="relative size-2 rounded-full bg-ink"></span></span>Live · {scanned.toLocaleString('en')} websites checked today</span>
+			<span class="tag">For freelancers & small studios · web, social, communication</span>
+			<a href="/beta" class="hidden items-center gap-2 sm:flex"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-ink"></span><span class="relative size-2 rounded-full bg-ink"></span></span>Free beta · 30 places</a>
 		</div>
 		<div class="mt-10 grid flex-1 items-center gap-10 lg:mt-6 lg:grid-cols-[1.15fr_1fr]">
 			<div class="relative z-10">
 				<h1 class="text-[clamp(38px,4.7vw,72px)] leading-[1.05] font-medium tracking-[-0.04em]">
 					<SplitChars as="span" class="block text-ink/40" text="Paste your URL." delay={150} step={30} />
-					<SplitChars as="span" class="block" text="Get your agency’s" delay={500} />
-					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['dashboard.', 'clients.', 'pipeline.', 'reports.']} shift={0.035} /></span>
+					<SplitChars as="span" class="block" text="Get your next" delay={500} />
+					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['clients.', 'follow-ups.', 'payments.', 'dashboard.']} shift={0.035} /></span>
 				</h1>
-				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut reads your website and builds the dashboard your agency needs — businesses nearby that need what you sell, your pipeline, and how your clients’ sites and apps are doing. Then shape it by typing or dragging.</p>
+				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut finds local businesses that need what you sell, writes the first message and reminds you to follow up. You just approve. Like the AI sales agents on TikTok, without the terminal, in French, Dutch or English.</p>
 				<div class="mt-10" use:reveal={{ delay: 1250 }}>
 					{@render urlForm('hero-url')}
 					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free preview: your first 5 prospects · no account</p>
@@ -281,7 +277,7 @@
 						<span class="min-w-0"><b class="block truncate text-[13px] font-medium">{c.n}</b><span class="block truncate text-[10px] text-muted">{c.w}</span></span>
 					</div>
 				{/each}
-				<p class="tag absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap">1,104 businesses around you · 16 need you</p>
+				<p class="tag absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap">Example of what Undercut finds around you</p>
 			</div>
 		</div>
 		<!-- the cut: a hairline at the logo's angle slices the hero -->
@@ -371,7 +367,7 @@
 
 		<section class="relative mx-auto max-w-[1280px] px-5 pt-8 pb-40 sm:px-10">
 			<div class="zone-line grid grid-cols-2 border-y lg:grid-cols-4" use:reveal>
-				{#each [[30, ' s', 'to your first prospects'], [1104, '', 'businesses scanned near you'], [1, ' click', 'to ship a fix'], [0, '', 'cookies, events or setup']] as [v, suf, l], i (l)}
+				{#each [[30, ' s', 'to your first prospects'], [5, '', 'free prospects, no account'], [0, '', 'messages sent without your click'], [3, '', 'languages: FR · NL · EN']] as [v, suf, l], i (l)}
 					<div class="zone-line px-2 py-12 sm:px-6 {i ? 'lg:border-l' : ''} {i % 2 ? 'border-l' : ''}" data-stagger>
 						<p class="big text-[clamp(44px,5vw,76px)] whitespace-nowrap" use:countUp={{ to: v as number, suffix: suf as string, ms: 1400 + i * 200 }}>{v}{suf}</p>
 						<p class="zone-muted mt-3 text-[11px] tracking-wide uppercase">{l}</p>
@@ -505,21 +501,32 @@
 		<div class="text-center">
 			<p class="tag" use:reveal>Pricing</p>
 			<SplitText text={'One new client\n*pays for the year.*'} class="mt-6 text-[clamp(32px,4.4vw,62px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
-			<p class="mt-8 text-ink-2" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-ink">The first 30 agencies keep −50% for life.</b></p>
+			<p class="mt-8 text-ink-2" use:reveal={{ delay: 200 }}>Free during the beta. <b class="font-medium text-ink">The first 30 keep −50% for life.</b> No meeting with a prospect in 60 days? Your money back.</p>
 		</div>
 		<div class="mt-20 grid gap-3 md:grid-cols-3" use:reveal>
-			{#each ['freelance', 'agency', 'studio'] as const as id (id)}
+			<div class="card flex flex-col gap-5 p-8" data-stagger use:spotlight>
+				<p class="font-medium">Free</p>
+				<p><span class="big text-[64px]">€0</span></p>
+				<p class="-mt-3 text-xs opacity-60">no account, no card</p>
+				<ul class="space-y-2 text-sm opacity-80">
+					<li>✓ 5 prospects in your city</li>
+					<li>✓ Why each one needs you, with proof</li>
+					<li>✓ The first message, written</li>
+				</ul>
+				<a href="/prospects" class="btn btn-primary mt-auto">Try it now</a>
+			</div>
+			{#each ['freelance', 'agency'] as const as id (id)}
 				{@const p = PLANS[id]}
 				<div class="flex flex-col gap-5 p-8 {id === 'agency' ? 'card-dark' : 'card'}" data-stagger use:spotlight>
-					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-medium text-ink uppercase">Popular</span>{/if}</div>
-					<p><span class="big text-[64px]">€{Math.round(p.price / 2)}</span><span class="text-sm opacity-60"> / month for life</span></p>
-					<p class="-mt-3 text-xs opacity-60"><s>€{p.price}</s> after the first 30</p>
+					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p><span class="rounded-full px-2.5 py-0.5 text-[10px] font-medium uppercase {id === 'agency' ? 'bg-white text-ink' : 'bg-ink text-white'}">{id === 'agency' ? 'Studios, 2–10 people' : 'Freelancers'}</span></div>
+					<p><span class="big text-[64px]">€{p.price % 2 ? (p.price / 2).toFixed(2) : p.price / 2}</span><span class="text-sm opacity-60"> / month for life</span></p>
+					<p class="-mt-3 text-xs opacity-60"><s>€{p.price}</s> after the first 30 · free during the beta</p>
 					<ul class="space-y-2 text-sm opacity-80">
 						<li>✓ {p.prospects} prospects a month</li>
-						<li>✓ Up to {p.clients} clients (sites & apps)</li>
-						<li>✓ {id === 'freelance' ? 'Pipeline, agenda, goals' : id === 'agency' ? 'Team & client logins · white-label reports' : 'Own report domain · priority support'}</li>
+						<li>✓ Today: messages, follow-ups and payment reminders to approve</li>
+						<li>✓ {id === 'freelance' ? 'Morning email, pipeline, clients' : '3 team members · FR, NL and EN messages'}</li>
 					</ul>
-					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'bg-white text-ink hover:bg-white/90' : 'btn-primary'}">Start free</a>
+					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'bg-white text-ink hover:bg-white/90' : 'btn-primary'}">Join the free beta</a>
 				</div>
 			{/each}
 		</div>

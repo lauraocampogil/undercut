@@ -3,6 +3,7 @@ import * as env from '$app/env/private';
 import { invite, isAdmin, listWaitlist, seats } from '#lib/server/beta.ts';
 import { sendEmail } from '#lib/server/email.ts';
 import { dbOn } from '#lib/server/db.ts';
+import { betaMetrics } from '#lib/server/beta-metrics.ts';
 
 const allowed = (u: App.Locals['user']) => Boolean(u) && (dbOn() ? isAdmin(u!.email) : u!.role === 'owner');
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -11,7 +12,8 @@ export const load = async ({ locals, url }) => {
 	if (!allowed(locals.user)) error(403, 'Only the Undercut team can open this page.');
 	const rows = await listWaitlist();
 	const base = env.PUBLIC_BASE_URL || url.origin;
-	return { rows: rows.map((r) => ({ ...r, link: r.code ? `${base}/signup?code=${r.code}` : null })), seats: seats(), joined: rows.filter((r) => r.status === 'joined').length };
+	const metrics = await betaMetrics();
+	return { rows: rows.map((r) => ({ ...r, link: r.code ? `${base}/signup?code=${r.code}` : null })), seats: seats(), joined: metrics.rows.length, metrics };
 };
 
 export const actions = {

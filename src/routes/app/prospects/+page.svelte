@@ -102,6 +102,7 @@
 						<div class="grid gap-3">
 							<div class="rounded-[20px] bg-tile p-4">
 								<p class="text-xs text-muted">First message — review it, then send it yourself</p>
+									{#if p.detail}<p class="mt-1 text-xs text-ink-2">Undercut noticed: {p.detail}</p>{/if}
 								<p class="mt-2 text-sm whitespace-pre-line">{p.message}</p>
 								<div class="mt-3 flex flex-wrap gap-2">
 									<button class="btn btn-primary text-sm" onclick={() => copy(p.id, p.message)}>{copied === p.id ? 'Copied ✓' : 'Copy'}</button>

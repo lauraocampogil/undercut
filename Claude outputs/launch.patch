@@ -1,0 +1,396 @@
+From d92f26d6f9975a02b8c5e906a7acc4ce450eece0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 12:04:13 +0100
+Subject: [PATCH] Launch: AI reviewer + writer for prospects, opt-out line,
+ Solo 15 / Studio 49 with free tier and 60-day guarantee, honest landing copy
+ (no fake counters), Harvey + legal FAQ, beta metrics in /admin
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/plans.ts                      |  4 +-
+ src/lib/server/beta-metrics.ts        | 43 ++++++++++++++++++++++
+ src/lib/server/lead-ai.ts             | 53 +++++++++++++++++++++++++++
+ src/lib/server/prospects.ts           | 24 ++++++++++--
+ src/routes/+page.svelte               | 53 +++++++++++++++------------
+ src/routes/admin/+page.server.ts      |  4 +-
+ src/routes/admin/+page.svelte         | 18 +++++++++
+ src/routes/app/prospects/+page.svelte |  1 +
+ 8 files changed, 170 insertions(+), 30 deletions(-)
+ create mode 100644 src/lib/server/beta-metrics.ts
+ create mode 100644 src/lib/server/lead-ai.ts
+
+diff --git a/src/lib/plans.ts b/src/lib/plans.ts
+index bdb121c..13a5aaa 100644
+--- a/src/lib/plans.ts
++++ b/src/lib/plans.ts
+@@ -1,8 +1,8 @@
+ // Plan ids are kept for compatibility (freelance / agency / studio); names and limits follow the current offer.
+ export const PLANS = {
+ 	trial: { name: 'Free trial', price: 0, clients: 10, ai: 100, prospects: 100 },
+-	freelance: { name: 'Solo', price: 19, clients: 5, ai: 200, prospects: 50 },
+-	agency: { name: 'Pro', price: 49, clients: 20, ai: 1000, prospects: 300 },
++	freelance: { name: 'Solo', price: 15, clients: 10, ai: 200, prospects: 50 },
++	agency: { name: 'Studio', price: 49, clients: 50, ai: 1000, prospects: 200 },
+ 	studio: { name: 'Agency', price: 99, clients: 50, ai: 5000, prospects: 1000 }
+ } as const;
+ export type PlanId = keyof typeof PLANS;
+diff --git a/src/lib/server/beta-metrics.ts b/src/lib/server/beta-metrics.ts
+new file mode 100644
+index 0000000..eaf0630
+--- /dev/null
++++ b/src/lib/server/beta-metrics.ts
+@@ -0,0 +1,43 @@
++// Beta metrics for the founder (/admin): are agencies actually using the sales loop?
++// The launch gates: 50% contact 3+ prospects, fewer than 1 in 5 leads skipped as bad, 3 agencies with a real meeting.
++import { allWorkspaces, getAgency, loadWorkspace } from './store.ts';
++import { inWorkspace } from './context.ts';
++import { dbOn } from './db.ts';
++import { getOS } from './agency-os.ts';
++import { getBiz } from './business.ts';
++
++export type AgencyMetrics = { ws: string; name: string; city: string; found: number; contacted: number; skipped: number; talking: number; won: number; payments: number; lastActive: string | null };
++
++function measure(ws: string): AgencyMetrics {
++	const os = getOS();
++	const p = os.pipeline;
++	const contacted = p.filter((x) => x.stage !== 'new' && !(x.stage === 'lost' && (x.note ?? '').includes('Skipped from the inbox'))).length;
++	const skipped = p.filter((x) => x.stage === 'lost' && (x.note ?? '').includes('Skipped from the inbox')).length;
++	const last = p.map((x) => x.updatedAt).sort().at(-1) ?? null;
++	return { ws, name: os.profile?.name || getAgency().name || '—', city: os.profile?.city ?? '', found: p.length, contacted, skipped, talking: p.filter((x) => x.stage === 'talking').length, won: p.filter((x) => x.stage === 'won').length, payments: getBiz().payments.length, lastActive: last };
++}
++
++export async function betaMetrics() {
++	const rows: AgencyMetrics[] = [];
++	if (!dbOn()) rows.push(measure('local'));
++	else
++		for (const ws of await allWorkspaces()) {
++			try {
++				await loadWorkspace(ws, true);
++				rows.push(await inWorkspace(ws, () => measure(ws)));
++			} catch {
++				/* skip a broken workspace */
++			}
++		}
++	const n = rows.length || 1;
++	const contacted = rows.reduce((t, r) => t + r.contacted, 0);
++	const skipped = rows.reduce((t, r) => t + r.skipped, 0);
++	return {
++		rows: rows.sort((a, z) => (z.lastActive ?? '').localeCompare(a.lastActive ?? '')),
++		gates: {
++			activated: Math.round((rows.filter((r) => r.contacted >= 3).length / n) * 100),
++			badLeads: contacted + skipped ? Math.round((skipped / (contacted + skipped)) * 100) : null,
++			withMeeting: rows.filter((r) => r.talking + r.won > 0).length
++		}
++	};
++}
+diff --git a/src/lib/server/lead-ai.ts b/src/lib/server/lead-ai.ts
+new file mode 100644
+index 0000000..fa3a05a
+--- /dev/null
++++ b/src/lib/server/lead-ai.ts
+@@ -0,0 +1,53 @@
++// The AI reviewer + writer for prospects (like the agents in "Harvey"): it reads what we found on each business,
++// drops the ones that don't fit, and writes a first message around one real detail of that business.
++// Only runs when ANTHROPIC_API_KEY is set, and only on the few best candidates of a search (cost stays at a few cents).
++import * as env from '$app/env/private';
++
++export type Review = { keep: boolean; reason: string; detail: string; message: string };
++type Lang = 'fr' | 'nl' | 'en';
++
++const clean = (html: string) =>
++	html
++		.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<svg[\s\S]*?<\/svg>/gi, ' ')
++		.replace(/<[^>]+>/g, ' ')
++		.replace(/&nbsp;|&#160;/g, ' ')
++		.replace(/&amp;/g, '&')
++		.replace(/\s+/g, ' ')
++		.trim()
++		.slice(0, 3500);
++
++export const aiReady = () => Boolean(env.ANTHROPIC_API_KEY);
++
++export async function reviewLead(p: { name: string; category: string; city: string; website?: string; issues: string[]; html: string; agency: string; services: string[]; lang: Lang; optOut: string }): Promise<Review | null> {
++	if (!env.ANTHROPIC_API_KEY) return null;
++	const language = { fr: 'French', nl: 'Dutch', en: 'English' }[p.lang];
++	const prompt = `You review one sales lead for a small digital agency and write the first message. Answer with JSON only:
++{"keep": true|false, "reason": "one short sentence in English", "detail": "the one specific, real thing you noticed (in ${language})", "message": "the email in ${language}"}
++
++Agency: ${p.agency}. It sells: ${p.services.join(', ')}.
++Business: ${p.name} (${p.category}) in ${p.city}. Website: ${p.website || 'none'}.
++Problems our checks found: ${p.issues.join('; ') || 'none'}.
++Text from their website (may be empty): """${clean(p.html)}"""
++
++Rules:
++- keep=false if it looks closed, is a chain/franchise or a big company, is not a local business, or clearly does not need what the agency sells.
++- The message: 70–110 words, plain and human, no hype, no emojis, no "I hope this finds you well". Start with "Bonjour"/"Hallo"/"Hi" and the business name.
++- Mention ONE concrete detail that only this business would recognise (from their site text or the problems above). Never invent facts, numbers, reviews or names not given here.
++- Offer a short call or to show what you would change. Sign with the agency name.
++- End with this line exactly: "${p.optOut}"`;
++	try {
++		const res = await fetch('https://api.anthropic.com/v1/messages', {
++			method: 'POST',
++			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
++			signal: AbortSignal.timeout(25000),
++			body: JSON.stringify({ model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5', max_tokens: 500, messages: [{ role: 'user', content: prompt }] })
++		});
++		if (!res.ok) return null;
++		const t: string = (await res.json()).content?.[0]?.text ?? '';
++		const j = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
++		if (typeof j.keep !== 'boolean' || typeof j.message !== 'string') return null;
++		return { keep: j.keep, reason: String(j.reason ?? '').slice(0, 200), detail: String(j.detail ?? '').slice(0, 200), message: j.message.slice(0, 1500) };
++	} catch {
++		return null;
++	}
++}
+diff --git a/src/lib/server/prospects.ts b/src/lib/server/prospects.ts
+index 1fcfeeb..bbe5a8e 100644
+--- a/src/lib/server/prospects.ts
++++ b/src/lib/server/prospects.ts
+@@ -7,6 +7,7 @@
+ //   app                  → no app and no online booking for businesses where it matters
+ // Chains (brand) are skipped. The agency reviews and sends every message itself.
+ import * as env from '$app/env/private';
++import { reviewLead } from './lead-ai.ts';
+ import type { AgencyProfile, Service } from './agency-profile.ts';
+ 
+ const UA = 'UndercutBot/1.0 (+https://getundercut.app; prospects)';
+@@ -31,6 +32,8 @@ export type Prospect = {
+ 	issues: Issue[];
+ 	checked: { https?: boolean; mobile?: boolean; ms?: number; title?: string; year?: number; builder?: string; status?: number };
+ 	pitch: string; // one-line reason
++	detail?: string; // the one real thing the AI noticed about this business
++	reviewed?: boolean; // checked and written by the AI reviewer
+ 	budget?: 'high' | 'medium' | 'low'; // can they afford an agency? from the kind of business and what they already invest
+ 	proof?: { label: string; url: string }[]; // links the agency can open (and show the owner) to check the problem
+ 	message: string;
+@@ -78,10 +81,12 @@ const OFFER: Record<Lang, Record<'web' | 'social' | 'app' | 'branding', string>>
+ 	fr: { web: 'Je peux vous montrer en 15 minutes ce que je changerais concrètement sur votre site — sans engagement.', social: 'Je peux vous montrer en 15 minutes comment attirer plus de clients via Instagram et TikTok — sans engagement.', app: 'Je peux vous montrer en 15 minutes comment vos clients pourraient réserver et revenir grâce à une app simple — sans engagement.', branding: 'Je peux vous montrer en 15 minutes comment une image plus forte vous démarquerait — sans engagement.' },
+ 	nl: { web: 'Ik toon u graag in 15 minuten wat ik concreet aan uw website zou verbeteren — vrijblijvend.', social: 'Ik toon u graag in 15 minuten hoe u via Instagram en TikTok meer klanten aantrekt — vrijblijvend.', app: 'Ik toon u graag in 15 minuten hoe uw klanten via een eenvoudige app kunnen boeken en terugkomen — vrijblijvend.', branding: 'Ik toon u graag in 15 minuten hoe een sterker merk u laat opvallen — vrijblijvend.' }
+ };
++// GDPR / good practice: every first message says how to stop receiving them
++export const OPT_OUT: Record<Lang, string> = { en: 'If you’d rather not hear from me, just reply “no” and I won’t write again.', fr: 'Si vous préférez ne plus recevoir de message de ma part, répondez simplement « non ».', nl: 'Liever geen berichten meer van mij? Antwoord gewoon “nee”.' };
+ const MSG: Record<Lang, (p: { biz: string; agency: string; issues: string[]; offer: string }) => string> = {
+-	en: ({ biz, agency, issues, offer }) => `Hi ${biz},\n\nI was looking at your business online and noticed: ${issues.join('; ')}.\nThat can cost you customers who are looking for you right now.\n\n${offer}\n\n— ${agency}`,
+-	fr: ({ biz, agency, issues, offer }) => `Bonjour ${biz},\n\nEn regardant votre présence en ligne, j'ai remarqué : ${issues.join(' ; ')}.\nCe sont des points qui peuvent vous faire perdre des clients qui vous cherchent en ce moment.\n\n${offer}\n\n— ${agency}`,
+-	nl: ({ biz, agency, issues, offer }) => `Hallo ${biz},\n\nBij het bekijken van jullie online aanwezigheid viel me op: ${issues.join('; ')}.\nDaardoor kunnen jullie klanten mislopen die jullie nu zoeken.\n\n${offer}\n\n— ${agency}`
++	en: ({ biz, agency, issues, offer }) => `Hi ${biz},\n\nI was looking at your business online and noticed: ${issues.join('; ')}.\nThat can cost you customers who are looking for you right now.\n\n${offer}\n\n— ${agency}\n\n${OPT_OUT.en}`,
++	fr: ({ biz, agency, issues, offer }) => `Bonjour ${biz},\n\nEn regardant votre présence en ligne, j'ai remarqué : ${issues.join(' ; ')}.\nCe sont des points qui peuvent vous faire perdre des clients qui vous cherchent en ce moment.\n\n${offer}\n\n— ${agency}\n\n${OPT_OUT.fr}`,
++	nl: ({ biz, agency, issues, offer }) => `Hallo ${biz},\n\nBij het bekijken van jullie online aanwezigheid viel me op: ${issues.join('; ')}.\nDaardoor kunnen jullie klanten mislopen die jullie nu zoeken.\n\n${offer}\n\n— ${agency}\n\n${OPT_OUT.nl}`
+ };
+ 
+ // ---------- geocoding ----------
+@@ -285,6 +290,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 		.slice(0, Math.max(limit * 6, 30));
+ 
+ 	const out: Prospect[] = [];
++	const pages = new Map<string, string>(); // site html per prospect, for the AI reviewer
+ 	for (let i = 0; i < cands.length && out.length < limit * 3; i += 6) {
+ 		const batch = await Promise.all(
+ 			cands.slice(i, i + 6).map(async (pl): Promise<Prospect | null> => {
+@@ -330,6 +336,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 				if (!email && !phone && !instaUrl && !pl.fb) return null;
+ 				if (pl.website && (!checked.status || checked.status >= 400) && !phone && !email) return null;
+ 
++				pages.set(pl.id, html);
+ 				const budget = budgetOf(pl, checked);
+ 				const score = Math.min(100, Math.round(issues.reduce((s, x) => s + x.weight, 0) * BUDGET_WEIGHT[budget]));
+ 				if (score < 15) return null;
+@@ -362,5 +369,14 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 	}
+ 	// most in need (weighted by budget) first; those you can email before the rest
+ 	out.sort((a, b) => b.score - a.score || (b.email ? 1 : 0) - (a.email ? 1 : 0) || (b.phone ? 1 : 0) - (a.phone ? 1 : 0));
+-	return { center, prospects: out.slice(0, limit), scanned: places.length, source };
++	// AI reviewer + writer on the best few: drop what doesn't fit, personalise the first message
++	const short = out.slice(0, limit + 3);
++	const reviews = await Promise.all(short.map((p) => reviewLead({ name: p.name, category: p.category, city: p.city, website: p.website, issues: p.issues.map((x) => x.label), html: pages.get(p.id) ?? '', agency: profile.name, services, lang, optOut: OPT_OUT[lang] })));
++	const final: Prospect[] = [];
++	short.forEach((p, i) => {
++		const r = reviews.at(i);
++		if (r && !r.keep) return;
++		final.push(r ? { ...p, message: r.message, detail: r.detail || undefined, reviewed: true } : p);
++	});
++	return { center, prospects: final.slice(0, limit), scanned: places.length, source };
+ }
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 9138708..15af069 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -26,17 +26,11 @@
+ 		const a = e.currentTarget as HTMLElement;
+ 		ind = { x: a.offsetLeft, w: a.offsetWidth, on: true };
+ 	};
+-	// "scanned today" counter that keeps ticking
+-	let scanned = $state(12408);
+-	$effect(() => {
+-		const t = setInterval(() => (scanned += 1 + Math.floor(Math.random() * 3)), 1400);
+-		return () => clearInterval(t);
+-	});
+ 
+ 	const bars = [3, 5, 4, 7, 6, 9, 8, 11, 10, 13];
+ 	const steps = [
+ 		{ n: '01', t: 'Paste your URL', d: 'Your site or your Instagram. We read what you sell, where you work, in which language.', k: 'READING youragency.com' },
+-		{ n: '02', t: 'Get prospects', d: 'Real businesses around you. Each website opened and checked: mobile, speed, https, last update, socials.', k: 'SCANNING 1,104 businesses' },
++		{ n: '02', t: 'Get prospects', d: 'Real businesses around you. Each website opened and checked: mobile, speed, https, last update, socials.', k: 'CHECKING businesses near you' },
+ 		{ n: '03', t: 'Send the message', d: 'The first message is written from what we found. You read it, change it, send it yourself.', k: 'WRITING message 1/5' },
+ 		{ n: '04', t: 'Keep the client', d: 'Once they sign, their site or app lives in your dashboard: leads, fixes, reports, every Monday.', k: 'TRACKING 3 clients' }
+ 	];
+@@ -67,7 +61,9 @@
+ 	];
+ 	const faqs = [
+ 		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
+-		{ q: 'Do you send the messages for me?', a: 'No, on purpose. Undercut writes the first message from what it found; you read it, change it and send it yourself. No spam, no burnt domain.' },
++		{ q: 'Do you send the messages for me?', a: 'Undercut writes every message and puts it in “To approve”. You read it, change it if you want and send it from your own email or as a DM in one click. No spam, no new domain to warm up, nothing goes out without you.' },
++		{ q: 'Why not use a free agent like Harvey?', a: 'Harvey is great if you can install it: a paid Claude plan, Python, the terminal, a second domain and weeks of mailbox warm-up. Undercut works in two minutes from your browser or phone, in French, Dutch or English, and also tracks your follow-ups and who owes you money.' },
++		{ q: 'Is it legal to contact these businesses?', a: 'Undercut only uses public business data (OpenStreetMap). You send a few personal messages yourself, and every first message says how to opt out. You stay responsible for what you send.' },
+ 		{ q: 'Can I make the dashboard mine?', a: 'Yes. Hide blocks, reorder them, give it your colour — or just type “hide agenda” or “clients first”.' },
+ 		{ q: 'What if my agency is only on Instagram?', a: 'Paste the Instagram link and tell us your city and what you sell. That’s enough to start.' },
+ 		{ q: 'What does it track for my clients?', a: 'Leads (forms, calls, WhatsApp), visits, Google Search and Maps, speed and SEO with one-click fixes, heatmaps — and for apps: users, crashes, store reviews and paywall.' },
+@@ -257,17 +253,17 @@
+ 	<!-- ================= HERO ================= -->
+ 	<section class="relative isolate mx-auto flex min-h-dvh max-w-[1280px] flex-col px-5 pt-32 sm:px-10 sm:pt-40" use:pointer>
+ 		<div class="flex flex-wrap items-center justify-between gap-3 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase" use:reveal>
+-			<span class="tag">For web, app & communication agencies</span>
+-			<span class="hidden items-center gap-2 sm:flex"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-ink"></span><span class="relative size-2 rounded-full bg-ink"></span></span>Live · {scanned.toLocaleString('en')} websites checked today</span>
++			<span class="tag">For freelancers & small studios · web, social, communication</span>
++			<a href="/beta" class="hidden items-center gap-2 sm:flex"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-ink"></span><span class="relative size-2 rounded-full bg-ink"></span></span>Free beta · 30 places</a>
+ 		</div>
+ 		<div class="mt-10 grid flex-1 items-center gap-10 lg:mt-6 lg:grid-cols-[1.15fr_1fr]">
+ 			<div class="relative z-10">
+ 				<h1 class="text-[clamp(38px,4.7vw,72px)] leading-[1.05] font-medium tracking-[-0.04em]">
+ 					<SplitChars as="span" class="block text-ink/40" text="Paste your URL." delay={150} step={30} />
+-					<SplitChars as="span" class="block" text="Get your agency’s" delay={500} />
+-					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['dashboard.', 'clients.', 'pipeline.', 'reports.']} shift={0.035} /></span>
++					<SplitChars as="span" class="block" text="Get your next" delay={500} />
++					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['clients.', 'follow-ups.', 'payments.', 'dashboard.']} shift={0.035} /></span>
+ 				</h1>
+-				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut reads your website and builds the dashboard your agency needs — businesses nearby that need what you sell, your pipeline, and how your clients’ sites and apps are doing. Then shape it by typing or dragging.</p>
++				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut finds local businesses that need what you sell, writes the first message and reminds you to follow up. You just approve. Like the AI sales agents on TikTok, without the terminal, in French, Dutch or English.</p>
+ 				<div class="mt-10" use:reveal={{ delay: 1250 }}>
+ 					{@render urlForm('hero-url')}
+ 					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free preview: your first 5 prospects · no account</p>
+@@ -281,7 +277,7 @@
+ 						<span class="min-w-0"><b class="block truncate text-[13px] font-medium">{c.n}</b><span class="block truncate text-[10px] text-muted">{c.w}</span></span>
+ 					</div>
+ 				{/each}
+-				<p class="tag absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap">1,104 businesses around you · 16 need you</p>
++				<p class="tag absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap">Example of what Undercut finds around you</p>
+ 			</div>
+ 		</div>
+ 		<!-- the cut: a hairline at the logo's angle slices the hero -->
+@@ -371,7 +367,7 @@
+ 
+ 		<section class="relative mx-auto max-w-[1280px] px-5 pt-8 pb-40 sm:px-10">
+ 			<div class="zone-line grid grid-cols-2 border-y lg:grid-cols-4" use:reveal>
+-				{#each [[30, ' s', 'to your first prospects'], [1104, '', 'businesses scanned near you'], [1, ' click', 'to ship a fix'], [0, '', 'cookies, events or setup']] as [v, suf, l], i (l)}
++				{#each [[30, ' s', 'to your first prospects'], [5, '', 'free prospects, no account'], [0, '', 'messages sent without your click'], [3, '', 'languages: FR · NL · EN']] as [v, suf, l], i (l)}
+ 					<div class="zone-line px-2 py-12 sm:px-6 {i ? 'lg:border-l' : ''} {i % 2 ? 'border-l' : ''}" data-stagger>
+ 						<p class="big text-[clamp(44px,5vw,76px)] whitespace-nowrap" use:countUp={{ to: v as number, suffix: suf as string, ms: 1400 + i * 200 }}>{v}{suf}</p>
+ 						<p class="zone-muted mt-3 text-[11px] tracking-wide uppercase">{l}</p>
+@@ -505,21 +501,32 @@
+ 		<div class="text-center">
+ 			<p class="tag" use:reveal>Pricing</p>
+ 			<SplitText text={'One new client\n*pays for the year.*'} class="mt-6 text-[clamp(32px,4.4vw,62px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+-			<p class="mt-8 text-ink-2" use:reveal={{ delay: 200 }}>Start free. <b class="font-medium text-ink">The first 30 agencies keep −50% for life.</b></p>
++			<p class="mt-8 text-ink-2" use:reveal={{ delay: 200 }}>Free during the beta. <b class="font-medium text-ink">The first 30 keep −50% for life.</b> No meeting with a prospect in 60 days? Your money back.</p>
+ 		</div>
+ 		<div class="mt-20 grid gap-3 md:grid-cols-3" use:reveal>
+-			{#each ['freelance', 'agency', 'studio'] as const as id (id)}
++			<div class="card flex flex-col gap-5 p-8" data-stagger use:spotlight>
++				<p class="font-medium">Free</p>
++				<p><span class="big text-[64px]">€0</span></p>
++				<p class="-mt-3 text-xs opacity-60">no account, no card</p>
++				<ul class="space-y-2 text-sm opacity-80">
++					<li>✓ 5 prospects in your city</li>
++					<li>✓ Why each one needs you, with proof</li>
++					<li>✓ The first message, written</li>
++				</ul>
++				<a href="/prospects" class="btn btn-primary mt-auto">Try it now</a>
++			</div>
++			{#each ['freelance', 'agency'] as const as id (id)}
+ 				{@const p = PLANS[id]}
+ 				<div class="flex flex-col gap-5 p-8 {id === 'agency' ? 'card-dark' : 'card'}" data-stagger use:spotlight>
+-					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p>{#if id === 'agency'}<span class="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-medium text-ink uppercase">Popular</span>{/if}</div>
+-					<p><span class="big text-[64px]">€{Math.round(p.price / 2)}</span><span class="text-sm opacity-60"> / month for life</span></p>
+-					<p class="-mt-3 text-xs opacity-60"><s>€{p.price}</s> after the first 30</p>
++					<div class="flex items-center justify-between"><p class="font-medium">{p.name}</p><span class="rounded-full px-2.5 py-0.5 text-[10px] font-medium uppercase {id === 'agency' ? 'bg-white text-ink' : 'bg-ink text-white'}">{id === 'agency' ? 'Studios, 2–10 people' : 'Freelancers'}</span></div>
++					<p><span class="big text-[64px]">€{p.price % 2 ? (p.price / 2).toFixed(2) : p.price / 2}</span><span class="text-sm opacity-60"> / month for life</span></p>
++					<p class="-mt-3 text-xs opacity-60"><s>€{p.price}</s> after the first 30 · free during the beta</p>
+ 					<ul class="space-y-2 text-sm opacity-80">
+ 						<li>✓ {p.prospects} prospects a month</li>
+-						<li>✓ Up to {p.clients} clients (sites & apps)</li>
+-						<li>✓ {id === 'freelance' ? 'Pipeline, agenda, goals' : id === 'agency' ? 'Team & client logins · white-label reports' : 'Own report domain · priority support'}</li>
++						<li>✓ Today: messages, follow-ups and payment reminders to approve</li>
++						<li>✓ {id === 'freelance' ? 'Morning email, pipeline, clients' : '3 team members · FR, NL and EN messages'}</li>
+ 					</ul>
+-					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'bg-white text-ink hover:bg-white/90' : 'btn-primary'}">Start free</a>
++					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'bg-white text-ink hover:bg-white/90' : 'btn-primary'}">Join the free beta</a>
+ 				</div>
+ 			{/each}
+ 		</div>
+diff --git a/src/routes/admin/+page.server.ts b/src/routes/admin/+page.server.ts
+index 6c54544..94ced8b 100644
+--- a/src/routes/admin/+page.server.ts
++++ b/src/routes/admin/+page.server.ts
+@@ -3,6 +3,7 @@ import * as env from '$app/env/private';
+ import { invite, isAdmin, listWaitlist, seats } from '#lib/server/beta.ts';
+ import { sendEmail } from '#lib/server/email.ts';
+ import { dbOn } from '#lib/server/db.ts';
++import { betaMetrics } from '#lib/server/beta-metrics.ts';
+ 
+ const allowed = (u: App.Locals['user']) => Boolean(u) && (dbOn() ? isAdmin(u!.email) : u!.role === 'owner');
+ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+@@ -11,7 +12,8 @@ export const load = async ({ locals, url }) => {
+ 	if (!allowed(locals.user)) error(403, 'Only the Undercut team can open this page.');
+ 	const rows = await listWaitlist();
+ 	const base = env.PUBLIC_BASE_URL || url.origin;
+-	return { rows: rows.map((r) => ({ ...r, link: r.code ? `${base}/signup?code=${r.code}` : null })), seats: seats(), joined: rows.filter((r) => r.status === 'joined').length };
++	const metrics = await betaMetrics();
++	return { rows: rows.map((r) => ({ ...r, link: r.code ? `${base}/signup?code=${r.code}` : null })), seats: seats(), joined: metrics.rows.length, metrics };
+ };
+ 
+ export const actions = {
+diff --git a/src/routes/admin/+page.svelte b/src/routes/admin/+page.svelte
+index 419c32c..4db5628 100644
+--- a/src/routes/admin/+page.svelte
++++ b/src/routes/admin/+page.svelte
+@@ -18,6 +18,24 @@
+ 	<div class="mx-auto max-w-6xl">
+ 		<header class="flex items-center justify-between"><a href="/app"><Logo /></a><a href="/app" class="text-sm text-muted hover:text-ink">← Back to the app</a></header>
+ 		<h1 class="display mt-8 text-[56px] leading-none">Beta <em>agencies</em></h1>
++		<section class="mt-6 grid gap-3 sm:grid-cols-3">
++			<div class="card p-5"><p class="text-xs text-muted">Contacted 3+ prospects (goal 50%)</p><p class="big mt-2 text-[44px] leading-none {data.metrics.gates.activated >= 50 ? 'text-good' : ''}">{data.metrics.gates.activated}%</p></div>
++			<div class="card p-5"><p class="text-xs text-muted">Leads skipped as bad (goal under 20%)</p><p class="big mt-2 text-[44px] leading-none {data.metrics.gates.badLeads != null && data.metrics.gates.badLeads < 20 ? 'text-good' : ''}">{data.metrics.gates.badLeads ?? '—'}{data.metrics.gates.badLeads != null ? '%' : ''}</p></div>
++			<div class="card-dark p-5"><p class="text-xs text-white/50">Agencies with a meeting (goal 3)</p><p class="big mt-2 text-[44px] leading-none">{data.metrics.gates.withMeeting}<span class="text-xl text-white/40">/3</span></p></div>
++		</section>
++		<div class="card mt-3 overflow-x-auto p-2 sm:p-4">
++			<table class="w-full min-w-[760px] text-sm">
++				<thead><tr class="text-left text-xs text-muted"><th class="p-3 font-medium">Agency</th><th class="p-3 font-medium">Found</th><th class="p-3 font-medium">Contacted</th><th class="p-3 font-medium">Not a fit</th><th class="p-3 font-medium">Talking</th><th class="p-3 font-medium">Won</th><th class="p-3 font-medium">Payments</th><th class="p-3 font-medium">Last active</th></tr></thead>
++				<tbody>
++					{#each data.metrics.rows as m (m.ws)}
++						<tr class="border-t border-line"><td class="p-3"><b class="font-medium">{m.name}</b><span class="block text-xs text-muted">{m.city}</span></td><td class="p-3">{m.found}</td><td class="p-3">{m.contacted}</td><td class="p-3">{m.skipped}</td><td class="p-3">{m.talking}</td><td class="p-3">{m.won}</td><td class="p-3">{m.payments}</td><td class="p-3 text-xs text-muted">{m.lastActive ? new Date(m.lastActive).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—'}</td></tr>
++					{:else}
++						<tr><td colspan="8" class="p-6 text-center text-muted">No agencies yet.</td></tr>
++					{/each}
++				</tbody>
++			</table>
++		</div>
++		<h2 class="mt-10 text-xl font-medium">Waiting list</h2>
+ 		<section class="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+ 			<div class="card-dark p-5"><p class="text-xs text-white/50">Joined</p><p class="big mt-2 text-[44px] leading-none text-accent">{data.joined}<span class="text-xl text-white/40">/{data.seats}</span></p></div>
+ 			<div class="card p-5"><p class="text-xs text-muted">Invited, not joined yet</p><p class="big mt-2 text-[44px] leading-none">{counts.invited}</p></div>
+diff --git a/src/routes/app/prospects/+page.svelte b/src/routes/app/prospects/+page.svelte
+index 63ea6b5..df58fda 100644
+--- a/src/routes/app/prospects/+page.svelte
++++ b/src/routes/app/prospects/+page.svelte
+@@ -102,6 +102,7 @@
+ 						<div class="grid gap-3">
+ 							<div class="rounded-[20px] bg-tile p-4">
+ 								<p class="text-xs text-muted">First message — review it, then send it yourself</p>
++									{#if p.detail}<p class="mt-1 text-xs text-ink-2">Undercut noticed: {p.detail}</p>{/if}
+ 								<p class="mt-2 text-sm whitespace-pre-line">{p.message}</p>
+ 								<div class="mt-3 flex flex-wrap gap-2">
+ 									<button class="btn btn-primary text-sm" onclick={() => copy(p.id, p.message)}>{copied === p.id ? 'Copied ✓' : 'Copy'}</button>
+-- 
+2.43.0
+
