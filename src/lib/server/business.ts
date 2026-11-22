@@ -22,6 +22,7 @@ export type BizClient = {
 	createdAt: string;
 	site?: SiteCheck;
 	fromProspect?: string;
+	siteId?: string; // the same client tracked in Analytics
 };
 export type Task = { id: string; title: string; clientId?: string; due?: string; done: boolean; doneAt?: string; createdAt: string };
 export type Meeting = { id: string; title: string; date: string; time?: string; clientId?: string; note?: string };

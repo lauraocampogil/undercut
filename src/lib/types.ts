@@ -16,7 +16,8 @@ export type Client = {
 		measurementId?: string; // "G-XXXX" of the GA4 web stream
 		gtmPublicId?: string; // "GTM-XXXX"
 		loadGtm?: boolean; // the Undercut snippet loads this Tag Manager container (no code change on the site)
-		autoLinkedAt?: string; // first automatic match done
+		autoLinkedAt?: string; // last automatic match
+		manualAt?: string; // the agency picked the links by hand: don't auto-fill anymore
 	};
 };
 

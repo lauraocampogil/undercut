@@ -1,0 +1,286 @@
+From 6ea5b0df15938dee7574daa773e15b6b597c8104 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 22 Nov 2026 14:48:28 +0100
+Subject: [PATCH] Analytics connected properly: smarter Google matching,
+ missing links filled automatically (daily, never over manual choices), clear
+ 'not linked' state, one client record shared by Clients and Analytics
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/server/analytics-rows.ts              | 10 ++++++++-
+ src/lib/server/autolink.ts                    | 21 +++++++++++++++++++
+ src/lib/server/business.ts                    |  1 +
+ src/lib/server/google.ts                      |  4 ++++
+ src/lib/types.ts                              |  3 ++-
+ src/routes/app/analytics/+page.server.ts      | 13 ++++++++++++
+ src/routes/app/analytics/+page.svelte         |  8 ++++++-
+ src/routes/app/clients/[id]/+layout.server.ts | 21 +++++--------------
+ .../app/clients/[id]/settings/+page.server.ts |  2 +-
+ src/routes/app/clients/new/+page.server.ts    |  6 ++++++
+ src/routes/app/clients/new/+page.svelte       |  1 +
+ src/routes/app/crm/[id]/+page.server.ts       |  3 ++-
+ src/routes/app/crm/[id]/+page.svelte          |  2 +-
+ 13 files changed, 73 insertions(+), 22 deletions(-)
+ create mode 100644 src/lib/server/autolink.ts
+
+diff --git a/src/lib/server/analytics-rows.ts b/src/lib/server/analytics-rows.ts
+index 8f046de..ff33773 100644
+--- a/src/lib/server/analytics-rows.ts
++++ b/src/lib/server/analytics-rows.ts
+@@ -1,15 +1,23 @@
+ // One summary row per tracked site or app (the analytics module): health, headline number, areas, open fixes.
+ import { listClients } from './store.ts';
+ import { getClientOverview } from './overview.ts';
++import { autoLink } from './autolink.ts';
++import { googleReady } from './google.ts';
++import { getBiz } from './business.ts';
+ 
+ export async function analyticsRows() {
+ 	const rows = await Promise.all(
+ 		listClients()
+ 			.filter((c) => !c.demo)
+-			.map(async (c) => {
++			.map(async (raw) => {
++				const c = await autoLink(raw);
+ 				const o = await getClientOverview(c);
++				const biz = getBiz().clients.find((b) => b.siteId === c.id || (b.website && hostOf(b.website) === hostOf(c.domain)));
+ 				return {
+ 					client: { id: c.id, name: c.name, color: c.color, domain: c.domain, type: c.type ?? 'web' },
++					crmId: biz?.id ?? null,
++					// what is connected, so the card can say what is missing instead of showing 0
++					linked: { google: googleReady(), ga4: Boolean(c.google?.ga4PropertyId), gsc: Boolean(c.google?.gscSiteUrl) },
+ 					health: o.health,
+ 					areas: o.areas.map((a) => ({ key: a.key, label: a.label, level: a.level, value: a.value, sub: a.sub, href: a.href })),
+ 					tasks: o.tasks.filter((t) => !t.done && t.level !== 'good').map((t) => ({ id: t.id, level: t.level, title: t.title })),
+diff --git a/src/lib/server/autolink.ts b/src/lib/server/autolink.ts
+new file mode 100644
+index 0000000..481a84c
+--- /dev/null
++++ b/src/lib/server/autolink.ts
+@@ -0,0 +1,21 @@
++// Link a tracked site to its Google Analytics, Search Console, Maps and Tag Manager automatically.
++// Only empty links are filled, at most once a day, and never after the agency chose them by hand.
++import type { Client } from '#lib/types.ts';
++import { saveClient } from './store.ts';
++import { googleReady, listAccounts, matchProperties } from './google.ts';
++
++export async function autoLink(client: Client): Promise<Client> {
++	const g = client.google ?? {};
++	const missing = !g.ga4PropertyId || !g.gscSiteUrl || !g.gtmContainer;
++	const stale = !g.autoLinkedAt || Date.now() - Date.parse(g.autoLinkedAt) > 864e5;
++	if (client.demo || !googleReady() || !missing || !stale || g.manualAt) return client;
++	try {
++		const o = await listAccounts();
++		const m = matchProperties(client, o);
++		const next = { ...client, google: { ...g, ga4PropertyId: g.ga4PropertyId || m.ga4?.value, gscSiteUrl: g.gscSiteUrl || m.gsc?.value, gbpLocation: g.gbpLocation || m.gbp?.value, gtmContainer: g.gtmContainer || m.gtm?.value, autoLinkedAt: new Date().toISOString() } };
++		saveClient(next);
++		return next;
++	} catch {
++		return client; // try again next time
++	}
++}
+diff --git a/src/lib/server/business.ts b/src/lib/server/business.ts
+index aad4a3a..0e75d4a 100644
+--- a/src/lib/server/business.ts
++++ b/src/lib/server/business.ts
+@@ -22,6 +22,7 @@ export type BizClient = {
+ 	createdAt: string;
+ 	site?: SiteCheck;
+ 	fromProspect?: string;
++	siteId?: string; // the same client tracked in Analytics
+ };
+ export type Task = { id: string; title: string; clientId?: string; due?: string; done: boolean; doneAt?: string; createdAt: string };
+ export type Meeting = { id: string; title: string; date: string; time?: string; clientId?: string; note?: string };
+diff --git a/src/lib/server/google.ts b/src/lib/server/google.ts
+index 74aa719..12b8db4 100644
+--- a/src/lib/server/google.ts
++++ b/src/lib/server/google.ts
+@@ -677,11 +677,15 @@ const hostOf = (u: string) => u.replace(/^sc-domain:/, '').replace(/^https?:\/\/
+ export function matchProperties(client: Client, o: Record<'ga4' | 'gsc' | 'gbp' | 'gtm', Option[]>) {
+ 	const host = client.domain ? hostOf(client.domain) : '';
+ 	const words = client.name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
++	const flat = (t: string) => t.toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
++	const stem = flat(host.split('.')[0] ?? ''); // "brussels-summitacademy" → "brusselssummitacademy"
+ 	const pick = (list: Option[] = []) =>
+ 		(host && list.find((x) => (x.domains ?? []).some((d) => hostOf(d) === host))) ||
+ 		(host && list.find((x) => hostOf(x.value) === host)) ||
+ 		(host && list.find((x) => (x.value + ' ' + x.label).toLowerCase().includes(host))) ||
+ 		(host && list.find((x) => x.label.toLowerCase().includes(host.split('.')[0]))) ||
++		(stem.length > 3 && list.find((x) => flat(x.label).includes(stem) || flat(x.value).includes(stem))) ||
++		(flat(client.name).length > 5 && list.find((x) => flat(x.label).includes(flat(client.name)))) ||
+ 		list.find((x) => words.some((w) => x.label.toLowerCase().includes(w))) ||
+ 		undefined;
+ 	// Search Console: prefer the domain property, then the https URL property
+diff --git a/src/lib/types.ts b/src/lib/types.ts
+index 88bf7d0..b1cd4b7 100644
+--- a/src/lib/types.ts
++++ b/src/lib/types.ts
+@@ -16,7 +16,8 @@ export type Client = {
+ 		measurementId?: string; // "G-XXXX" of the GA4 web stream
+ 		gtmPublicId?: string; // "GTM-XXXX"
+ 		loadGtm?: boolean; // the Undercut snippet loads this Tag Manager container (no code change on the site)
+-		autoLinkedAt?: string; // first automatic match done
++		autoLinkedAt?: string; // last automatic match
++		manualAt?: string; // the agency picked the links by hand: don't auto-fill anymore
+ 	};
+ };
+ 
+diff --git a/src/routes/app/analytics/+page.server.ts b/src/routes/app/analytics/+page.server.ts
+index 7f787a9..a3cfe54 100644
+--- a/src/routes/app/analytics/+page.server.ts
++++ b/src/routes/app/analytics/+page.server.ts
+@@ -1,3 +1,16 @@
++import { fail, redirect } from '@sveltejs/kit';
+ import { analyticsRows } from '#lib/server/analytics-rows.ts';
++import { getClient } from '#lib/server/store.ts';
++import { saveClient } from '#lib/server/business.ts';
+ 
+ export const load = async () => ({ rows: await analyticsRows() });
++
++export const actions = {
++	/** A site tracked in Analytics becomes a client record too (same client, one place). */
++	addToClients: async ({ request }) => {
++		const site = getClient(String((await request.formData()).get('id') ?? ''));
++		if (!site) return fail(404, { error: 'Not found' });
++		const c = saveClient({ name: site.name, website: site.domain || undefined, siteId: site.id, services: [] });
++		redirect(303, `/app/crm/${c.id}`);
++	}
++};
+diff --git a/src/routes/app/analytics/+page.svelte b/src/routes/app/analytics/+page.svelte
+index c5139a6..697d035 100644
+--- a/src/routes/app/analytics/+page.svelte
++++ b/src/routes/app/analytics/+page.svelte
+@@ -52,8 +52,10 @@
+ 							<p class="flex items-start gap-1.5"><span class="big text-5xl">{n(r.main.value)}</span>{#if r.main.prev}<Delta value={pct(r.main.value, r.main.prev)} />{/if}</p>
+ 							<p class="mt-1 text-xs text-muted">{r.main.label}, last 28 days</p>
+ 						</div>
++					{:else if r.client.type !== 'app' && !r.linked.ga4}
++						<div><p class="text-sm font-medium">Not linked to Google Analytics yet</p><a href="/app/clients/{r.client.id}/settings" class="text-xs text-ink-2 underline">{r.linked.google ? 'Pick its Analytics property' : 'Connect Google'}</a></div>
+ 					{:else}
+-						<div><p class="text-sm font-medium">No data yet</p><a href="/app/clients/{r.client.id}/settings" class="text-xs text-ink-2 underline">Connect Google or add the snippet</a></div>
++						<div><p class="text-sm font-medium">No visits recorded in 28 days</p><a href="/app/clients/{r.client.id}/settings" class="text-xs text-ink-2 underline">Check the tracking</a></div>
+ 					{/if}
+ 					<HealthRing score={r.health.score} size={58} />
+ 				</div>
+@@ -64,6 +66,10 @@
+ 					{/each}
+ 				</div>
+ 				{#if r.tasks[0]}<a href="/app/clients/{r.client.id}" class="mt-3 truncate text-xs text-ink-2 hover:underline">→ {r.tasks[0].title}{r.tasks.length > 1 ? ` · +${r.tasks.length - 1}` : ''}</a>{/if}
++				<div class="mt-3 border-t border-line pt-3 text-xs">
++					{#if r.crmId}<a href="/app/crm/{r.crmId}" class="text-ink-2 hover:underline">Client record: contact, fee, tasks →</a>
++					{:else}<form method="POST" action="?/addToClients"><input type="hidden" name="id" value={r.client.id} /><button class="text-ink-2 underline">Add to my clients</button></form>{/if}
++				</div>
+ 			</article>
+ 		{/each}
+ 	</section>
+diff --git a/src/routes/app/clients/[id]/+layout.server.ts b/src/routes/app/clients/[id]/+layout.server.ts
+index 2f39574..8954816 100644
+--- a/src/routes/app/clients/[id]/+layout.server.ts
++++ b/src/routes/app/clients/[id]/+layout.server.ts
+@@ -1,21 +1,10 @@
+ import { error } from '@sveltejs/kit';
+-import { getClient, hasApp, hasWeb, saveClient } from '#lib/server/store.ts';
+-import { googleReady, listAccounts, matchProperties } from '#lib/server/google.ts';
++import { getClient, hasApp, hasWeb } from '#lib/server/store.ts';
++import { autoLink } from '#lib/server/autolink.ts';
+ 
+ export const load = async ({ params }) => {
+-	let client = getClient(params.id);
+-	if (!client) error(404, 'Client not found');
+-	// First visit after Google is connected: link this client's Analytics, Search Console, Maps and Tag Manager automatically.
+-	const g = client.google;
+-	if (!client.demo && googleReady() && !g.autoLinkedAt && !g.ga4PropertyId && !g.gscSiteUrl && !g.gtmContainer && !g.gbpLocation) {
+-		try {
+-			const o = await listAccounts();
+-			const m = matchProperties(client, o);
+-			client = { ...client, google: { ...g, ga4PropertyId: m.ga4?.value, gscSiteUrl: m.gsc?.value, gbpLocation: m.gbp?.value, gtmContainer: m.gtm?.value, autoLinkedAt: new Date().toISOString() } };
+-			if (!o.errors.length || m.ga4 || m.gsc) saveClient(client);
+-		} catch {
+-			/* try again next time */
+-		}
+-	}
++	const found = getClient(params.id);
++	if (!found) error(404, 'Client not found');
++	const client = await autoLink(found);
+ 	return { client, web: hasWeb(client), app: hasApp(client) };
+ };
+diff --git a/src/routes/app/clients/[id]/settings/+page.server.ts b/src/routes/app/clients/[id]/settings/+page.server.ts
+index 8c1169d..7f122d2 100644
+--- a/src/routes/app/clients/[id]/settings/+page.server.ts
++++ b/src/routes/app/clients/[id]/settings/+page.server.ts
+@@ -42,7 +42,7 @@ export const actions = {
+ 			}
+ 		}
+ 		client.app = { name: v('appName'), iosId: v('iosId')?.replace(/\D/g, ''), androidPackage: v('androidPackage') };
+-		client.google = { ...client.google, ga4PropertyId: v('ga4'), gscSiteUrl: v('gsc'), gbpLocation: v('gbp'), gtmContainer: v('gtm'), loadGtm: f.get('loadGtm') === 'on', autoLinkedAt: client.google.autoLinkedAt ?? new Date().toISOString() };
++		client.google = { ...client.google, ga4PropertyId: v('ga4'), gscSiteUrl: v('gsc'), gbpLocation: v('gbp'), gtmContainer: v('gtm'), loadGtm: f.get('loadGtm') === 'on', autoLinkedAt: client.google.autoLinkedAt ?? new Date().toISOString(), manualAt: new Date().toISOString() };
+ 		saveClient(client);
+ 		redirect(303, `/app/clients/${client.id}`);
+ 	},
+diff --git a/src/routes/app/clients/new/+page.server.ts b/src/routes/app/clients/new/+page.server.ts
+index 4d6a5d7..0a5a92b 100644
+--- a/src/routes/app/clients/new/+page.server.ts
++++ b/src/routes/app/clients/new/+page.server.ts
+@@ -1,6 +1,7 @@
+ import { fail, redirect } from '@sveltejs/kit';
+ import { getClient, saveClient, slugify, newClientId } from '#lib/server/store.ts';
+ import { normaliseSite } from '#lib/server/sitemap.ts';
++import { getBiz, saveClient as saveBizClient } from '#lib/server/business.ts';
+ 
+ const COLORS = ['#E0A458', '#3E8E63', '#4C7DD9', '#D9534C', '#8B5CF6', '#0EA5A4', '#F97316'];
+ 
+@@ -32,6 +33,11 @@ export const actions = {
+ 			app: type !== 'web' ? { name } : undefined,
+ 			google: {}
+ 		});
++		// the same client in Clients: link the record it came from, or create one
++		const crm = String(f.get('crm') ?? '');
++		const existing = getBiz().clients.find((c) => c.id === crm);
++		if (existing) saveBizClient({ ...existing, siteId: id, website: existing.website || domain || undefined });
++		else saveBizClient({ name, website: domain || undefined, siteId: id, services: [] });
+ 		redirect(303, `/app/clients/${id}/settings?new=1`);
+ 	}
+ };
+diff --git a/src/routes/app/clients/new/+page.svelte b/src/routes/app/clients/new/+page.svelte
+index 77bafa0..69e8641 100644
+--- a/src/routes/app/clients/new/+page.svelte
++++ b/src/routes/app/clients/new/+page.svelte
+@@ -24,6 +24,7 @@
+ 
+ 	<form method="POST" class="card space-y-5 p-7">
+ 		{#if form?.error}<p class="rounded-[16px] bg-bad-bg p-3 text-sm text-bad">{form.error}</p>{/if}
++		<input type="hidden" name="crm" value={page.url.searchParams.get('crm') ?? ''} />
+ 		<label class="block"><span class="label">Client name</span><input class="input mt-1.5" name="name" placeholder="Corner Bakery" value={form?.name ?? page.url.searchParams.get('name') ?? ''} required /></label>
+ 		<fieldset>
+ 			<legend class="label">What do you manage for them?</legend>
+diff --git a/src/routes/app/crm/[id]/+page.server.ts b/src/routes/app/crm/[id]/+page.server.ts
+index 30b28f9..c530e12 100644
+--- a/src/routes/app/crm/[id]/+page.server.ts
++++ b/src/routes/app/crm/[id]/+page.server.ts
+@@ -10,7 +10,8 @@ export const load = ({ params }) => {
+ 	if (!client) error(404, 'Client not found');
+ 	// the same site tracked in Analytics (visits, leads, heatmaps, SEO)
+ 	const h = hostOf(client.website);
+-	const tracked = h ? listClients().find((c) => !c.demo && hostOf(c.domain) === h) : undefined;
++	const sites = listClients().filter((c) => !c.demo);
++	const tracked = sites.find((c) => c.id === client.siteId) ?? (h ? sites.find((c) => hostOf(c.domain) === h) : undefined);
+ 	return {
+ 		client,
+ 		tracked: tracked ? { id: tracked.id } : null,
+diff --git a/src/routes/app/crm/[id]/+page.svelte b/src/routes/app/crm/[id]/+page.svelte
+index bd55b03..ad93cf1 100644
+--- a/src/routes/app/crm/[id]/+page.svelte
++++ b/src/routes/app/crm/[id]/+page.svelte
+@@ -110,7 +110,7 @@
+ 				<a href="/app/clients/{data.tracked.id}" class="btn btn-primary mt-3 text-sm">Open analytics →</a>
+ 			{:else}
+ 				<p class="mt-1 text-sm text-ink-2">Track visits, leads, Google, heatmaps and SEO for {c.name}.</p>
+-				<a href="/app/clients/new?name={encodeURIComponent(c.name)}&domain={encodeURIComponent(c.website ?? '')}" class="pill mt-3 text-sm">Track this site or app</a>
++				<a href="/app/clients/new?crm={c.id}&name={encodeURIComponent(c.name)}&domain={encodeURIComponent(c.website ?? '')}" class="pill mt-3 text-sm">Track this site or app</a>
+ 			{/if}
+ 		</div>
+ 	</section>
+-- 
+2.43.0
+

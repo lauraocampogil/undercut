@@ -42,7 +42,7 @@ export const actions = {
 			}
 		}
 		client.app = { name: v('appName'), iosId: v('iosId')?.replace(/\D/g, ''), androidPackage: v('androidPackage') };
-		client.google = { ...client.google, ga4PropertyId: v('ga4'), gscSiteUrl: v('gsc'), gbpLocation: v('gbp'), gtmContainer: v('gtm'), loadGtm: f.get('loadGtm') === 'on', autoLinkedAt: client.google.autoLinkedAt ?? new Date().toISOString() };
+		client.google = { ...client.google, ga4PropertyId: v('ga4'), gscSiteUrl: v('gsc'), gbpLocation: v('gbp'), gtmContainer: v('gtm'), loadGtm: f.get('loadGtm') === 'on', autoLinkedAt: client.google.autoLinkedAt ?? new Date().toISOString(), manualAt: new Date().toISOString() };
 		saveClient(client);
 		redirect(303, `/app/clients/${client.id}`);
 	},

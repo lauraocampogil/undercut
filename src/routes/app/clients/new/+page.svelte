@@ -24,6 +24,7 @@
 
 	<form method="POST" class="card space-y-5 p-7">
 		{#if form?.error}<p class="rounded-[16px] bg-bad-bg p-3 text-sm text-bad">{form.error}</p>{/if}
+		<input type="hidden" name="crm" value={page.url.searchParams.get('crm') ?? ''} />
 		<label class="block"><span class="label">Client name</span><input class="input mt-1.5" name="name" placeholder="Corner Bakery" value={form?.name ?? page.url.searchParams.get('name') ?? ''} required /></label>
 		<fieldset>
 			<legend class="label">What do you manage for them?</legend>

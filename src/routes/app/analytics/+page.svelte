@@ -52,8 +52,10 @@
 							<p class="flex items-start gap-1.5"><span class="big text-5xl">{n(r.main.value)}</span>{#if r.main.prev}<Delta value={pct(r.main.value, r.main.prev)} />{/if}</p>
 							<p class="mt-1 text-xs text-muted">{r.main.label}, last 28 days</p>
 						</div>
+					{:else if r.client.type !== 'app' && !r.linked.ga4}
+						<div><p class="text-sm font-medium">Not linked to Google Analytics yet</p><a href="/app/clients/{r.client.id}/settings" class="text-xs text-ink-2 underline">{r.linked.google ? 'Pick its Analytics property' : 'Connect Google'}</a></div>
 					{:else}
-						<div><p class="text-sm font-medium">No data yet</p><a href="/app/clients/{r.client.id}/settings" class="text-xs text-ink-2 underline">Connect Google or add the snippet</a></div>
+						<div><p class="text-sm font-medium">No visits recorded in 28 days</p><a href="/app/clients/{r.client.id}/settings" class="text-xs text-ink-2 underline">Check the tracking</a></div>
 					{/if}
 					<HealthRing score={r.health.score} size={58} />
 				</div>
@@ -64,6 +66,10 @@
 					{/each}
 				</div>
 				{#if r.tasks[0]}<a href="/app/clients/{r.client.id}" class="mt-3 truncate text-xs text-ink-2 hover:underline">→ {r.tasks[0].title}{r.tasks.length > 1 ? ` · +${r.tasks.length - 1}` : ''}</a>{/if}
+				<div class="mt-3 border-t border-line pt-3 text-xs">
+					{#if r.crmId}<a href="/app/crm/{r.crmId}" class="text-ink-2 hover:underline">Client record: contact, fee, tasks →</a>
+					{:else}<form method="POST" action="?/addToClients"><input type="hidden" name="id" value={r.client.id} /><button class="text-ink-2 underline">Add to my clients</button></form>{/if}
+				</div>
 			</article>
 		{/each}
 	</section>

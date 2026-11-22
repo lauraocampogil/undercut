@@ -1,15 +1,23 @@
 // One summary row per tracked site or app (the analytics module): health, headline number, areas, open fixes.
 import { listClients } from './store.ts';
 import { getClientOverview } from './overview.ts';
+import { autoLink } from './autolink.ts';
+import { googleReady } from './google.ts';
+import { getBiz } from './business.ts';
 
 export async function analyticsRows() {
 	const rows = await Promise.all(
 		listClients()
 			.filter((c) => !c.demo)
-			.map(async (c) => {
+			.map(async (raw) => {
+				const c = await autoLink(raw);
 				const o = await getClientOverview(c);
+				const biz = getBiz().clients.find((b) => b.siteId === c.id || (b.website && hostOf(b.website) === hostOf(c.domain)));
 				return {
 					client: { id: c.id, name: c.name, color: c.color, domain: c.domain, type: c.type ?? 'web' },
+					crmId: biz?.id ?? null,
+					// what is connected, so the card can say what is missing instead of showing 0
+					linked: { google: googleReady(), ga4: Boolean(c.google?.ga4PropertyId), gsc: Boolean(c.google?.gscSiteUrl) },
 					health: o.health,
 					areas: o.areas.map((a) => ({ key: a.key, label: a.label, level: a.level, value: a.value, sub: a.sub, href: a.href })),
 					tasks: o.tasks.filter((t) => !t.done && t.level !== 'good').map((t) => ({ id: t.id, level: t.level, title: t.title })),

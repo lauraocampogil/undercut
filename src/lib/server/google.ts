@@ -677,11 +677,15 @@ const hostOf = (u: string) => u.replace(/^sc-domain:/, '').replace(/^https?:\/\/
 export function matchProperties(client: Client, o: Record<'ga4' | 'gsc' | 'gbp' | 'gtm', Option[]>) {
 	const host = client.domain ? hostOf(client.domain) : '';
 	const words = client.name.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+	const flat = (t: string) => t.toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+	const stem = flat(host.split('.')[0] ?? ''); // "brussels-summitacademy" → "brusselssummitacademy"
 	const pick = (list: Option[] = []) =>
 		(host && list.find((x) => (x.domains ?? []).some((d) => hostOf(d) === host))) ||
 		(host && list.find((x) => hostOf(x.value) === host)) ||
 		(host && list.find((x) => (x.value + ' ' + x.label).toLowerCase().includes(host))) ||
 		(host && list.find((x) => x.label.toLowerCase().includes(host.split('.')[0]))) ||
+		(stem.length > 3 && list.find((x) => flat(x.label).includes(stem) || flat(x.value).includes(stem))) ||
+		(flat(client.name).length > 5 && list.find((x) => flat(x.label).includes(flat(client.name)))) ||
 		list.find((x) => words.some((w) => x.label.toLowerCase().includes(w))) ||
 		undefined;
 	// Search Console: prefer the domain property, then the https URL property

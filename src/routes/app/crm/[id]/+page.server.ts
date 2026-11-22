@@ -10,7 +10,8 @@ export const load = ({ params }) => {
 	if (!client) error(404, 'Client not found');
 	// the same site tracked in Analytics (visits, leads, heatmaps, SEO)
 	const h = hostOf(client.website);
-	const tracked = h ? listClients().find((c) => !c.demo && hostOf(c.domain) === h) : undefined;
+	const sites = listClients().filter((c) => !c.demo);
+	const tracked = sites.find((c) => c.id === client.siteId) ?? (h ? sites.find((c) => hostOf(c.domain) === h) : undefined);
 	return {
 		client,
 		tracked: tracked ? { id: tracked.id } : null,

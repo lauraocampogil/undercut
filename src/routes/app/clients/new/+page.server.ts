@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { getClient, saveClient, slugify, newClientId } from '#lib/server/store.ts';
 import { normaliseSite } from '#lib/server/sitemap.ts';
+import { getBiz, saveClient as saveBizClient } from '#lib/server/business.ts';
 
 const COLORS = ['#E0A458', '#3E8E63', '#4C7DD9', '#D9534C', '#8B5CF6', '#0EA5A4', '#F97316'];
 
@@ -32,6 +33,11 @@ export const actions = {
 			app: type !== 'web' ? { name } : undefined,
 			google: {}
 		});
+		// the same client in Clients: link the record it came from, or create one
+		const crm = String(f.get('crm') ?? '');
+		const existing = getBiz().clients.find((c) => c.id === crm);
+		if (existing) saveBizClient({ ...existing, siteId: id, website: existing.website || domain || undefined });
+		else saveBizClient({ name, website: domain || undefined, siteId: id, services: [] });
 		redirect(303, `/app/clients/${id}/settings?new=1`);
 	}
 };
