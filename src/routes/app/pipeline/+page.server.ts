@@ -21,8 +21,8 @@ export const load = () => {
 		phone: p.phone,
 		clientId: clients[p.id]
 	});
-	const by = (s: string) => os.pipeline.filter((p) => p.stage === s).sort((a, z) => z.updatedAt.localeCompare(a.updatedAt)).map(card);
-	return { waiting: by('contacted'), replied: by('talking'), won: by('won'), lost: by('lost'), toSend: os.pipeline.filter((p) => p.stage === 'new').length };
+	const cards = os.pipeline.filter((p) => p.stage !== 'new').sort((a, z) => z.updatedAt.localeCompare(a.updatedAt)).map((p) => ({ ...card(p), stage: p.stage }));
+	return { cards, toSend: os.pipeline.filter((p) => p.stage === 'new').length };
 };
 
 export const actions = { stage: agencyActions.stage, item: agencyActions.item, makeClient: businessActions.makeClient };

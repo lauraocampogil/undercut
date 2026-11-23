@@ -26,8 +26,7 @@
 	// Undercut does one thing: find clients. Three places only.
 	const agencyNav = $derived([
 		{ href: '/app', label: t.navToday, icon: 'grid', badge: data.toApprove },
-		{ href: '/app/pipeline', label: t.navReplies, icon: 'target' },
-		{ href: '/app/settings', label: t.navSettings, icon: 'cog' }
+		{ href: '/app/pipeline', label: t.navReplies, icon: 'target' }
 	] as Item[]);
 	const clientNav = $derived.by(() => {
 		if (!current) return [] as { group: string; items: Item[] }[];
@@ -118,7 +117,7 @@
 			<div class="relative">
 				{#if menu === 'account'}
 					<div class="absolute right-0 bottom-full left-0 z-40 mb-2 rounded-[20px] bg-white py-2 text-sm shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
-						<p class="label px-4 pt-1 pb-1">Agency</p>
+						<p class="label px-4 pt-1 pb-1">{t.tabAgency}</p>
 						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 font-medium hover:bg-tile">
 							<span class="grid size-6 place-items-center rounded-md bg-accent text-[11px] text-accent-ink">{initial(data.agency.name)}</span>
 							<span class="flex-1 truncate">{data.agency.name}</span><span class="rounded-full bg-tile px-2 py-0.5 text-[10px] font-normal">{data.beta ? 'Beta' : planLabel}</span>
@@ -128,7 +127,7 @@
 						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>{t.billing}</a>
 						<div class="my-2 border-t border-line"></div>
 						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>{t.myAccount}</a>
-						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>{t.logout}</a>
+						<form method="POST" action="/logout"><button class="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>{t.logout}</button></form>
 					</div>
 				{/if}
 				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">

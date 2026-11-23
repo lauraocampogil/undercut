@@ -5,7 +5,7 @@
 // Only runs when ANTHROPIC_API_KEY is set, and only on the few best candidates of a search.
 import * as env from '$app/env/private';
 
-export type Review = { keep: boolean; reason: string; detail: string; subject: string; message: string; found: { website?: string; instagram?: string; tiktok?: string } };
+export type Review = { keep: boolean; reason: string; detail: string; subject: string; message: string; found: { website?: string; instagram?: string; tiktok?: string; email?: string } };
 type Lang = 'fr' | 'nl' | 'en';
 
 const clean = (html: string) =>
@@ -31,13 +31,13 @@ What our automatic checks think is missing or weak: ${p.issues.join('; ') || 'no
 ${p.complaints?.length ? `What their own customers wrote in 1–3 star Google reviews (real quotes): ${p.complaints.map((c) => `"${c}"`).join(' / ')}\n` : ''}Text from their website (may be empty): """${clean(p.html)}"""
 
 Steps:
-1. Search the web for "${p.name} ${p.city}". Find their real website, Instagram and TikTok if they exist. A claim like "no website" or "no TikTok" is FALSE if you find one: never repeat a false claim. Also look at what customers say in their reviews (Google, TripAdvisor, Facebook): a low review about something the agency can fix (opening hours wrong or missing, can't book online, nobody answers the phone, website broken, no menu or prices online, photos that don't match, hard to find) is the strongest hook.
+1. Search the web for "${p.name} ${p.city}". Find their real website, Instagram, TikTok and contact email if they exist. A claim like "no website" or "no TikTok" is FALSE if you find one: never repeat a false claim. Also look at what customers say in their reviews (Google, TripAdvisor, Facebook): a low review about something the agency can fix (opening hours wrong or missing, can't book online, nobody answers the phone, website broken, no menu or prices online, photos that don't match, hard to find) is the strongest hook.
 2. keep=false if: it is closed, a chain/franchise or a big company, not a local business, or its online presence is already good for what the agency sells (nothing real to improve).
-3. Write the email in ${language}, 90–130 words, warm and human, no hype, no emojis, no clichés. Structure: one specific thing you noticed that is TRUE (from your search or their site; if a customer review mentions a fixable problem, open with it: "in your Google reviews, a customer mentions…", short quote of max 15 words or a paraphrase) → what it costs them in customers → what the agency does, in one line → an easy yes: offer to send 3 concrete ideas for free if they reply "yes" (in ${language}). Say they can also call or have you drop by if they prefer. Do NOT ask for a video call or a meeting. Never invent numbers, reviews or names. Never mention complaints about staff, food, prices, cleanliness or service quality, and never blame or shame the owner: only problems a website, booking, Google profile or social media can fix. Sign with "${p.agency}".
+3. Write the email in ${language}, 90–130 words, personal: it must only fit this one business (use their name, something specific from their site or reviews, and the concrete findings above with their numbers), warm and human, no hype, no emojis, no clichés. Structure: one specific thing you noticed that is TRUE (from your search or their site; if a customer review mentions a fixable problem, open with it: "in your Google reviews, a customer mentions…", short quote of max 15 words or a paraphrase) → what it costs them in customers → what the agency does, in one line → an easy yes: offer to send 3 concrete ideas for free if they reply "yes" (in ${language}). Say they can also call or have you drop by if they prefer. Do NOT ask for a video call or a meeting. Never invent numbers, reviews or names. Never mention complaints about staff, food, prices, cleanliness or service quality, and never blame or shame the owner: only problems a website, booking, Google profile or social media can fix. Sign with "${p.agency}".
 4. End the email with this line exactly: "${p.optOut}"
 
 Answer with JSON only:
-{"keep": true|false, "reason": "short, in English", "found": {"website": "url or empty", "instagram": "url or empty", "tiktok": "url or empty"}, "detail": "the true specific thing you noticed (in ${language})", "subject": "email subject in ${language}, max 60 characters, mentions the business name", "message": "the email in ${language}"}`;
+{"keep": true|false, "reason": "short, in English", "found": {"website": "url or empty", "instagram": "url or empty", "tiktok": "url or empty", "email": "their public contact email or empty"}, "detail": "the true specific thing you noticed (in ${language})", "subject": "email subject in ${language}, max 60 characters, mentions the business name", "message": "the email in ${language}"}`;
 	try {
 		const res = await fetch('https://api.anthropic.com/v1/messages', {
 			method: 'POST',
@@ -62,7 +62,7 @@ Answer with JSON only:
 			detail: String(j.detail ?? '').slice(0, 240),
 			subject: String(j.subject ?? '').slice(0, 90),
 			message: j.message.slice(0, 2000),
-			found: { website: url(j.found?.website), instagram: url(j.found?.instagram), tiktok: url(j.found?.tiktok) }
+			found: { website: url(j.found?.website), instagram: url(j.found?.instagram), tiktok: url(j.found?.tiktok), email: typeof j.found?.email === 'string' && /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(j.found.email) ? j.found.email.toLowerCase() : undefined }
 		};
 	} catch {
 		return null;

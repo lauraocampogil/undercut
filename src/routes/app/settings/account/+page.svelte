@@ -35,8 +35,8 @@
 		</form>
 
 		<form id="logout" method="POST" action="/logout" class="card-dark flex scroll-mt-6 items-center justify-between gap-4 p-6 sm:p-7">
-			<div><h2 class="display text-[30px] leading-none">Log out</h2><p class="mt-1 text-sm text-white/60">{data.locked ? 'You will need your password to come back.' : 'Set a password first — without it there is nothing to log out of.'}</p></div>
-			<button class="btn btn-accent shrink-0" disabled={!data.locked}>Log out</button>
+			<div><h2 class="display text-[30px] leading-none">Log out</h2><p class="mt-1 text-sm text-white/60">You will need your email and password (or Google) to come back.</p></div>
+			<button class="btn btn-accent shrink-0">Log out</button>
 		</form>
 	</div>
 </div>

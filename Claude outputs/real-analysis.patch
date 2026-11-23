@@ -1,0 +1,823 @@
+From f33574a5eb69e12e00ee89592cf6b3e336491a41 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 23 Nov 2026 10:59:07 +0100
+Subject: [PATCH] Real analysis and history: sites read page by page (contact,
+ booking, menu), email found in text or 'name [at] domain',
+ booking/hours/prices/phone checks, Google's mobile speed test with real
+ numbers, personal message naming their site and two concrete findings; old
+ leads can be replaced; Replies has drag & drop, a History column and moves
+ back; undo in Today; settings only in the account menu; logout works
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Inbox.svelte              |  18 ++-
+ src/lib/i18n.ts                              |  36 +++++
+ src/lib/server/agency-actions.ts             |   9 ++
+ src/lib/server/agency-os.ts                  |   5 +
+ src/lib/server/inbox.ts                      |   2 +
+ src/lib/server/lead-ai.ts                    |  10 +-
+ src/lib/server/prospects.ts                  |  84 +++++++-----
+ src/lib/server/site-audit.ts                 |  87 ++++++++++++
+ src/routes/app/+layout.svelte                |   7 +-
+ src/routes/app/+page.server.ts               |   2 +-
+ src/routes/app/+page.svelte                  |   6 +
+ src/routes/app/pipeline/+page.server.ts      |   4 +-
+ src/routes/app/pipeline/+page.svelte         | 131 ++++++++++++-------
+ src/routes/app/settings/account/+page.svelte |   4 +-
+ 14 files changed, 313 insertions(+), 92 deletions(-)
+ create mode 100644 src/lib/server/site-audit.ts
+
+diff --git a/src/lib/components/Inbox.svelte b/src/lib/components/Inbox.svelte
+index adde10b..6228351 100644
+--- a/src/lib/components/Inbox.svelte
++++ b/src/lib/components/Inbox.svelte
+@@ -2,6 +2,7 @@
+ 	// "To approve": what Undercut prepared today, one business at a time. Send or skip, and the next one comes up.
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
++	import { invalidateAll } from '$app/navigation';
+ 	import type { Dict } from '#lib/i18n.ts';
+ 	type Item = {
+ 		key: string;
+@@ -23,7 +24,7 @@
+ 	let { items, week, waiting = 0, t }: { items: Item[]; week: { sent: number; replied: number; won: number }; waiting?: number; t: Dict } = $props();
+ 
+ 	let hidden = $state<Record<string, boolean>>({});
+-	let done = $state<{ key: string; name: string; label: string }[]>([]);
++	let done = $state<{ key: string; id: string; name: string; label: string; first: boolean; sent: boolean }[]>([]);
+ 	let sent = $state(0);
+ 	let editing = $state(false);
+ 	let edited = $state<Record<string, string>>({});
+@@ -34,6 +35,17 @@
+ 	const total = $derived(queue.length + done.length);
+ 	const pct = $derived(total ? Math.round((done.length / total) * 100) : 100);
+ 	const text = (it: Item) => edited[it.key] ?? it.message;
++	// a first message sent or skipped by mistake: put the business back at the top of the queue
++	async function undo(d: (typeof done)[number]) {
++		const f = new FormData();
++		f.set('id', d.id);
++		f.set('stage', 'new');
++		await fetch(act('stage'), { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true' } });
++		done = done.filter((x) => x.key !== d.key);
++		if (d.sent) sent--;
++		await invalidateAll();
++		hidden[d.key] = false;
++	}
+ 	const mailto = (it: Item) => `mailto:${it.to ?? ''}?subject=${encodeURIComponent(it.subject)}&body=${encodeURIComponent(text(it))}`;
+ </script>
+ 
+@@ -101,7 +113,7 @@
+ 							}
+ 							if (how !== 'skip') sent++;
+ 							hidden[it.key] = true;
+-							done = [...done, { key: it.key, name: it.name, label: how === 'skip' ? (it.kind === 'first' ? t.doneSkipped : t.doneLater) : t.doneSent }];
++							done = [...done, { key: it.key, id: it.id, first: it.kind === 'first', sent: how !== 'skip', name: it.name, label: how === 'skip' ? (it.kind === 'first' ? t.doneSkipped : t.doneLater) : t.doneSent }];
+ 							editing = false;
+ 							return async ({ update }) => update({ reset: false });
+ 						}}
+@@ -130,7 +142,7 @@
+ 		<aside class="grid gap-3">
+ 			{#if total}
+ 				<ol class="grid gap-1 rounded-[18px] bg-tile p-2 text-sm">
+-					{#each done as d (d.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-muted"><span class="truncate">{d.name}</span><span class="text-xs">{d.label}</span></li>{/each}
++					{#each done as d (d.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-muted"><span class="min-w-0 truncate">{d.name}</span><span class="flex shrink-0 items-center gap-2 text-xs">{d.label}{#if d.first}<button class="text-ink underline" onclick={() => undo(d)}>{t.undo}</button>{/if}</span></li>{/each}
+ 					{#each queue as q, i (q.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 {i === 0 ? 'bg-white font-medium' : ''}"><span class="truncate">{q.name}</span><span class="text-xs text-muted">{i === 0 ? t.nowLabel : q.kind === 'first' ? t.newLabel : t.followLabel}</span></li>{/each}
+ 				</ol>
+ 			{/if}
+diff --git a/src/lib/i18n.ts b/src/lib/i18n.ts
+index 61c5a00..6f69f5e 100644
+--- a/src/lib/i18n.ts
++++ b/src/lib/i18n.ts
+@@ -110,6 +110,18 @@ const fr = {
+ 	lostLink: (n: number) => `Pas maintenant (${n})`,
+ 	lostEnd: 'et vous ne les relancez plus.',
+ 	nobody: 'Personne ici.',
++	colHistory: 'Historique',
++	colHistoryHint: 'Pas intéressants, sans réponse',
++	emptyHistory: 'Les commerces que vous passez ou qui ne répondent pas arrivent ici. Rien n’est perdu.',
++	restoreToday: 'Remettre dans Aujourd’hui',
++	backWaiting: '← En attente',
++	backReplied: '← Ont répondu',
++	skippedNote: 'Passé depuis Aujourd’hui',
++	noAnswerNote: 'Pas de réponse',
++	dragHint: 'Glissez une carte d’une colonne à l’autre, ou utilisez ses boutons.',
++	undo: 'Annuler',
++	oldBanner: 'Ces commerces ont été analysés avec l’ancienne version (moins précise). Remplacez-les par une nouvelle recherche : sites lus page par page, test mobile de Google, avis Google.',
++	oldBtn: 'Remplacer par 5 nouveaux',
+ 	// settings
+ 	settings: 'Réglages',
+ 	tabAgency: 'Votre agence',
+@@ -228,6 +240,18 @@ const nl: Dict = {
+ 	lostLink: (n) => `Niet nu (${n})`,
+ 	lostEnd: 'en u volgt ze niet meer op.',
+ 	nobody: 'Niemand hier.',
++	colHistory: 'Geschiedenis',
++	colHistoryHint: 'Niet interessant, geen antwoord',
++	emptyHistory: 'Zaken die u overslaat of die niet antwoorden, komen hier. Er gaat niets verloren.',
++	restoreToday: 'Terug naar Vandaag',
++	backWaiting: '← Wachten',
++	backReplied: '← Antwoordden',
++	skippedNote: 'Overgeslagen in Vandaag',
++	noAnswerNote: 'Geen antwoord',
++	dragHint: 'Sleep een kaart naar een andere kolom, of gebruik de knoppen.',
++	undo: 'Ongedaan maken',
++	oldBanner: 'Deze zaken werden met de oude (minder nauwkeurige) versie geanalyseerd. Vervang ze door een nieuwe zoekopdracht: websites pagina per pagina gelezen, mobiele test van Google, Google-reviews.',
++	oldBtn: 'Vervangen door 5 nieuwe',
+ 	settings: 'Instellingen',
+ 	tabAgency: 'Uw bureau',
+ 	agencyTitle: 'Uw bureau en wie te vinden',
+@@ -344,6 +368,18 @@ const en: Dict = {
+ 	lostLink: (n) => `Not now (${n})`,
+ 	lostEnd: 'and you stop following up.',
+ 	nobody: 'Nobody here.',
++	colHistory: 'History',
++	colHistoryHint: 'Not interesting, no answer',
++	emptyHistory: 'Businesses you skip or that never answer land here. Nothing is lost.',
++	restoreToday: 'Back to Today',
++	backWaiting: '← Waiting',
++	backReplied: '← Replied',
++	skippedNote: 'Skipped from Today',
++	noAnswerNote: 'No answer',
++	dragHint: 'Drag a card to another column, or use its buttons.',
++	undo: 'Undo',
++	oldBanner: 'These businesses were analysed with the old, less precise version. Replace them with a new search: sites read page by page, Google’s mobile test, Google reviews.',
++	oldBtn: 'Replace with 5 new ones',
+ 	settings: 'Settings',
+ 	tabAgency: 'Your agency',
+ 	agencyTitle: 'Your agency and who to find',
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index 06c18cf..59c673b 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -51,6 +51,15 @@ export const agencyActions = {
+ 		if (v === 'fr' || v === 'nl' || v === 'en') setUi(v);
+ 		return { uiSaved: true };
+ 	},
++	// prospects found with the old analysis: move them to the history and search again with the new one
++	refresh: async () => {
++		const s = getOS();
++		const old = s.pipeline.filter((p) => p.stage === 'new' && !p.v);
++		for (const p of old) updateItem(p.id, { stage: 'lost', note: 'Old analysis' });
++		const r = await findMore(5);
++		if (r.error) return fail(400, { findError: r.error });
++		return { found: r.added };
++	},
+ 	find: async () => {
+ 		const r = await findMore(5);
+ 		if (r.error) return fail(400, { findError: r.error });
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index 364e41a..ce9c8dd 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -94,8 +94,13 @@ export function updateItem(id: string, patch: Partial<Pick<PipelineItem, 'stage'
+ 		patch.contactedAt = patch.contactedAt ?? new Date().toISOString().slice(0, 10);
+ 	}
+ 	if (patch.stage === 'won' || patch.stage === 'lost') patch.next = patch.next ?? '';
++	// back to "to contact" (undo, or restored from the history): as if never sent
++	if (patch.stage === 'new') Object.assign(patch, { next: '', followups: 0, contactedAt: undefined });
++	// back to "waiting for a reply" from replied / history: plan the next follow-up again
++	if (patch.stage === 'contacted' && p.stage !== 'new' && !p.next && (p.followups ?? 0) < 2) patch.next = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
+ 	Object.assign(p, patch, { updatedAt: new Date().toISOString() });
+ 	if (p.next === '') delete p.next;
++	if (p.contactedAt === undefined) delete p.contactedAt;
+ 	saveOS(s);
+ }
+ 
+diff --git a/src/lib/server/inbox.ts b/src/lib/server/inbox.ts
+index 538edff..f781371 100644
+--- a/src/lib/server/inbox.ts
++++ b/src/lib/server/inbox.ts
+@@ -25,6 +25,7 @@ export type InboxItem = {
+ 	proof?: { label: string; url: string }[]; // links to check it yourself
+ 	lang?: Lang;
+ 	instagram?: string;
++	old?: boolean; // found with the first, weaker analysis
+ };
+ 
+ const FIRST_PER_DAY = 5; // first messages a day (sent today count against it)
+@@ -120,6 +121,7 @@ export function inboxItems(opts: { payments?: boolean; ui?: Lang } = {}): InboxI
+ 			// a real customer complaint first, then the biggest problems
+ 			reasons: [...(p.detail ? [p.detail] : []), ...[...p.issues].sort((a, z) => (z.key === 'review' ? 99 : z.weight) - (a.key === 'review' ? 99 : a.weight)).map((i) => i.label)].slice(0, 3),
+ 			proof: p.proof,
++			old: !p.v,
+ 			lang: p.lang ?? lang,
+ 			instagram: p.instagram,
+ 			title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });
+diff --git a/src/lib/server/lead-ai.ts b/src/lib/server/lead-ai.ts
+index c4aa764..d2d544d 100644
+--- a/src/lib/server/lead-ai.ts
++++ b/src/lib/server/lead-ai.ts
+@@ -5,7 +5,7 @@
+ // Only runs when ANTHROPIC_API_KEY is set, and only on the few best candidates of a search.
+ import * as env from '$app/env/private';
+ 
+-export type Review = { keep: boolean; reason: string; detail: string; subject: string; message: string; found: { website?: string; instagram?: string; tiktok?: string } };
++export type Review = { keep: boolean; reason: string; detail: string; subject: string; message: string; found: { website?: string; instagram?: string; tiktok?: string; email?: string } };
+ type Lang = 'fr' | 'nl' | 'en';
+ 
+ const clean = (html: string) =>
+@@ -31,13 +31,13 @@ What our automatic checks think is missing or weak: ${p.issues.join('; ') || 'no
+ ${p.complaints?.length ? `What their own customers wrote in 1–3 star Google reviews (real quotes): ${p.complaints.map((c) => `"${c}"`).join(' / ')}\n` : ''}Text from their website (may be empty): """${clean(p.html)}"""
+ 
+ Steps:
+-1. Search the web for "${p.name} ${p.city}". Find their real website, Instagram and TikTok if they exist. A claim like "no website" or "no TikTok" is FALSE if you find one: never repeat a false claim. Also look at what customers say in their reviews (Google, TripAdvisor, Facebook): a low review about something the agency can fix (opening hours wrong or missing, can't book online, nobody answers the phone, website broken, no menu or prices online, photos that don't match, hard to find) is the strongest hook.
++1. Search the web for "${p.name} ${p.city}". Find their real website, Instagram, TikTok and contact email if they exist. A claim like "no website" or "no TikTok" is FALSE if you find one: never repeat a false claim. Also look at what customers say in their reviews (Google, TripAdvisor, Facebook): a low review about something the agency can fix (opening hours wrong or missing, can't book online, nobody answers the phone, website broken, no menu or prices online, photos that don't match, hard to find) is the strongest hook.
+ 2. keep=false if: it is closed, a chain/franchise or a big company, not a local business, or its online presence is already good for what the agency sells (nothing real to improve).
+-3. Write the email in ${language}, 90–130 words, warm and human, no hype, no emojis, no clichés. Structure: one specific thing you noticed that is TRUE (from your search or their site; if a customer review mentions a fixable problem, open with it: "in your Google reviews, a customer mentions…", short quote of max 15 words or a paraphrase) → what it costs them in customers → what the agency does, in one line → an easy yes: offer to send 3 concrete ideas for free if they reply "yes" (in ${language}). Say they can also call or have you drop by if they prefer. Do NOT ask for a video call or a meeting. Never invent numbers, reviews or names. Never mention complaints about staff, food, prices, cleanliness or service quality, and never blame or shame the owner: only problems a website, booking, Google profile or social media can fix. Sign with "${p.agency}".
++3. Write the email in ${language}, 90–130 words, personal: it must only fit this one business (use their name, something specific from their site or reviews, and the concrete findings above with their numbers), warm and human, no hype, no emojis, no clichés. Structure: one specific thing you noticed that is TRUE (from your search or their site; if a customer review mentions a fixable problem, open with it: "in your Google reviews, a customer mentions…", short quote of max 15 words or a paraphrase) → what it costs them in customers → what the agency does, in one line → an easy yes: offer to send 3 concrete ideas for free if they reply "yes" (in ${language}). Say they can also call or have you drop by if they prefer. Do NOT ask for a video call or a meeting. Never invent numbers, reviews or names. Never mention complaints about staff, food, prices, cleanliness or service quality, and never blame or shame the owner: only problems a website, booking, Google profile or social media can fix. Sign with "${p.agency}".
+ 4. End the email with this line exactly: "${p.optOut}"
+ 
+ Answer with JSON only:
+-{"keep": true|false, "reason": "short, in English", "found": {"website": "url or empty", "instagram": "url or empty", "tiktok": "url or empty"}, "detail": "the true specific thing you noticed (in ${language})", "subject": "email subject in ${language}, max 60 characters, mentions the business name", "message": "the email in ${language}"}`;
++{"keep": true|false, "reason": "short, in English", "found": {"website": "url or empty", "instagram": "url or empty", "tiktok": "url or empty", "email": "their public contact email or empty"}, "detail": "the true specific thing you noticed (in ${language})", "subject": "email subject in ${language}, max 60 characters, mentions the business name", "message": "the email in ${language}"}`;
+ 	try {
+ 		const res = await fetch('https://api.anthropic.com/v1/messages', {
+ 			method: 'POST',
+@@ -62,7 +62,7 @@ Answer with JSON only:
+ 			detail: String(j.detail ?? '').slice(0, 240),
+ 			subject: String(j.subject ?? '').slice(0, 90),
+ 			message: j.message.slice(0, 2000),
+-			found: { website: url(j.found?.website), instagram: url(j.found?.instagram), tiktok: url(j.found?.tiktok) }
++			found: { website: url(j.found?.website), instagram: url(j.found?.instagram), tiktok: url(j.found?.tiktok), email: typeof j.found?.email === 'string' && /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(j.found.email) ? j.found.email.toLowerCase() : undefined }
+ 		};
+ 	} catch {
+ 		return null;
+diff --git a/src/lib/server/prospects.ts b/src/lib/server/prospects.ts
+index 77ab4c0..0fac034 100644
+--- a/src/lib/server/prospects.ts
++++ b/src/lib/server/prospects.ts
+@@ -10,13 +10,14 @@ import * as env from '$app/env/private';
+ import { reviewLead } from './lead-ai.ts';
+ import { googlePlace, type Complaint, type Topic } from './reviews.ts';
+ import { textLang } from './text-lang.ts';
++import { auditSite, pageSpeed } from './site-audit.ts';
+ import type { AgencyProfile, Service } from './agency-profile.ts';
+ 
+ const UA = 'UndercutBot/1.0 (+https://getundercut.app; prospects)';
+ const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+ type Lang = 'fr' | 'nl' | 'en';
+ 
+-export type Issue = { key: string; label: string; weight: number };
++export type Issue = { key: string; label: string; weight: number; x?: string /* detail (seconds, year…) to write it in any language */ };
+ export type Prospect = {
+ 	id: string;
+ 	name: string;
+@@ -42,6 +43,7 @@ export type Prospect = {
+ 	proof?: { label: string; url: string }[]; // links the agency can open (and show the owner) to check the problem
+ 	google?: { rating?: number; count?: number; url?: string }; // the business on Google Maps
+ 	complaint?: Complaint; // what its own customers say on Google that the agency can fix
++	v?: number; // analysis version (2 = inner pages, Google speed test, Google reviews)
+ 	message: string;
+ 	osmUrl: string;
+ };
+@@ -78,9 +80,9 @@ const CAT: Record<Lang, Record<string, string>> = {
+ 	nl: { restaurant: 'Restaurant', cafe: 'Café', bar: 'Bar', pub: 'Café', ice_cream: 'IJssalon', dentist: 'Tandarts', doctors: 'Dokter', clinic: 'Kliniek', clinic_or_praxis: 'Praktijk', veterinary: 'Dierenarts', driving_school: 'Rijschool', language_school: 'Taalschool', bakery: 'Bakkerij', butcher: 'Slagerij', hairdresser: 'Kapper', beauty: 'Schoonheidssalon', tattoo: 'Tattooshop', florist: 'Bloemist', clothes: 'Kledingwinkel', clothing: 'Kledingwinkel', optician: 'Opticien', jewelry: 'Juwelier', furniture: 'Meubelwinkel', furniture_and_interior: 'Interieurwinkel', bicycle: 'Fietsenwinkel', deli: 'Delicatessen', drinks: 'Wijnhandel', wine: 'Wijnhandel', chocolate: 'Chocolatier', gift: 'Cadeauwinkel', gift_and_souvenir: 'Cadeauwinkel', cosmetics: 'Cosmetica', carpenter: 'Schrijnwerker', electrician: 'Elektricien', plumber: 'Loodgieter', photographer: 'Fotograaf', lawyer: 'Advocaat', accountant: 'Boekhouder', estate_agent: 'Immokantoor', architect: 'Architect', notary: 'Notaris', insurance: 'Verzekeringen', fitness_centre: 'Fitness', sports_centre: 'Sportcentrum', hotel: 'Hotel', guest_house: 'B&B' }
+ };
+ const L: Record<Lang, Record<string, (x?: string) => string>> = {
+-	en: { 'no-site': () => 'no website found', down: () => 'website not responding', http: () => 'not secure (no https)', mobile: () => 'not mobile-friendly', slow: (x) => `slow on mobile (${x} s)`, old: (x) => `not updated since ${x}`, title: () => 'no Google title', builder: (x) => `built with ${x}`, 'no-insta': () => 'no Instagram linked on the website', 'no-tiktok': () => 'no TikTok linked on the website', 'no-social': () => 'no social media linked on the website', 'no-app': () => 'no app or online booking', 'no-video': () => 'no photos or videos that show the place', review: (x) => `a customer on Google: “${x}”` },
+-	fr: { 'no-site': () => 'pas de site web trouvé', down: () => 'le site ne répond pas', http: () => 'site non sécurisé (pas de https)', mobile: () => 'site pas adapté au mobile', slow: (x) => `site lent sur mobile (${x} s)`, old: (x) => `pas mis à jour depuis ${x}`, title: () => 'pas de titre Google', builder: (x) => `site fait avec ${x}`, 'no-insta': () => 'pas d’Instagram relié au site', 'no-tiktok': () => 'pas de TikTok relié au site', 'no-social': () => 'aucun réseau social relié au site', 'no-app': () => 'pas d’app ni de réservation en ligne', 'no-video': () => 'pas de photos ni de vidéos qui montrent le lieu', review: (x) => `un client sur Google : « ${x} »` },
+-	nl: { 'no-site': () => 'geen website gevonden', down: () => 'website reageert niet', http: () => 'niet beveiligd (geen https)', mobile: () => 'niet mobielvriendelijk', slow: (x) => `traag op mobiel (${x} s)`, old: (x) => `niet bijgewerkt sinds ${x}`, title: () => 'geen Google-titel', builder: (x) => `gemaakt met ${x}`, 'no-insta': () => 'geen Instagram gelinkt op de website', 'no-tiktok': () => 'geen TikTok gelinkt op de website', 'no-social': () => 'geen sociale media gelinkt op de website', 'no-app': () => 'geen app of online boeking', 'no-video': () => 'geen foto’s of video’s die de zaak tonen', review: (x) => `een klant op Google: “${x}”` }
++	en: { 'no-site': () => 'no website found', down: () => 'website not responding', http: () => 'not secure (no https)', mobile: () => 'not mobile-friendly', slow: (x) => `slow on mobile (${x} s)`, old: (x) => `not updated since ${x}`, title: () => 'no Google title', builder: (x) => `built with ${x}`, 'no-insta': () => 'no Instagram linked on the website', 'no-tiktok': () => 'no TikTok linked on the website', 'no-social': () => 'no social media linked on the website', 'no-app': () => 'no online booking found on the website', 'no-hours': () => 'opening hours not on the website', 'no-prices': () => 'no prices or menu on the website', 'no-tel': () => 'phone number not tappable on mobile', 'no-desc': () => 'no description for Google', psi: (x) => `Google’s mobile test: ${x?.split('|')[0]} s before the page shows (score ${x?.split('|')[1]}/100)`, 'no-video': () => 'no photos or videos that show the place', review: (x) => `a customer on Google: “${x}”` },
++	fr: { 'no-site': () => 'pas de site web trouvé', down: () => 'le site ne répond pas', http: () => 'site non sécurisé (pas de https)', mobile: () => 'site pas adapté au mobile', slow: (x) => `site lent sur mobile (${x} s)`, old: (x) => `pas mis à jour depuis ${x}`, title: () => 'pas de titre Google', builder: (x) => `site fait avec ${x}`, 'no-insta': () => 'pas d’Instagram relié au site', 'no-tiktok': () => 'pas de TikTok relié au site', 'no-social': () => 'aucun réseau social relié au site', 'no-app': () => 'pas de réservation en ligne trouvée sur le site', 'no-hours': () => 'les horaires ne sont pas sur le site', 'no-prices': () => 'pas de prix ni de carte sur le site', 'no-tel': () => 'le numéro n’est pas cliquable sur mobile', 'no-desc': () => 'pas de description pour Google', psi: (x) => `test mobile de Google : ${x?.split('|')[0].replace('.', ',')} s avant que la page s’affiche (score ${x?.split('|')[1]}/100)`, 'no-video': () => 'pas de photos ni de vidéos qui montrent le lieu', review: (x) => `un client sur Google : « ${x} »` },
++	nl: { 'no-site': () => 'geen website gevonden', down: () => 'website reageert niet', http: () => 'niet beveiligd (geen https)', mobile: () => 'niet mobielvriendelijk', slow: (x) => `traag op mobiel (${x} s)`, old: (x) => `niet bijgewerkt sinds ${x}`, title: () => 'geen Google-titel', builder: (x) => `gemaakt met ${x}`, 'no-insta': () => 'geen Instagram gelinkt op de website', 'no-tiktok': () => 'geen TikTok gelinkt op de website', 'no-social': () => 'geen sociale media gelinkt op de website', 'no-app': () => 'geen online boeking gevonden op de website', 'no-hours': () => 'openingsuren staan niet op de website', 'no-prices': () => 'geen prijzen of menukaart op de website', 'no-tel': () => 'telefoonnummer niet aanklikbaar op gsm', 'no-desc': () => 'geen beschrijving voor Google', psi: (x) => `mobiele test van Google: ${x?.split('|')[0].replace('.', ',')} s voor de pagina verschijnt (score ${x?.split('|')[1]}/100)`, 'no-video': () => 'geen foto’s of video’s die de zaak tonen', review: (x) => `een klant op Google: “${x}”` }
+ };
+ 
+ // first message, shaped by what the agency sells
+@@ -98,21 +100,21 @@ const COST: Record<Lang, Record<Main, string>> = {
+ };
+ // GDPR / good practice: every first message says how to stop receiving them
+ export const OPT_OUT: Record<Lang, string> = { en: 'If you’d rather not hear from me, just reply “no” and I won’t write again.', fr: 'Si vous préférez ne plus recevoir de message de ma part, répondez simplement « non ».', nl: 'Liever geen berichten meer van mij? Antwoord gewoon “nee”.' };
+-type MsgIn = { biz: string; agency: string; issues: string[]; main: Main; category: string; city: string; review?: string };
++type MsgIn = { biz: string; agency: string; issues: string[]; main: Main; category: string; city: string; review?: string; site?: string };
+ export const SUBJECT: Record<Lang, (p: MsgIn) => string> = {
+ 	fr: ({ biz, main }) => `${biz} : ${main === 'social' ? 'une idée pour attirer plus de clients via Instagram' : main === 'app' ? 'une idée pour remplir plus facilement votre agenda' : main === 'branding' ? 'une idée pour vous démarquer' : main === 'seo' ? 'une idée pour être mieux trouvé sur Google' : main === 'video' ? 'une idée pour montrer votre lieu' : main === 'ads' ? 'une idée pour attirer les clients du quartier' : 'une idée pour avoir plus de clients via votre site'}`,
+ 	nl: ({ biz, main }) => `${biz}: ${main === 'social' ? 'een idee om meer klanten via Instagram te krijgen' : main === 'app' ? 'een idee om uw agenda makkelijker te vullen' : main === 'branding' ? 'een idee om op te vallen' : main === 'seo' ? 'een idee om beter gevonden te worden op Google' : main === 'video' ? 'een idee om uw zaak te tonen' : main === 'ads' ? 'een idee om klanten uit de buurt aan te trekken' : 'een idee voor meer klanten via uw website'}`,
+ 	en: ({ biz, main }) => `${biz}: ${main === 'social' ? 'an idea to bring in more customers through Instagram' : main === 'app' ? 'an idea to fill your bookings more easily' : main === 'branding' ? 'an idea to stand out' : main === 'seo' ? 'an idea to be found more easily on Google' : main === 'video' ? 'an idea to show off your place' : main === 'ads' ? 'an idea to bring in customers from your area' : 'an idea to get more customers from your website'}`
+ };
+ const MSG: Record<Lang, (p: MsgIn) => string> = {
+-	fr: (p) => `Bonjour,\n\nEn cherchant « ${p.category.toLowerCase()} ${p.city} », j’ai découvert ${p.biz} et j’ai remarqué : ${p.issues.join(' ; ')}.\n${p.review ? `Dans vos avis Google, un client écrit d’ailleurs : « ${p.review} ». C’est typiquement le genre de détail qui se règle en ligne.\n` : ''}${COST.fr[p.main]}\n\nC’est exactement ce que nous faisons chez ${p.agency} : ${VALUE.fr[p.main]}.\n\nJe vous propose quelque chose de simple : je vous envoie gratuitement 3 améliorations concrètes pour ${p.biz}, que vous pourrez appliquer avec ou sans nous. Répondez simplement « oui ».\nSi vous préférez un coup de fil ou que je passe vous voir, dites-moi ce qui vous arrange.\n\nBelle journée,\n${p.agency}\n\n${OPT_OUT.fr}`,
+-	nl: (p) => `Goeiedag,\n\nToen ik zocht op “${p.category.toLowerCase()} ${p.city}”, ontdekte ik ${p.biz} en viel me op: ${p.issues.join('; ')}.\n${p.review ? `In uw Google-reviews schrijft een klant trouwens: “${p.review}”. Precies zoiets los je online op.\n` : ''}${COST.nl[p.main]}\n\nDat is precies wat we bij ${p.agency} doen: ${VALUE.nl[p.main]}.\n\nMijn voorstel is eenvoudig: ik stuur u gratis 3 concrete verbeteringen voor ${p.biz}, die u met of zonder ons kunt toepassen. Antwoord gewoon “ja”.\nBelt u liever even, of kom ik eens langs? Zeg maar wat u het beste past.\n\nFijne dag,\n${p.agency}\n\n${OPT_OUT.nl}`,
+-	en: (p) => `Hi,\n\nSearching for “${p.category.toLowerCase()} ${p.city}”, I came across ${p.biz} and noticed: ${p.issues.join('; ')}.\n${p.review ? `In your Google reviews, a customer also writes: “${p.review}”. That’s exactly the kind of thing that can be fixed online.\n` : ''}${COST.en[p.main]}\n\nThat’s exactly what we do at ${p.agency}: ${VALUE.en[p.main]}.\n\nHere’s a simple offer: I’ll send you 3 concrete improvements for ${p.biz}, free, that you can use with or without us. Just reply “yes”.\nIf you’d rather have a quick call or have me drop by, tell me what suits you.\n\nBest,\n${p.agency}\n\n${OPT_OUT.en}`
++	fr: (p) => `Bonjour,\n\nEn cherchant « ${p.category.toLowerCase()} ${p.city} », j’ai découvert ${p.biz}${p.site ? ` et j’ai regardé votre site (${p.site})` : ''}. ${p.issues.length > 1 ? 'Deux choses m’ont frappé' : 'Une chose m’a frappé'} : ${p.issues.join(', et ')}.\n${p.review ? `Dans vos avis Google, un client écrit d’ailleurs : « ${p.review} ». C’est typiquement le genre de détail qui se règle en ligne.\n` : ''}${COST.fr[p.main]}\n\nC’est exactement ce que nous faisons chez ${p.agency} : ${VALUE.fr[p.main]}.\n\nJe vous propose quelque chose de simple : je vous envoie gratuitement 3 améliorations concrètes pour ${p.biz}, que vous pourrez appliquer avec ou sans nous. Répondez simplement « oui ».\nSi vous préférez un coup de fil ou que je passe vous voir, dites-moi ce qui vous arrange.\n\nBelle journée,\n${p.agency}\n\n${OPT_OUT.fr}`,
++	nl: (p) => `Goeiedag,\n\nToen ik zocht op “${p.category.toLowerCase()} ${p.city}”, ontdekte ik ${p.biz}${p.site ? ` en bekeek ik uw website (${p.site})` : ''}. ${p.issues.length > 1 ? 'Twee dingen vielen me op' : 'Eén ding viel me op'}: ${p.issues.join(', en ')}.\n${p.review ? `In uw Google-reviews schrijft een klant trouwens: “${p.review}”. Precies zoiets los je online op.\n` : ''}${COST.nl[p.main]}\n\nDat is precies wat we bij ${p.agency} doen: ${VALUE.nl[p.main]}.\n\nMijn voorstel is eenvoudig: ik stuur u gratis 3 concrete verbeteringen voor ${p.biz}, die u met of zonder ons kunt toepassen. Antwoord gewoon “ja”.\nBelt u liever even, of kom ik eens langs? Zeg maar wat u het beste past.\n\nFijne dag,\n${p.agency}\n\n${OPT_OUT.nl}`,
++	en: (p) => `Hi,\n\nSearching for “${p.category.toLowerCase()} ${p.city}”, I came across ${p.biz}${p.site ? ` and looked at your website (${p.site})` : ''}. ${p.issues.length > 1 ? 'Two things stood out' : 'One thing stood out'}: ${p.issues.join(', and ')}.\n${p.review ? `In your Google reviews, a customer also writes: “${p.review}”. That’s exactly the kind of thing that can be fixed online.\n` : ''}${COST.en[p.main]}\n\nThat’s exactly what we do at ${p.agency}: ${VALUE.en[p.main]}.\n\nHere’s a simple offer: I’ll send you 3 concrete improvements for ${p.biz}, free, that you can use with or without us. Just reply “yes”.\nIf you’d rather have a quick call or have me drop by, tell me what suits you.\n\nBest,\n${p.agency}\n\n${OPT_OUT.en}`
+ };
+ 
+ // The message talks about the agency's service that fixes this business's biggest problem
+ // (a web + social agency writes about Instagram to a shop whose problem is Instagram).
+-const ISSUE_SERVICE: Record<string, Main> = { 'no-site': 'web', down: 'web', http: 'web', mobile: 'web', slow: 'web', old: 'web', builder: 'branding', title: 'seo', 'no-social': 'social', 'no-insta': 'social', 'no-tiktok': 'social', 'no-app': 'app', 'no-video': 'video' };
++const ISSUE_SERVICE: Record<string, Main> = { 'no-site': 'web', down: 'web', http: 'web', mobile: 'web', slow: 'web', old: 'web', builder: 'branding', title: 'seo', 'no-social': 'social', 'no-insta': 'social', 'no-tiktok': 'social', 'no-app': 'app', 'no-video': 'video', 'no-hours': 'seo', 'no-prices': 'web', 'no-tel': 'web', 'no-desc': 'seo', psi: 'web' };
+ // a Google complaint about booking → the agency's booking/app offer, about hours → Google profile (SEO), etc.
+ const TOPIC_SERVICE: Record<Topic, Main[]> = { hours: ['seo', 'web'], booking: ['app', 'web'], phone: ['web', 'app'], website: ['web', 'seo'], menu: ['web', 'social'], photos: ['video', 'social', 'web'], find: ['seo', 'web', 'ads'] };
+ const topicService = (t: Topic, sells: Set<string>, fallback: Main): Main => TOPIC_SERVICE[t].find((m) => sells.has(m)) ?? fallback;
+@@ -311,6 +313,9 @@ function hash(s: string) {
+ 	return h >>> 0;
+ }
+ 
++// places where customers look for opening hours / prices before coming
++const SHOP_KINDS = /restaurant|cafe|bar|pub|ice_cream|bakery|butcher|hairdresser|beauty|florist|clothes|clothing|optician|jewelry|furniture|bicycle|deli|wine|drinks|chocolate|gift|cosmetics|tattoo|fitness|sports_centre|dentist|doctors|clinic|veterinary/;
++const PRICE_KINDS = /restaurant|cafe|bar|ice_cream|hairdresser|beauty|tattoo|fitness|sports_centre|driving_school|language_school|photographer|guest_house/;
+ const BOOKING_KINDS = /fitness|sports_centre|restaurant|clinic|dentist|driving_school|language_school|hairdresser|beauty|hotel|guest_house/;
+ 
+ /** Find up to `limit` prospects for this agency. `exclude` = ids already seen (pipeline), so each run brings new ones. */
+@@ -383,9 +388,10 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 		const batch = await Promise.all(
+ 			cands.slice(i, i + 6).map(async (pl): Promise<Prospect | null> => {
+ 				const issues: Issue[] = [];
+-				const add = (key: string, weight: number, x?: string) => issues.push({ key, weight, label: T[key](x) });
++				const add = (key: string, weight: number, x?: string) => issues.push({ key, weight, label: T[key](x), x });
+ 				let checked: Prospect['checked'] = {};
+ 				let html = '';
++				let audit: Awaited<ReturnType<typeof auditSite>> | null = null;
+ 				// the map often lacks the website: try the obvious domains before saying there is none
+ 				if (!pl.website) pl.website = await guessWebsite(pl.name, profile.country || '');
+ 				if (!pl.website) {
+@@ -395,15 +401,26 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 					const c = await checkSite(url);
+ 					html = c.html ?? '';
+ 					checked = { https: c.https, mobile: c.mobile, ms: c.ms, title: c.title, year: c.year, builder: c.builder, status: c.status };
++					// read the contact / booking / menu pages too, not just the home page
++					if (html && c.status && c.status < 400) {
++						audit = await auditSite(url, html);
++						html = audit.html;
++					}
+ 					if (!c.status || c.status >= 400) {
+ 						if (webish) add('down', 30);
+ 					} else if (webish) {
+ 						if (c.https === false) add('http', 20);
+ 						if (c.mobile === false) add('mobile', 25);
+-						if ((c.ms ?? 0) > 3500) add('slow', 15, ((c.ms ?? 0) / 1000).toFixed(1));
+ 						if (c.year && c.year < new Date().getFullYear() - 3) add('old', 15, String(c.year));
+ 						if (c.title !== undefined && c.title.length < 8) add('title', 10);
+ 						if (c.builder && ['Wix', 'Jimdo'].includes(c.builder)) add('builder', 5, c.builder);
++						// what a customer looks for on the site and can't find
++						if (audit) {
++							if (SHOP_KINDS.test(pl.kind) && !audit.hours && !pl.hours) add('no-hours', 15);
++							if (PRICE_KINDS.test(pl.kind) && !audit.prices) add('no-prices', 12);
++							if (!audit.tel) add('no-tel', 8);
++							if (!audit.desc && (sells.has('seo') || sells.has('web'))) add('no-desc', 8);
++						}
+ 					}
+ 				}
+ 				// social claims only when we could read their own site (otherwise we simply don't know)
+@@ -419,10 +436,10 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 				}
+ 				// photo & video agencies: a site with no video and almost no photos of the place
+ 				if (sells.has('video') && html && !/(youtube\.com|youtu\.be|vimeo\.com|<video|tiktok\.com|instagram\.com\/reel)/i.test(html) && (html.match(/<img/gi)?.length ?? 0) < 6) add('no-video', 30);
+-				if (sells.has('app') && BOOKING_KINDS.test(pl.kind) && !/(apps\.apple\.com|play\.google\.com|calendly|planity|treatwell|resengo|booksy|fresha|zenchef|thefork|opentable|booking\.com|reserv|book now|rendez-vous|boeken)/i.test(html)) add('no-app', 30);
++				if ((sells.has('app') || sells.has('web')) && BOOKING_KINDS.test(pl.kind) && audit && audit.pages > 1 && !audit.booking) add('no-app', sells.has('app') ? 30 : 15);
+ 
+ 				// contacts the map doesn't have, from their own site
+-				const email = pl.email || (/mailto:([^"'?\s>]+@[^"'?\s>]+\.[a-z]{2,})/i.exec(html)?.[1] ?? '');
++				const email = pl.email || audit?.email || '';
+ 				const phone = pl.phone || (/href=["']tel:([+\d][\d\s./-]{6,})["']/i.exec(html)?.[1]?.trim() ?? '');
+ 				const instaUrl = pl.insta || (/((?:https?:\/\/)?(?:www\.)?instagram\.com\/(?!p\/|reel\/|explore\/)[A-Za-z0-9_.]+)/i.exec(html)?.[1] ?? '');
+ 				// no way to reach them = not a lead; a dead site and no phone usually means the place closed
+@@ -432,7 +449,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 				pages.set(pl.id, html);
+ 				// the message speaks the business's language (its site, else its postcode)
+ 				const plang = prospectLang(html, `${pl.address} ${pl.city}`, profile.country || '', lang);
+-				const mi: MsgIn = { biz: pl.name, agency: profile.name, main: mainFor(issues, sells, main), category: CAT[plang][pl.kind] ?? CAT.en[pl.kind] ?? pl.kind.replace(/_/g, ' '), city: pl.city || profile.city, issues: [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => L[plang][x.key](x.label.match(/[\d.]+(?= s)|\d{4}|Wix|Jimdo/)?.[0])) };
++				const mi: MsgIn = { biz: pl.name, agency: profile.name, main: mainFor(issues, sells, main), category: CAT[plang][pl.kind] ?? CAT.en[pl.kind] ?? pl.kind.replace(/_/g, ' '), city: pl.city || profile.city, site: pl.website ? pl.website.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '') : undefined, issues: [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => L[plang][x.key](x.x)) };
+ 				msgs.set(pl.id, mi);
+ 				const budget = budgetOf(pl, checked);
+ 				const score = Math.min(100, Math.round(issues.reduce((s, x) => s + x.weight, 0) * (target === 'big' ? BUDGET_WEIGHT_BIG : BUDGET_WEIGHT)[budget]));
+@@ -460,7 +477,8 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 					lang: plang,
+ 					subject: SUBJECT[plang](mi),
+ 					message: MSG[plang](mi),
+-					osmUrl: pl.osmUrl
++					osmUrl: pl.osmUrl,
++					v: 2
+ 				};
+ 			})
+ 		);
+@@ -469,35 +487,41 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 	// most in need (weighted by budget) first; those you can email before the rest
+ 	out.sort((a, b) => b.score - a.score || (b.email ? 1 : 0) - (a.email ? 1 : 0) || (b.phone ? 1 : 0) - (a.phone ? 1 : 0));
+ 	// AI reviewer + writer on the best few: drop what doesn't fit, personalise the first message
+-	// their Google Maps listing: rating, the website/phone Google knows, and what their own customers complain about
++	// for the few we keep: Google's mobile speed test, and their Google Maps listing (rating, website/phone Google knows,
++	// and what their own customers complain about). Then the message is rewritten with these real details.
+ 	const short = (
+ 		await Promise.all(
+ 			out.slice(0, limit + 3).map(async (p): Promise<Prospect | null> => {
+-				const g = await googlePlace(p, sells);
+-				if (!g) return p;
++				const url = p.website ? (/^https?:/i.test(p.website) ? p.website : `https://${p.website}`) : '';
++				const [g, speed] = await Promise.all([googlePlace(p, sells), url && webish && (!p.checked.status || p.checked.status < 400) && p.checked.status ? pageSpeed(url) : Promise.resolve(null)]);
+ 				const pl = p.lang ?? lang;
+ 				let issues = p.issues;
+ 				// Google knows their website: never claim there is none
+-				if (g.website && !p.website) issues = issues.filter((x) => x.key !== 'no-site');
+-				const c = g.complaints[0];
+-				if (c) issues = [...issues, { key: 'review', weight: 35, label: L[pl].review(c.quote) }];
++				if (g?.website && !p.website) issues = issues.filter((x) => x.key !== 'no-site');
++				if (speed && speed.score < 50) issues = [...issues.filter((x) => x.key !== 'mobile' || p.checked.mobile === false), { key: 'psi', weight: speed.score < 30 ? 30 : 20, label: L[lang].psi(`${speed.lcp}|${speed.score}`), x: `${speed.lcp}|${speed.score}` }];
++				const c = g?.complaints[0];
++				if (c) issues = [...issues, { key: 'review', weight: 35, label: L[lang].review(c.quote), x: c.quote }];
+ 				if (!issues.length) return null;
+-				const mi = msgs.get(p.id);
+ 				const top = [...issues].sort((a, b) => b.weight - a.weight);
+ 				const next: Prospect = {
+ 					...p,
+ 					issues,
+-					score: Math.min(100, p.score + (c ? 25 : 0)),
++					score: Math.min(100, p.score + (c ? 25 : 0) + (speed && speed.score < 50 ? 10 : 0)),
+ 					pitch: top.slice(0, 2).map((x) => x.label).join(' · '),
+-					website: p.website || g.website,
+-					phone: p.phone || g.phone,
+-					google: { rating: g.rating, count: g.count, url: g.url },
++					website: p.website || g?.website,
++					phone: p.phone || g?.phone,
++					google: g ? { rating: g.rating, count: g.count, url: g.url } : undefined,
+ 					complaint: c,
+-					proof: [...(c && g.url ? [{ label: pl === 'fr' ? 'Leurs avis Google' : pl === 'nl' ? 'Hun Google-reviews' : 'Their Google reviews', url: g.url }] : []), ...(p.proof ?? [])].slice(0, 3)
++					proof: [
++						...(c && g?.url ? [{ label: lang === 'fr' ? 'Leurs avis Google' : lang === 'nl' ? 'Hun Google-reviews' : 'Their Google reviews', url: g.url }] : []),
++						...(speed && url ? [{ label: lang === 'fr' ? `Test mobile Google (${speed.score}/100)` : lang === 'nl' ? `Mobiele test van Google (${speed.score}/100)` : `Google mobile test (${speed.score}/100)`, url: `https://pagespeed.web.dev/analysis?url=${encodeURIComponent(url)}&form_factor=mobile` }] : []),
++						...(p.proof ?? []).filter((x) => !(speed && x.url.includes('pagespeed')))
++					].slice(0, 3)
+ 				};
++				const mi = msgs.get(p.id);
+ 				if (mi) {
+-					const m: MsgIn = { ...mi, main: c ? topicService(c.topic, sells, mi.main) : mi.main, issues: top.filter((x) => x.key !== 'review').slice(0, 2).map((x) => x.label), review: c?.quote };
+-					if (!m.issues.length) m.issues = [L[pl].review(c!.quote)];
++					const m: MsgIn = { ...mi, main: c ? topicService(c.topic, sells, mi.main) : mainFor(issues, sells, mi.main), issues: top.filter((x) => x.key !== 'review').slice(0, 2).map((x) => L[pl][x.key](x.x)), review: c?.quote };
++					if (!m.issues.length && c) m.issues = [L[pl].review(c.quote)];
+ 					next.message = MSG[pl](m);
+ 					next.subject = SUBJECT[pl](m);
+ 				}
+@@ -519,7 +543,7 @@ export async function findProspects(profile: AgencyProfile, limit = 5, exclude:
+ 		if (r.found.tiktok) ['no-tiktok', 'no-social'].forEach((k) => wrong.add(k));
+ 		const issues = p.issues.filter((x) => !wrong.has(x.key));
+ 		if (!issues.length) return; // nothing real to improve
+-		final.push({ ...p, issues, pitch: [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => x.label).join(' · '), website: p.website || r.found.website, instagram: p.instagram || r.found.instagram, message: r.message, subject: r.subject || p.subject, detail: r.detail || undefined, reviewed: true });
++		final.push({ ...p, issues, pitch: [...issues].sort((a, b) => b.weight - a.weight).slice(0, 2).map((x) => x.label).join(' · '), website: p.website || r.found.website, instagram: p.instagram || r.found.instagram, email: p.email || r.found.email, message: r.message, subject: r.subject || p.subject, detail: r.detail || undefined, reviewed: true });
+ 	});
+ 	return { center, prospects: final.slice(0, limit), scanned: places.length, source };
+ }
+diff --git a/src/lib/server/site-audit.ts b/src/lib/server/site-audit.ts
+new file mode 100644
+index 0000000..25840fa
+--- /dev/null
++++ b/src/lib/server/site-audit.ts
+@@ -0,0 +1,87 @@
++// A real look at a business's website: home page + its contact / booking / menu pages.
++// Finds the email (also written as text or "name [at] domain"), online booking, opening hours, prices, a clickable phone, a Google description.
++// And Google's own mobile speed test (PageSpeed Insights) for the few leads we keep.
++import * as env from '$app/env/private';
++
++export type Audit = { email?: string; booking: boolean; hours: boolean; prices: boolean; tel: boolean; desc: boolean; form: boolean; pages: number };
++
++const UA = 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Mobile Safari/537.36';
++const SUB = /contact|reserv|r%C3%A9serv|book|rendez|rdv|afspraak|boeken|menu|carte|kaart|tarif|prix|prijs|price|horaire|openingsuren|opening|commander|bestellen|order/i;
++const BOOKING = /(calendly|planity|treatwell|resengo|booksy|fresha|salonized|zenchef|thefork|lafourchette|opentable|formitable|guestplan|tablebooker|sevenrooms|simplybook|setmore|timify|doctolib|doctoranytime|mobminder|agendize|acuityscheduling|square\.site\/book|lightspeed.*reserv|booking\.com|hotelrunner|cubilis|apps\.apple\.com|play\.google\.com|uber\s?eats|deliveroo|takeaway\.com|commande en ligne|commander en ligne|online bestellen|réserver en ligne|reserver en ligne|prendre rendez-vous|online reserveren|online boeken|book (now|online|a table)|réservez|reserveer)/i;
++const HOURS = /(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|monday|tuesday|wednesday|thursday|friday|saturday|sunday|lun\.?|mar\.?|ma\.|di\.)[^<]{0,60}?\d{1,2}\s?(h|:|u)\s?\d{0,2}/i;
++const PRICE = /\d{1,4}(?:[.,]\d{1,2})?\s?(€|&euro;|eur\b)|(€|&euro;)\s?\d{1,4}/i;
++const BAD_MAIL = /\.(png|jpe?g|gif|webp|svg|css|js)$|sentry|wixpress|example\.|domain\.|yourdomain|votredomaine|email@|nom@|name@|you@|info@site|@2x/i;
++
++async function get(url: string, ms = 6000) {
++	try {
++		const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(ms), headers: { 'user-agent': UA, accept: 'text/html' } });
++		if (!r.ok || !(r.headers.get('content-type') ?? '').includes('html')) return '';
++		return (await r.text()).slice(0, 300_000);
++	} catch {
++		return '';
++	}
++}
++
++/** The email written on the page: mailto links, plain text, or "name [at] domain [dot] be". */
++export function emailIn(html: string): string | undefined {
++	const found = [
++		...[...html.matchAll(/mailto:([^"'?\s>]+@[^"'?\s>]+\.[a-z]{2,})/gi)].map((m) => decodeURIComponent(m[1])),
++		...[...html.replace(/<[^>]+>/g, ' ').matchAll(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,10}\b/gi)].map((m) => m[0]),
++		...[...html.replace(/<[^>]+>/g, ' ').matchAll(/\b([\w.+-]+)\s*(?:\[at\]|\(at\)|\{at\}| at |\[arobase\])\s*([\w-]+)\s*(?:\[dot\]|\(dot\)|\[point\]| dot |\.)\s*([a-z]{2,10})\b/gi)].map((m) => `${m[1]}@${m[2]}.${m[3]}`)
++	]
++		.map((e) => e.trim().toLowerCase())
++		.filter((e) => !BAD_MAIL.test(e));
++	// a contact address beats a personal or no-reply one
++	return found.find((e) => /^(info|contact|hello|bonjour|hallo|welkom|reservation|reservatie|booking|admin|office|mail)@/.test(e)) ?? found.find((e) => !/no-?reply/.test(e));
++}
++
++/** Read the home page we already have plus up to 3 useful inner pages (contact, booking, menu, prices). */
++export async function auditSite(base: string, home: string): Promise<Audit & { html: string }> {
++	let origin = '';
++	try {
++		origin = new URL(base).origin;
++	} catch {
++		/* keep empty */
++	}
++	const links = new Set<string>();
++	for (const m of home.matchAll(/<a[^>]+href=["']([^"'#]+)["'][^>]*>([\s\S]{0,80}?)<\/a>/gi)) {
++		const [href, text] = [m[1], m[2].replace(/<[^>]+>/g, '')];
++		if (!SUB.test(href) && !SUB.test(text)) continue;
++		try {
++			const u = new URL(href, base);
++			if (u.origin === origin && !/\.(pdf|jpe?g|png)$/i.test(u.pathname)) links.add(u.href.split('#')[0]);
++		} catch {
++			/* not a link */
++		}
++		if (links.size >= 3) break;
++	}
++	const inner = (await Promise.all([...links].map((u) => get(u)))).filter(Boolean);
++	const all = [home, ...inner].join('\n');
++	return {
++		html: all,
++		email: emailIn(all),
++		booking: BOOKING.test(all),
++		hours: HOURS.test(all.replace(/<[^>]+>/g, ' ')),
++		prices: PRICE.test(all.replace(/<[^>]+>/g, ' ')),
++		tel: /href=["']tel:/i.test(all),
++		desc: (/<meta[^>]+name=["']description["'][^>]*content=["']([^"']{30,})/i.exec(home) ?? /<meta[^>]+content=["']([^"']{30,})["'][^>]*name=["']description["']/i.exec(home)) !== null,
++		form: /<form[\s\S]{0,3000}?(e-?mail|message|bericht)/i.test(all),
++		pages: 1 + inner.length
++	};
++}
++
++/** Google's mobile speed test: performance score 0–100 and the time before the main content shows. */
++export async function pageSpeed(url: string): Promise<{ score: number; lcp: number } | null> {
++	const q = new URLSearchParams({ url, strategy: 'mobile', category: 'performance' });
++	if (env.PAGESPEED_API_KEY) q.set('key', env.PAGESPEED_API_KEY);
++	try {
++		const r = await fetch(`https://www.googleapis.com/pagespeedonline/v5/runPagespeed?${q}`, { signal: AbortSignal.timeout(45000) });
++		if (!r.ok) return null;
++		const j = await r.json();
++		const score = j.lighthouseResult?.categories?.performance?.score;
++		const lcp = j.lighthouseResult?.audits?.['largest-contentful-paint']?.numericValue;
++		return typeof score === 'number' && typeof lcp === 'number' ? { score: Math.round(score * 100), lcp: Math.round(lcp / 100) / 10 } : null;
++	} catch {
++		return null;
++	}
++}
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index 23635bc..33c3ecd 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -26,8 +26,7 @@
+ 	// Undercut does one thing: find clients. Three places only.
+ 	const agencyNav = $derived([
+ 		{ href: '/app', label: t.navToday, icon: 'grid', badge: data.toApprove },
+-		{ href: '/app/pipeline', label: t.navReplies, icon: 'target' },
+-		{ href: '/app/settings', label: t.navSettings, icon: 'cog' }
++		{ href: '/app/pipeline', label: t.navReplies, icon: 'target' }
+ 	] as Item[]);
+ 	const clientNav = $derived.by(() => {
+ 		if (!current) return [] as { group: string; items: Item[] }[];
+@@ -118,7 +117,7 @@
+ 			<div class="relative">
+ 				{#if menu === 'account'}
+ 					<div class="absolute right-0 bottom-full left-0 z-40 mb-2 rounded-[20px] bg-white py-2 text-sm shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
+-						<p class="label px-4 pt-1 pb-1">Agency</p>
++						<p class="label px-4 pt-1 pb-1">{t.tabAgency}</p>
+ 						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 font-medium hover:bg-tile">
+ 							<span class="grid size-6 place-items-center rounded-md bg-accent text-[11px] text-accent-ink">{initial(data.agency.name)}</span>
+ 							<span class="flex-1 truncate">{data.agency.name}</span><span class="rounded-full bg-tile px-2 py-0.5 text-[10px] font-normal">{data.beta ? 'Beta' : planLabel}</span>
+@@ -128,7 +127,7 @@
+ 						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>{t.billing}</a>
+ 						<div class="my-2 border-t border-line"></div>
+ 						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>{t.myAccount}</a>
+-						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>{t.logout}</a>
++						<form method="POST" action="/logout"><button class="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>{t.logout}</button></form>
+ 					</div>
+ 				{/if}
+ 				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index eb25b8c..e2cb8a9 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -18,4 +18,4 @@ export const load = () => {
+ 	};
+ };
+ 
+-export const actions = { start: agencyActions.start, find: agencyActions.find, inbox: businessActions.inbox };
++export const actions = { start: agencyActions.start, find: agencyActions.find, refresh: agencyActions.refresh, stage: agencyActions.stage, inbox: businessActions.inbox };
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index fee0a66..8153d99 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -37,6 +37,12 @@
+ 		</div>
+ 	</section>
+ 
++	{#if data.inbox.some((i) => i.old)}
++		<form method="POST" action={act('refresh')} class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[22px] bg-warn-bg p-4 text-sm text-warn" use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; }; }}>
++			<p class="max-w-2xl">{t.oldBanner}</p>
++			<button class="btn btn-primary text-sm" disabled={finding}>{finding ? `${t.finding} ${data.profile.city}…` : t.oldBtn}</button>
++		</form>
++	{/if}
+ 	<div class="mt-6"><Inbox items={data.inbox} week={data.week} waiting={data.waiting} {t} /></div>
+ 
+ 	<form
+diff --git a/src/routes/app/pipeline/+page.server.ts b/src/routes/app/pipeline/+page.server.ts
+index c67e3ae..722731d 100644
+--- a/src/routes/app/pipeline/+page.server.ts
++++ b/src/routes/app/pipeline/+page.server.ts
+@@ -21,8 +21,8 @@ export const load = () => {
+ 		phone: p.phone,
+ 		clientId: clients[p.id]
+ 	});
+-	const by = (s: string) => os.pipeline.filter((p) => p.stage === s).sort((a, z) => z.updatedAt.localeCompare(a.updatedAt)).map(card);
+-	return { waiting: by('contacted'), replied: by('talking'), won: by('won'), lost: by('lost'), toSend: os.pipeline.filter((p) => p.stage === 'new').length };
++	const cards = os.pipeline.filter((p) => p.stage !== 'new').sort((a, z) => z.updatedAt.localeCompare(a.updatedAt)).map((p) => ({ ...card(p), stage: p.stage }));
++	return { cards, toSend: os.pipeline.filter((p) => p.stage === 'new').length };
+ };
+ 
+ export const actions = { stage: agencyActions.stage, item: agencyActions.item, makeClient: businessActions.makeClient };
+diff --git a/src/routes/app/pipeline/+page.svelte b/src/routes/app/pipeline/+page.svelte
+index ba25553..efd838c 100644
+--- a/src/routes/app/pipeline/+page.svelte
++++ b/src/routes/app/pipeline/+page.svelte
+@@ -1,5 +1,5 @@
+ <script lang="ts">
+-	import { enhance } from '$app/forms';
++	import { invalidateAll } from '$app/navigation';
+ 	import { page } from '$app/state';
+ 	import { act } from '#lib/act.ts';
+ 	import { dict, weekday, type UiLang } from '#lib/i18n.ts';
+@@ -7,20 +7,43 @@
+ 
+ 	const t = $derived(dict(page.data.ui));
+ 	const ui = $derived((page.data.ui ?? 'fr') as UiLang);
+-	type Card = (typeof data.waiting)[number];
+-	let showLost = $state(false);
+-	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+-	const ago = (d?: string) => {
++	type Card = (typeof data.cards)[number];
++	type Stage = 'contacted' | 'talking' | 'won' | 'lost' | 'new';
++
++	// drag & drop between columns; the card moves at once, the server follows
++	let moved = $state<Record<string, Stage>>({});
++	let dragging = $state<string | null>(null);
++	let over = $state<string | null>(null);
++	const stageOf = (c: Card) => moved[c.id] ?? (c.stage as Stage);
++	async function move(id: string, stage: Stage) {
++		moved = { ...moved, [id]: stage };
++		const f = new FormData();
++		f.set('id', id);
++		f.set('stage', stage);
++		await fetch(act('stage'), { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true' } });
++		await invalidateAll();
++		const { [id]: _, ...rest } = moved;
++		moved = rest;
++	}
++
++	const ago = (d?: string, sent = false) => {
+ 		if (!d) return '';
+ 		const n = Math.round((Date.now() - new Date(d + 'T12:00:00').getTime()) / 86400000);
+-		return n <= 0 ? t.sentToday : n === 1 ? t.yesterday : t.days(n);
++		return n <= 0 ? (sent ? t.sentToday : t.today) : n === 1 ? t.yesterday : t.days(n);
+ 	};
+ 	const waitingLine = (c: Card) => (!c.next ? t.waitingAnswer : c.followups >= 2 ? t.waitingLast(weekday(c.next, ui)) : t.waitingNext(c.followups + 1, weekday(c.next, ui)));
+-	const cols = $derived([
+-		{ key: 'waiting', title: t.colWaiting, hint: t.colWaitingHint, cards: data.waiting, empty: t.emptyWaiting },
+-		{ key: 'replied', title: t.colReplied, hint: t.colRepliedHint, cards: data.replied, empty: t.emptyReplied },
+-		{ key: 'won', title: t.colWon, hint: t.colWonHint, cards: data.won, empty: t.emptyWon }
+-	]);
++	const cols = $derived(
++		(
++			[
++				['contacted', t.colWaiting, t.colWaitingHint, t.emptyWaiting],
++				['talking', t.colReplied, t.colRepliedHint, t.emptyReplied],
++				['won', t.colWon, t.colWonHint, t.emptyWon],
++				['lost', t.colHistory, t.colHistoryHint, t.emptyHistory]
++			] as [Stage, string, string, string][]
++		).map(([stage, title, hint, empty]) => ({ stage, title, hint, empty, cards: data.cards.filter((c) => stageOf(c) === stage) }))
++	);
++	const btn = 'btn btn-primary text-sm';
++	const skipped = (c: Card) => /Skipped|Old/.test(c.note ?? '');
+ </script>
+ 
+ <svelte:head><title>{t.repliesTitle} · Undercut</title></svelte:head>
+@@ -28,60 +51,78 @@
+ <section>
+ 	<p class="label">{t.repliesHelp}{#if data.toSend} · <a href="/app" class="underline">{t.waitingInToday(data.toSend)}</a>{/if}</p>
+ 	<h1 class="display mt-2 text-[48px] sm:text-[72px]"><em>{t.repliesTitle}</em></h1>
++	<p class="mt-2 hidden text-xs text-muted sm:block">{t.dragHint}</p>
+ </section>
+ 
+-<div class="mt-6 grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
+-	{#each cols as col (col.key)}
+-		<section class="card p-4" aria-label={col.title}>
++<div class="mt-6 grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(210px,1fr))]">
++	{#each cols as col (col.stage)}
++		<section
++			class="card p-4 transition-shadow {over === col.stage && dragging ? 'ring-2 ring-ink' : ''}"
++			aria-label={col.title}
++			ondragover={(e) => {
++				e.preventDefault();
++				over = col.stage;
++			}}
++			ondragleave={() => (over = over === col.stage ? null : over)}
++			ondrop={(e) => {
++				e.preventDefault();
++				const id = dragging;
++				dragging = null;
++				over = null;
++				const c = data.cards.find((x) => x.id === id);
++				if (id && c && stageOf(c) !== col.stage) move(id, col.stage);
++			}}
++		>
+ 			<div class="flex items-baseline justify-between gap-3 px-1.5 pt-1 pb-3">
+ 				<h2 class="font-medium">{col.title} <span class="text-muted">{col.cards.length}</span></h2>
+-				<span class="text-xs text-muted">{col.hint}</span>
++				<span class="text-right text-xs text-muted">{col.hint}</span>
+ 			</div>
+-			<div class="flex flex-col gap-2.5">
++			<div class="flex min-h-16 flex-col gap-2.5">
+ 				{#each col.cards as c (c.id)}
+-					<article class="flex flex-col gap-1.5 rounded-[18px] bg-tile p-4">
++					<article
++						class="flex cursor-grab flex-col gap-1.5 rounded-[18px] bg-tile p-4 active:cursor-grabbing {dragging === c.id ? 'opacity-40' : ''}"
++						draggable="true"
++						ondragstart={(e) => {
++							dragging = c.id;
++							e.dataTransfer?.setData('text/plain', c.id);
++						}}
++						ondragend={() => {
++							dragging = null;
++							over = null;
++						}}
++					>
+ 						<div class="flex items-baseline justify-between gap-2">
+ 							<h3 class="min-w-0 truncate font-medium">{c.name}</h3>
+-							<span class="text-xs whitespace-nowrap text-muted">{col.key === 'waiting' ? ago(c.contactedAt) : ago(c.updatedAt)}</span>
++							<span class="text-xs whitespace-nowrap text-muted">{col.stage === 'contacted' ? ago(c.contactedAt, true) : ago(c.updatedAt)}</span>
+ 						</div>
+-						<p class="text-sm text-ink-2">{col.key === 'waiting' ? waitingLine(c) : [c.category, c.email || c.phone].filter(Boolean).join(' · ')}</p>
++						<p class="text-sm text-ink-2">
++							{#if col.stage === 'contacted'}{waitingLine(c)}
++							{:else if col.stage === 'lost'}{skipped(c) ? t.skippedNote : t.noAnswerNote}{c.category ? ` · ${c.category}` : ''}
++							{:else}{[c.category, c.email || c.phone].filter(Boolean).join(' · ')}{/if}
++						</p>
+ 						<div class="mt-1 flex flex-wrap items-center gap-2">
+-							{#if col.key === 'waiting'}
+-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="btn btn-primary text-sm">{t.theyReplied}</button></form>
+-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">{t.notNow}</button></form>
+-							{:else if col.key === 'replied'}
+-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="won" class="btn btn-primary text-sm">{t.theySigned}</button></form>
++							{#if col.stage === 'contacted'}
++								<button class={btn} onclick={() => move(c.id, 'talking')}>{t.theyReplied}</button>
++								<button class="text-sm text-muted underline" onclick={() => move(c.id, 'lost')}>{t.notNow}</button>
++							{:else if col.stage === 'talking'}
++								<button class={btn} onclick={() => move(c.id, 'won')}>{t.theySigned}</button>
+ 								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">{t.email}</a>{/if}
+ 								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">{t.call}</a>{/if}
+-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">{t.notNow}</button></form>
+-							{:else}
++								<button class="text-sm text-muted underline" onclick={() => move(c.id, 'contacted')}>{t.backWaiting}</button>
++							{:else if col.stage === 'won'}
+ 								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">{t.email}</a>{/if}
+ 								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">{t.call}</a>{/if}
++								<button class="text-sm text-muted underline" onclick={() => move(c.id, 'talking')}>{t.backReplied}</button>
++							{:else}
++								<button class="pill text-sm" onclick={() => move(c.id, 'new')}>{t.restoreToday}</button>
++								{#if c.contactedAt}<button class="text-sm text-muted underline" onclick={() => move(c.id, 'contacted')}>{t.backWaiting}</button>{/if}
+ 							{/if}
+ 						</div>
+ 					</article>
+ 				{:else}
+-					<p class="rounded-[18px] bg-tile p-4 text-sm text-ink-2">{col.empty}</p>
++					<p class="rounded-[18px] border border-dashed border-black/10 p-4 text-sm text-ink-2">{col.empty}</p>
+ 				{/each}
+ 			</div>
+ 		</section>
+ 	{/each}
+ </div>
+-
+-<p class="mt-5 text-sm text-muted">
+-	{t.lostLine(data.lost.length)}
+-	<button class="text-ink underline" onclick={() => (showLost = !showLost)} aria-expanded={showLost}>{t.lostLink(data.lost.length)}</button>
+-	{t.lostEnd}
+-</p>
+-{#if showLost}
+-	<ul class="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
+-		{#each data.lost as c (c.id)}
+-			<li class="card flex items-center justify-between gap-3 px-4 py-3">
+-				<span class="min-w-0"><span class="block truncate font-medium">{c.name}</span><span class="block text-xs text-muted">{c.category}</span></span>
+-				<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="pill text-sm">{t.theyReplied}</button></form>
+-			</li>
+-		{:else}
+-			<li class="text-sm text-muted">{t.nobody}</li>
+-		{/each}
+-	</ul>
+-{/if}
+diff --git a/src/routes/app/settings/account/+page.svelte b/src/routes/app/settings/account/+page.svelte
+index a8d3fc4..c558995 100644
+--- a/src/routes/app/settings/account/+page.svelte
++++ b/src/routes/app/settings/account/+page.svelte
+@@ -35,8 +35,8 @@
+ 		</form>
+ 
+ 		<form id="logout" method="POST" action="/logout" class="card-dark flex scroll-mt-6 items-center justify-between gap-4 p-6 sm:p-7">
+-			<div><h2 class="display text-[30px] leading-none">Log out</h2><p class="mt-1 text-sm text-white/60">{data.locked ? 'You will need your password to come back.' : 'Set a password first — without it there is nothing to log out of.'}</p></div>
+-			<button class="btn btn-accent shrink-0" disabled={!data.locked}>Log out</button>
++			<div><h2 class="display text-[30px] leading-none">Log out</h2><p class="mt-1 text-sm text-white/60">You will need your email and password (or Google) to come back.</p></div>
++			<button class="btn btn-accent shrink-0">Log out</button>
+ 		</form>
+ 	</div>
+ </div>
+-- 
+2.43.0
+

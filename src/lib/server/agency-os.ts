@@ -94,8 +94,13 @@ export function updateItem(id: string, patch: Partial<Pick<PipelineItem, 'stage'
 		patch.contactedAt = patch.contactedAt ?? new Date().toISOString().slice(0, 10);
 	}
 	if (patch.stage === 'won' || patch.stage === 'lost') patch.next = patch.next ?? '';
+	// back to "to contact" (undo, or restored from the history): as if never sent
+	if (patch.stage === 'new') Object.assign(patch, { next: '', followups: 0, contactedAt: undefined });
+	// back to "waiting for a reply" from replied / history: plan the next follow-up again
+	if (patch.stage === 'contacted' && p.stage !== 'new' && !p.next && (p.followups ?? 0) < 2) patch.next = new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10);
 	Object.assign(p, patch, { updatedAt: new Date().toISOString() });
 	if (p.next === '') delete p.next;
+	if (p.contactedAt === undefined) delete p.contactedAt;
 	saveOS(s);
 }
 

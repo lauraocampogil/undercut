@@ -37,6 +37,12 @@
 		</div>
 	</section>
 
+	{#if data.inbox.some((i) => i.old)}
+		<form method="POST" action={act('refresh')} class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-[22px] bg-warn-bg p-4 text-sm text-warn" use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; }; }}>
+			<p class="max-w-2xl">{t.oldBanner}</p>
+			<button class="btn btn-primary text-sm" disabled={finding}>{finding ? `${t.finding} ${data.profile.city}…` : t.oldBtn}</button>
+		</form>
+	{/if}
 	<div class="mt-6"><Inbox items={data.inbox} week={data.week} waiting={data.waiting} {t} /></div>
 
 	<form

@@ -18,4 +18,4 @@ export const load = () => {
 	};
 };
 
-export const actions = { start: agencyActions.start, find: agencyActions.find, inbox: businessActions.inbox };
+export const actions = { start: agencyActions.start, find: agencyActions.find, refresh: agencyActions.refresh, stage: agencyActions.stage, inbox: businessActions.inbox };

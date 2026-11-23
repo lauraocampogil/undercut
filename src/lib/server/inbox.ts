@@ -25,6 +25,7 @@ export type InboxItem = {
 	proof?: { label: string; url: string }[]; // links to check it yourself
 	lang?: Lang;
 	instagram?: string;
+	old?: boolean; // found with the first, weaker analysis
 };
 
 const FIRST_PER_DAY = 5; // first messages a day (sent today count against it)
@@ -120,6 +121,7 @@ export function inboxItems(opts: { payments?: boolean; ui?: Lang } = {}): InboxI
 			// a real customer complaint first, then the biggest problems
 			reasons: [...(p.detail ? [p.detail] : []), ...[...p.issues].sort((a, z) => (z.key === 'review' ? 99 : z.weight) - (a.key === 'review' ? 99 : a.weight)).map((i) => i.label)].slice(0, 3),
 			proof: p.proof,
+			old: !p.v,
 			lang: p.lang ?? lang,
 			instagram: p.instagram,
 			title: `Write to ${p.name}`, why: `${p.category} · ${p.pitch}${p.lang ? ` · in ${({ fr: 'French', nl: 'Dutch', en: 'English' } as const)[p.lang]}` : ''}`, to: p.email, phone: p.phone, subject: p.subject ?? p.name, message: p.message });

@@ -2,6 +2,7 @@
 	// "To approve": what Undercut prepared today, one business at a time. Send or skip, and the next one comes up.
 	import { enhance } from '$app/forms';
 	import { act } from '#lib/act.ts';
+	import { invalidateAll } from '$app/navigation';
 	import type { Dict } from '#lib/i18n.ts';
 	type Item = {
 		key: string;
@@ -23,7 +24,7 @@
 	let { items, week, waiting = 0, t }: { items: Item[]; week: { sent: number; replied: number; won: number }; waiting?: number; t: Dict } = $props();
 
 	let hidden = $state<Record<string, boolean>>({});
-	let done = $state<{ key: string; name: string; label: string }[]>([]);
+	let done = $state<{ key: string; id: string; name: string; label: string; first: boolean; sent: boolean }[]>([]);
 	let sent = $state(0);
 	let editing = $state(false);
 	let edited = $state<Record<string, string>>({});
@@ -34,6 +35,17 @@
 	const total = $derived(queue.length + done.length);
 	const pct = $derived(total ? Math.round((done.length / total) * 100) : 100);
 	const text = (it: Item) => edited[it.key] ?? it.message;
+	// a first message sent or skipped by mistake: put the business back at the top of the queue
+	async function undo(d: (typeof done)[number]) {
+		const f = new FormData();
+		f.set('id', d.id);
+		f.set('stage', 'new');
+		await fetch(act('stage'), { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true' } });
+		done = done.filter((x) => x.key !== d.key);
+		if (d.sent) sent--;
+		await invalidateAll();
+		hidden[d.key] = false;
+	}
 	const mailto = (it: Item) => `mailto:${it.to ?? ''}?subject=${encodeURIComponent(it.subject)}&body=${encodeURIComponent(text(it))}`;
 </script>
 
@@ -101,7 +113,7 @@
 							}
 							if (how !== 'skip') sent++;
 							hidden[it.key] = true;
-							done = [...done, { key: it.key, name: it.name, label: how === 'skip' ? (it.kind === 'first' ? t.doneSkipped : t.doneLater) : t.doneSent }];
+							done = [...done, { key: it.key, id: it.id, first: it.kind === 'first', sent: how !== 'skip', name: it.name, label: how === 'skip' ? (it.kind === 'first' ? t.doneSkipped : t.doneLater) : t.doneSent }];
 							editing = false;
 							return async ({ update }) => update({ reset: false });
 						}}
@@ -130,7 +142,7 @@
 		<aside class="grid gap-3">
 			{#if total}
 				<ol class="grid gap-1 rounded-[18px] bg-tile p-2 text-sm">
-					{#each done as d (d.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-muted"><span class="truncate">{d.name}</span><span class="text-xs">{d.label}</span></li>{/each}
+					{#each done as d (d.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-muted"><span class="min-w-0 truncate">{d.name}</span><span class="flex shrink-0 items-center gap-2 text-xs">{d.label}{#if d.first}<button class="text-ink underline" onclick={() => undo(d)}>{t.undo}</button>{/if}</span></li>{/each}
 					{#each queue as q, i (q.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 {i === 0 ? 'bg-white font-medium' : ''}"><span class="truncate">{q.name}</span><span class="text-xs text-muted">{i === 0 ? t.nowLabel : q.kind === 'first' ? t.newLabel : t.followLabel}</span></li>{/each}
 				</ol>
 			{/if}

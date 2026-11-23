@@ -51,6 +51,15 @@ export const agencyActions = {
 		if (v === 'fr' || v === 'nl' || v === 'en') setUi(v);
 		return { uiSaved: true };
 	},
+	// prospects found with the old analysis: move them to the history and search again with the new one
+	refresh: async () => {
+		const s = getOS();
+		const old = s.pipeline.filter((p) => p.stage === 'new' && !p.v);
+		for (const p of old) updateItem(p.id, { stage: 'lost', note: 'Old analysis' });
+		const r = await findMore(5);
+		if (r.error) return fail(400, { findError: r.error });
+		return { found: r.added };
+	},
 	find: async () => {
 		const r = await findMore(5);
 		if (r.error) return fail(400, { findError: r.error });
