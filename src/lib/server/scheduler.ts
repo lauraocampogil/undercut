@@ -8,12 +8,15 @@ import { snapshotAllApps } from './appstore.ts';
 import { inWorkspace } from './context.ts';
 import { dbOn } from './db.ts';
 import { sendMorningBrief } from './brief.ts';
+import { syncReplies } from './mailbox.ts';
 
 let started = false;
 
 async function runFor(base: string) {
 	const now = new Date();
 	const today = now.toLocaleDateString('sv-SE'); // YYYY-MM-DD in server time zone
+	// replies in the agency's mailbox: every tick (10 min)
+	await syncReplies(true).catch((e) => console.error('[scheduler] replies', e));
 	const state = readData<{ alerts?: string; digest?: string; store?: string; brief?: string }>('scheduler.json', {});
 	if (state.store !== today) {
 		// App Store positions, ratings and competitors: one snapshot per day

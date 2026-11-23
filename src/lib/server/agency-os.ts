@@ -5,7 +5,7 @@ import type { AgencyProfile } from './agency-profile.ts';
 import { findProspects, type Prospect } from './prospects.ts';
 
 export type Stage = 'new' | 'contacted' | 'talking' | 'won' | 'lost';
-export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */; followups?: number /* follow-ups sent after the first message */; contactedAt?: string };
+export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */; followups?: number /* follow-ups sent after the first message */; contactedAt?: string; msgIds?: string[] /* emails we sent from the agency's mailbox */; reply?: { at: string; subject: string; from: string } /* seen in the agency's inbox */ };
 export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'tasks' | 'agenda' | 'money' | 'analytics';
 export const BLOCKS: { id: BlockId; label: string; help: string }[] = [
 	{ id: 'prospects', label: 'New prospects', help: 'Local businesses that need what you sell' },

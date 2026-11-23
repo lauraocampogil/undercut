@@ -21,7 +21,8 @@
 		lang?: 'fr' | 'nl' | 'en';
 		instagram?: string;
 	};
-	let { items, week, waiting = 0, t }: { items: Item[]; week: { sent: number; replied: number; won: number }; waiting?: number; t: Dict } = $props();
+	let { items, week, waiting = 0, t, mailbox = null }: { items: Item[]; week: { sent: number; replied: number; won: number }; waiting?: number; t: Dict; mailbox?: string | null } = $props();
+	let sendError = $state(false);
 
 	let hidden = $state<Record<string, boolean>>({});
 	let done = $state<{ key: string; id: string; name: string; label: string; first: boolean; sent: boolean }[]>([]);
@@ -115,12 +116,29 @@
 							hidden[it.key] = true;
 							done = [...done, { key: it.key, id: it.id, first: it.kind === 'first', sent: how !== 'skip', name: it.name, label: how === 'skip' ? (it.kind === 'first' ? t.doneSkipped : t.doneLater) : t.doneSent }];
 							editing = false;
-							return async ({ update }) => update({ reset: false });
+							sendError = false;
+							return async ({ update, result }) => {
+								// sending from the mailbox failed: the business comes back to the top
+								if (how === 'send' && result.type !== 'success') {
+									hidden[it.key] = false;
+									done = done.filter((d) => d.key !== it.key);
+									sent--;
+									sendError = true;
+									return;
+								}
+								await update({ reset: false });
+							};
 						}}
 					>
 						<input type="hidden" name="kind" value={cur.kind} />
 						<input type="hidden" name="id" value={cur.id} />
-						{#if cur.to}
+						<input type="hidden" name="to" value={cur.to ?? ''} />
+						<input type="hidden" name="subject" value={cur.subject} />
+						<input type="hidden" name="message" value={text(cur)} />
+						{#if cur.to && mailbox}
+							<button formaction={act('send')} data-how="send" class="btn btn-primary text-sm">{t.sendFrom(mailbox)}</button>
+							<button name="sent" value="1" data-how="dm" class="pill text-sm">{cur.instagram ? t.copyDm : t.copyDmPlain}</button>
+						{:else if cur.to}
 							<button name="sent" value="1" data-how="mail" class="btn btn-primary text-sm">{t.sendEmail}</button>
 							<button name="sent" value="1" data-how="dm" class="pill text-sm">{cur.instagram ? t.copyDm : t.copyDmPlain}</button>
 						{:else}
@@ -158,4 +176,5 @@
 		</aside>
 	</div>
 	{#if copied}<p class="mt-3 text-sm text-good" role="status">{t.copied}</p>{/if}
+	{#if sendError}<p class="mt-3 text-sm text-bad" role="alert">{t.sendFailed} <a href="/app/settings#mailbox" class="underline">{t.navSettings}</a></p>{/if}
 </section>

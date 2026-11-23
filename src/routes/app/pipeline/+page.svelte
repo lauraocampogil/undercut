@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import { act } from '#lib/act.ts';
 	import { dict, weekday, type UiLang } from '#lib/i18n.ts';
@@ -11,6 +12,7 @@
 	type Stage = 'contacted' | 'talking' | 'won' | 'lost' | 'new';
 
 	// drag & drop between columns; the card moves at once, the server follows
+	let checking = $state(false);
 	let moved = $state<Record<string, Stage>>({});
 	let dragging = $state<string | null>(null);
 	let over = $state<string | null>(null);
@@ -53,6 +55,15 @@
 	<h1 class="display mt-2 text-[48px] sm:text-[72px]"><em>{t.repliesTitle}</em></h1>
 	<p class="mt-2 hidden text-xs text-muted sm:block">{t.dragHint}</p>
 </section>
+
+{#if data.mailbox}
+	<form method="POST" action={act('syncNow')} use:enhance={() => { checking = true; return async ({ update }) => { await update({ reset: false }); checking = false; }; }} class="mt-4 flex flex-wrap items-center gap-3 rounded-[18px] bg-tile px-4 py-3 text-sm">
+		<span class="text-ink-2">{data.mailbox.error ? t.mailboxProblem : t.autoReplies}{data.mailbox.lastSync ? ` · ${t.lastCheck(new Date(data.mailbox.lastSync).toLocaleTimeString(ui, { hour: '2-digit', minute: '2-digit' }))}` : ''}</span>
+		<button class="pill text-sm" disabled={checking}>{checking ? '…' : t.checkNow}</button>
+	</form>
+{:else}
+	<p class="mt-4 rounded-[18px] bg-warn-bg px-4 py-3 text-sm text-warn">{t.connectForAuto} <a href="/app/settings#mailbox" class="underline">{t.navSettings} →</a></p>
+{/if}
 
 <div class="mt-6 grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(210px,1fr))]">
 	{#each cols as col (col.stage)}
@@ -100,6 +111,7 @@
 							{:else if col.stage === 'lost'}{skipped(c) ? t.skippedNote : t.noAnswerNote}{c.category ? ` · ${c.category}` : ''}
 							{:else}{[c.category, c.email || c.phone].filter(Boolean).join(' · ')}{/if}
 						</p>
+						{#if c.reply && col.stage === 'talking'}<p class="rounded-[12px] bg-white px-3 py-2 text-xs text-ink-2"><b class="font-medium text-ink">{t.repliedLabel}</b> · {new Date(c.reply.at).toLocaleDateString(ui, { day: 'numeric', month: 'short' })}{c.reply.subject ? ` · « ${c.reply.subject} »` : ''}</p>{/if}
 						<div class="mt-1 flex flex-wrap items-center gap-2">
 							{#if col.stage === 'contacted'}
 								<button class={btn} onclick={() => move(c.id, 'talking')}>{t.theyReplied}</button>

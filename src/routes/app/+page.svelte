@@ -43,7 +43,7 @@
 			<button class="btn btn-primary text-sm" disabled={finding}>{finding ? `${t.finding} ${data.profile.city}…` : t.oldBtn}</button>
 		</form>
 	{/if}
-	<div class="mt-6"><Inbox items={data.inbox} week={data.week} waiting={data.waiting} {t} /></div>
+	<div class="mt-6"><Inbox items={data.inbox} week={data.week} waiting={data.waiting} {t} mailbox={data.mailbox} /></div>
 
 	<form
 		method="POST"

@@ -14,7 +14,7 @@ export type User = { email: string; name: string; role: Member['role']; clientId
 export const COOKIE = 'uc_session';
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
-function secret() {
+export function secret() {
 	if (env.SESSION_SECRET) return env.SESSION_SECRET;
 	const dir = join(process.cwd(), '.data');
 	const p = join(dir, 'secret.txt');

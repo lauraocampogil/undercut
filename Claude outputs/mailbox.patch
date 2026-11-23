@@ -1,0 +1,1122 @@
+From 2f188a6a3802916a12f5dc72710a084f050b665c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 23 Nov 2026 12:16:54 +0100
+Subject: [PATCH] Connect the agency's mailbox (Gmail, iCloud, Yahoo or any
+ IMAP/SMTP, app password stored encrypted): messages and follow-ups are sent
+ from it in one click (follow-ups in the same thread), and replies are read
+ from the inbox every few minutes: the card moves to Replied by itself and the
+ follow-ups stop
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ package-lock.json                       | 289 ++++++++++++++++++++++++
+ package.json                            |   3 +
+ src/lib/components/Inbox.svelte         |  25 +-
+ src/lib/i18n.ts                         |  72 ++++++
+ src/lib/server/agency-os.ts             |   2 +-
+ src/lib/server/auth.ts                  |   2 +-
+ src/lib/server/mailbox-actions.ts       |  60 +++++
+ src/lib/server/mailbox.ts               | 156 +++++++++++++
+ src/lib/server/scheduler.ts             |   3 +
+ src/routes/app/+page.server.ts          |  13 +-
+ src/routes/app/+page.svelte             |   2 +-
+ src/routes/app/pipeline/+page.server.ts |  13 +-
+ src/routes/app/pipeline/+page.svelte    |  12 +
+ src/routes/app/settings/+page.server.ts |   6 +-
+ src/routes/app/settings/+page.svelte    |  46 ++++
+ 15 files changed, 690 insertions(+), 14 deletions(-)
+ create mode 100644 src/lib/server/mailbox-actions.ts
+ create mode 100644 src/lib/server/mailbox.ts
+
+diff --git a/package-lock.json b/package-lock.json
+index 5358bac..1a560da 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -13,8 +13,10 @@
+ 				"@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+ 				"@fontsource/instrument-serif": "^5.3.0",
+ 				"fast-xml-parser": "^5.12.0",
++				"imapflow": "^2.12.2",
+ 				"lighthouse": "^13.6.0",
+ 				"node-html-parser": "^9.0.7",
++				"nodemailer": "^10.6.1",
+ 				"puppeteer-core": "^25.17.0",
+ 				"simple-icons": "^16.38.0"
+ 			},
+@@ -24,6 +26,7 @@
+ 				"@sveltejs/vite-plugin-svelte": "^7.2.0",
+ 				"@tailwindcss/vite": "^4.3.0",
+ 				"@types/node": "^26.6.6",
++				"@types/nodemailer": "^8.0.2",
+ 				"svelte": "^5.57.2",
+ 				"svelte-check": "^4.6.0",
+ 				"tailwindcss": "^4.3.0",
+@@ -573,6 +576,12 @@
+ 				"third-party-web": "*"
+ 			}
+ 		},
++		"node_modules/@pinojs/redact": {
++			"version": "0.4.0",
++			"resolved": "https://registry.npmjs.org/@pinojs/redact/-/redact-0.4.0.tgz",
++			"integrity": "sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==",
++			"license": "MIT"
++		},
+ 		"node_modules/@polka/url": {
+ 			"version": "1.0.0-next.29",
+ 			"resolved": "https://registry.npmjs.org/@polka/url/-/url-1.0.0-next.29.tgz",
+@@ -1461,6 +1470,30 @@
+ 				"undici-types": "~8.9.0"
+ 			}
+ 		},
++		"node_modules/@types/nodemailer": {
++			"version": "8.0.2",
++			"resolved": "https://registry.npmjs.org/@types/nodemailer/-/nodemailer-8.0.2.tgz",
++			"integrity": "sha512-c7M5ox8p0nEOfbJ2E9Qcmt8/QCu/VzsiAhzBiZbvky2PhKZDHpKB3sQHBM5MEZNkCfBOaS6S9//AGPRTNB7IaA==",
++			"dev": true,
++			"license": "MIT",
++			"dependencies": {
++				"@types/node": "*"
++			}
++		},
++		"node_modules/@zone-eu/mailsplit": {
++			"version": "5.4.31",
++			"resolved": "https://registry.npmjs.org/@zone-eu/mailsplit/-/mailsplit-5.4.31.tgz",
++			"integrity": "sha512-P031SeyobwXE/aZf1f/hN9RZm/t8ZSibCUYA7Us6Fory4b1p5HxNEA08YcfTynkPnvJ3nFjMFguwSp30TXc4Tw==",
++			"license": "(MIT OR EUPL-1.1+)",
++			"dependencies": {
++				"libbase64": "1.4.1",
++				"libmime": "5.6.5",
++				"libqp": "3.0.2"
++			},
++			"engines": {
++				"node": ">=20.0.0"
++			}
++		},
+ 		"node_modules/acorn": {
+ 			"version": "8.19.0",
+ 			"resolved": "https://registry.npmjs.org/acorn/-/acorn-8.19.0.tgz",
+@@ -1559,6 +1592,15 @@
+ 				"node": ">= 0.4"
+ 			}
+ 		},
++		"node_modules/atomic-sleep": {
++			"version": "1.0.0",
++			"resolved": "https://registry.npmjs.org/atomic-sleep/-/atomic-sleep-1.0.0.tgz",
++			"integrity": "sha512-kNOjDqAh7px0XWNI+4QbzoiR/nTkHAWNud2uvnJquD1/x5a7EQZMJT0AczqK0Qn67oY/TTQ1LbUKajZpp3I9tQ==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=8.0.0"
++			}
++		},
+ 		"node_modules/atomically": {
+ 			"version": "2.1.1",
+ 			"resolved": "https://registry.npmjs.org/atomically/-/atomically-2.1.1.tgz",
+@@ -2011,6 +2053,15 @@
+ 			"integrity": "sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==",
+ 			"license": "MIT"
+ 		},
++		"node_modules/encoding-japanese": {
++			"version": "2.5.0",
++			"resolved": "https://registry.npmjs.org/encoding-japanese/-/encoding-japanese-2.5.0.tgz",
++			"integrity": "sha512-5TKhaMWTUF777NQ16OrAkJFuEd1uOnEBw8ODeXFTc/Y9csZZQ6/jiIS5r4aFuzfowu9gLGrE51zqI2H0dLwlmg==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=18.0.0"
++			}
++		},
+ 		"node_modules/enhanced-resolve": {
+ 			"version": "5.26.1",
+ 			"resolved": "https://registry.npmjs.org/enhanced-resolve/-/enhanced-resolve-5.26.1.tgz",
+@@ -2243,12 +2294,47 @@
+ 				"node": ">=6.0.0"
+ 			}
+ 		},
++		"node_modules/iconv-lite": {
++			"version": "0.7.3",
++			"resolved": "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.7.3.tgz",
++			"integrity": "sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==",
++			"license": "MIT",
++			"dependencies": {
++				"safer-buffer": ">= 2.1.2 < 3.0.0"
++			},
++			"engines": {
++				"node": ">=0.10.0"
++			},
++			"funding": {
++				"type": "opencollective",
++				"url": "https://opencollective.com/express"
++			}
++		},
+ 		"node_modules/image-ssim": {
+ 			"version": "0.2.0",
+ 			"resolved": "https://registry.npmjs.org/image-ssim/-/image-ssim-0.2.0.tgz",
+ 			"integrity": "sha512-W7+sO6/yhxy83L0G7xR8YAc5Z5QFtYEXXRV6EaE8tuYBZJnA3gVgp3q7X7muhLZVodeb9UfvjSbwt9VJwjIYAg==",
+ 			"license": "MIT"
+ 		},
++		"node_modules/imapflow": {
++			"version": "2.12.2",
++			"resolved": "https://registry.npmjs.org/imapflow/-/imapflow-2.12.2.tgz",
++			"integrity": "sha512-GnccN3rytpmsbEriYi3R1gLqWnXH2Dp4iAWYcY3sAUNRZ2zpBz8qSB0YSDTa58NSeTA6VGlAPMfbauQo0gnUGA==",
++			"license": "MIT",
++			"dependencies": {
++				"@zone-eu/mailsplit": "5.4.31",
++				"encoding-japanese": "2.5.0",
++				"iconv-lite": "0.7.3",
++				"libbase64": "1.4.1",
++				"libmime": "5.6.5",
++				"libqp": "3.0.2",
++				"pino": "10.3.1",
++				"socks": "2.8.11"
++			},
++			"engines": {
++				"node": ">=20.0.0"
++			}
++		},
+ 		"node_modules/intl-messageformat": {
+ 			"version": "10.7.18",
+ 			"resolved": "https://registry.npmjs.org/intl-messageformat/-/intl-messageformat-10.7.18.tgz",
+@@ -2261,6 +2347,15 @@
+ 				"tslib": "^2.8.0"
+ 			}
+ 		},
++		"node_modules/ip-address": {
++			"version": "10.7.6",
++			"resolved": "https://registry.npmjs.org/ip-address/-/ip-address-10.7.6.tgz",
++			"integrity": "sha512-00LYkM6byILa9eQIx6qoaXCM40xTLd56AZ4vyaPW3YTyb49VZYPo5xsiAq4tuQ54GH4R7gVdYScJ1B7B77PuTg==",
++			"license": "MIT",
++			"engines": {
++				"node": ">= 12"
++			}
++		},
+ 		"node_modules/is-docker": {
+ 			"version": "2.2.1",
+ 			"resolved": "https://registry.npmjs.org/is-docker/-/is-docker-2.2.1.tgz",
+@@ -2398,6 +2493,39 @@
+ 			"integrity": "sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==",
+ 			"license": "MIT"
+ 		},
++		"node_modules/libbase64": {
++			"version": "1.4.1",
++			"resolved": "https://registry.npmjs.org/libbase64/-/libbase64-1.4.1.tgz",
++			"integrity": "sha512-Nyh3H90B3gRtrcxIe56Ayy7635J0jmh6AbxbQgQae8wrSPQMH5wFqJChiMTB13yKG512L3YspbA5DzumhFTITA==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=20.0.0"
++			}
++		},
++		"node_modules/libmime": {
++			"version": "5.6.5",
++			"resolved": "https://registry.npmjs.org/libmime/-/libmime-5.6.5.tgz",
++			"integrity": "sha512-2mbKYlwUP2mWys7kUE0MBHNdOndOe++8TIdmGXtt/hMYWSgbjHkSIXyC4jCpVSc/sAox3GSxWn1dSmyiQimLNA==",
++			"license": "MIT",
++			"dependencies": {
++				"encoding-japanese": "2.5.0",
++				"iconv-lite": "0.7.3",
++				"libbase64": "1.4.1",
++				"libqp": "3.0.2"
++			},
++			"engines": {
++				"node": ">=20.0.0"
++			}
++		},
++		"node_modules/libqp": {
++			"version": "3.0.2",
++			"resolved": "https://registry.npmjs.org/libqp/-/libqp-3.0.2.tgz",
++			"integrity": "sha512-24oL5vCMpFd6lGLbD3vPrmcAEGFScDPX9eARY8TXsRVBSde93xP2iG7+8pg5M56Yiu9Uy14hCVN1E+yj5LMtyQ==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=20.0.0"
++			}
++		},
+ 		"node_modules/lighthouse": {
+ 			"version": "13.6.0",
+ 			"resolved": "https://registry.npmjs.org/lighthouse/-/lighthouse-13.6.0.tgz",
+@@ -2839,6 +2967,15 @@
+ 				"entities": "^8.0.0"
+ 			}
+ 		},
++		"node_modules/nodemailer": {
++			"version": "10.6.1",
++			"resolved": "https://registry.npmjs.org/nodemailer/-/nodemailer-10.6.1.tgz",
++			"integrity": "sha512-d7kfFfS/tR4Aca+SBvRaQ+MXKNv7d2JiRe5TxaRcFT/kYMh4GGPnW9aKksTIEvyEbA7d/7HYWE4YPDEHxzJj/g==",
++			"license": "MIT-0",
++			"engines": {
++				"node": ">=20.0.0"
++			}
++		},
+ 		"node_modules/nth-check": {
+ 			"version": "2.1.1",
+ 			"resolved": "https://registry.npmjs.org/nth-check/-/nth-check-2.1.1.tgz",
+@@ -2865,6 +3002,15 @@
+ 				"node": ">=12.20.0"
+ 			}
+ 		},
++		"node_modules/on-exit-leak-free": {
++			"version": "2.1.2",
++			"resolved": "https://registry.npmjs.org/on-exit-leak-free/-/on-exit-leak-free-2.1.2.tgz",
++			"integrity": "sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=14.0.0"
++			}
++		},
+ 		"node_modules/open": {
+ 			"version": "11.0.4",
+ 			"resolved": "https://registry.npmjs.org/open/-/open-11.0.4.tgz",
+@@ -2981,6 +3127,43 @@
+ 				"url": "https://github.com/sponsors/jonschlinkert"
+ 			}
+ 		},
++		"node_modules/pino": {
++			"version": "10.3.1",
++			"resolved": "https://registry.npmjs.org/pino/-/pino-10.3.1.tgz",
++			"integrity": "sha512-r34yH/GlQpKZbU1BvFFqOjhISRo1MNx1tWYsYvmj6KIRHSPMT2+yHOEb1SG6NMvRoHRF0a07kCOox/9yakl1vg==",
++			"license": "MIT",
++			"dependencies": {
++				"@pinojs/redact": "^0.4.0",
++				"atomic-sleep": "^1.0.0",
++				"on-exit-leak-free": "^2.1.0",
++				"pino-abstract-transport": "^3.0.0",
++				"pino-std-serializers": "^7.0.0",
++				"process-warning": "^5.0.0",
++				"quick-format-unescaped": "^4.0.3",
++				"real-require": "^0.2.0",
++				"safe-stable-stringify": "^2.3.1",
++				"sonic-boom": "^4.0.1",
++				"thread-stream": "^4.0.0"
++			},
++			"bin": {
++				"pino": "bin.js"
++			}
++		},
++		"node_modules/pino-abstract-transport": {
++			"version": "3.0.0",
++			"resolved": "https://registry.npmjs.org/pino-abstract-transport/-/pino-abstract-transport-3.0.0.tgz",
++			"integrity": "sha512-wlfUczU+n7Hy/Ha5j9a/gZNy7We5+cXp8YL+X+PG8S0KXxw7n/JXA3c46Y0zQznIJ83URJiwy7Lh56WLokNuxg==",
++			"license": "MIT",
++			"dependencies": {
++				"split2": "^4.0.0"
++			}
++		},
++		"node_modules/pino-std-serializers": {
++			"version": "7.1.0",
++			"resolved": "https://registry.npmjs.org/pino-std-serializers/-/pino-std-serializers-7.1.0.tgz",
++			"integrity": "sha512-BndPH67/JxGExRgiX1dX0w1FvZck5Wa4aal9198SrRhZjH3GxKQUKIBnYJTdj2HDN3UQAS06HlfcSbQj2OHmaw==",
++			"license": "MIT"
++		},
+ 		"node_modules/postcss": {
+ 			"version": "8.5.32",
+ 			"resolved": "https://registry.npmjs.org/postcss/-/postcss-8.5.32.tgz",
+@@ -3022,6 +3205,22 @@
+ 				"url": "https://github.com/sponsors/sindresorhus"
+ 			}
+ 		},
++		"node_modules/process-warning": {
++			"version": "5.1.1",
++			"resolved": "https://registry.npmjs.org/process-warning/-/process-warning-5.1.1.tgz",
++			"integrity": "sha512-oCkNVj4OKnKEcocVBcDfiIugN1/cE6rgfT3nCtzeqZPA8+rIxMaQ0xXzIkGP8Gj2qUaP1UR7uhJ1VD8lUCpzCg==",
++			"funding": [
++				{
++					"type": "github",
++					"url": "https://github.com/sponsors/fastify"
++				},
++				{
++					"type": "opencollective",
++					"url": "https://opencollective.com/fastify"
++				}
++			],
++			"license": "MIT"
++		},
+ 		"node_modules/puppeteer-core": {
+ 			"version": "25.17.0",
+ 			"resolved": "https://registry.npmjs.org/puppeteer-core/-/puppeteer-core-25.17.0.tgz",
+@@ -3045,6 +3244,12 @@
+ 			"integrity": "sha512-3RDLDzyvv8XAYf1L+TL1og0EEk0eOW1Jn0yi88uG6Bj8fUKO1ZKfgNtwbJkqf5SWdPDS4VGEPxwdUWz78V6Xcg==",
+ 			"license": "BSD-3-Clause"
+ 		},
++		"node_modules/quick-format-unescaped": {
++			"version": "4.0.4",
++			"resolved": "https://registry.npmjs.org/quick-format-unescaped/-/quick-format-unescaped-4.0.4.tgz",
++			"integrity": "sha512-tYC1Q1hgyRuHgloV/YXs2w15unPVh8qfu/qCTfhTYamaw7fyhumKa2yGpdSo87vY32rIclj+4fWYQXUMs9EHvg==",
++			"license": "MIT"
++		},
+ 		"node_modules/readdirp": {
+ 			"version": "4.1.2",
+ 			"resolved": "https://registry.npmjs.org/readdirp/-/readdirp-4.1.2.tgz",
+@@ -3059,6 +3264,15 @@
+ 				"url": "https://paulmillr.com/funding/"
+ 			}
+ 		},
++		"node_modules/real-require": {
++			"version": "0.2.0",
++			"resolved": "https://registry.npmjs.org/real-require/-/real-require-0.2.0.tgz",
++			"integrity": "sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==",
++			"license": "MIT",
++			"engines": {
++				"node": ">= 12.13.0"
++			}
++		},
+ 		"node_modules/require-from-string": {
+ 			"version": "2.0.2",
+ 			"resolved": "https://registry.npmjs.org/require-from-string/-/require-from-string-2.0.2.tgz",
+@@ -3137,6 +3351,21 @@
+ 				"node": ">=6"
+ 			}
+ 		},
++		"node_modules/safe-stable-stringify": {
++			"version": "2.5.0",
++			"resolved": "https://registry.npmjs.org/safe-stable-stringify/-/safe-stable-stringify-2.5.0.tgz",
++			"integrity": "sha512-b3rppTKm9T+PsVCBEOUR46GWI7fdOs00VKZ1+9c1EWDaDMvjQc6tUwuFyIprgGgTcWoVHSKrU8H31ZHA2e0RHA==",
++			"license": "MIT",
++			"engines": {
++				"node": ">=10"
++			}
++		},
++		"node_modules/safer-buffer": {
++			"version": "2.1.2",
++			"resolved": "https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz",
++			"integrity": "sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==",
++			"license": "MIT"
++		},
+ 		"node_modules/sentry": {
+ 			"version": "0.49.0",
+ 			"resolved": "https://registry.npmjs.org/sentry/-/sentry-0.49.0.tgz",
+@@ -3183,6 +3412,39 @@
+ 				"node": ">=18"
+ 			}
+ 		},
++		"node_modules/smart-buffer": {
++			"version": "4.2.0",
++			"resolved": "https://registry.npmjs.org/smart-buffer/-/smart-buffer-4.2.0.tgz",
++			"integrity": "sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==",
++			"license": "MIT",
++			"engines": {
++				"node": ">= 6.0.0",
++				"npm": ">= 3.0.0"
++			}
++		},
++		"node_modules/socks": {
++			"version": "2.8.11",
++			"resolved": "https://registry.npmjs.org/socks/-/socks-2.8.11.tgz",
++			"integrity": "sha512-2H/uQ7+SNP0hK16RorTak0mWrFoqo4AnAVGSUl2dT07obgWdWt9grml+VDl1LklgUOPWM4Abo0u86Cvp8vFjYw==",
++			"license": "MIT",
++			"dependencies": {
++				"ip-address": "^10.1.1",
++				"smart-buffer": "^4.2.0"
++			},
++			"engines": {
++				"node": ">= 10.0.0",
++				"npm": ">= 3.0.0"
++			}
++		},
++		"node_modules/sonic-boom": {
++			"version": "4.2.1",
++			"resolved": "https://registry.npmjs.org/sonic-boom/-/sonic-boom-4.2.1.tgz",
++			"integrity": "sha512-w6AxtubXa2wTXAUsZMMWERrsIRAdrK0Sc+FUytWvYAhBJLyuI4llrMIC1DtlNSdI99EI86KZum2MMq3EAZlF9Q==",
++			"license": "MIT",
++			"dependencies": {
++				"atomic-sleep": "^1.0.0"
++			}
++		},
+ 		"node_modules/source-map-js": {
+ 			"version": "1.2.2",
+ 			"resolved": "https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.2.tgz",
+@@ -3207,6 +3469,15 @@
+ 				"node": ">=8.0"
+ 			}
+ 		},
++		"node_modules/split2": {
++			"version": "4.2.0",
++			"resolved": "https://registry.npmjs.org/split2/-/split2-4.2.0.tgz",
++			"integrity": "sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==",
++			"license": "ISC",
++			"engines": {
++				"node": ">= 10.x"
++			}
++		},
+ 		"node_modules/string-width": {
+ 			"version": "8.3.0",
+ 			"resolved": "https://registry.npmjs.org/string-width/-/string-width-8.3.0.tgz",
+@@ -3393,6 +3664,24 @@
+ 			"integrity": "sha512-p+PfyL5U0ediGzvwPzMSdD9MnC8rHW6nWJJVLIQvqN7RsSqfaZ+7n4c9GILqH36EYR0eXB9CzAeCRnKFr/9uJg==",
+ 			"license": "MIT"
+ 		},
++		"node_modules/thread-stream": {
++			"version": "4.2.1",
++			"resolved": "https://registry.npmjs.org/thread-stream/-/thread-stream-4.2.1.tgz",
++			"integrity": "sha512-Stg6edJXC/6/xqGwSXwFokrUhChJ18amEjpKH89WrQQ0oVFDF+pUUcTpiwWhFUrE89Vf16FBOlwhaw+lescxMQ==",
++			"license": "MIT",
++			"dependencies": {
++				"real-require": "^1.0.0"
++			},
++			"engines": {
++				"node": ">=20"
++			}
++		},
++		"node_modules/thread-stream/node_modules/real-require": {
++			"version": "1.0.0",
++			"resolved": "https://registry.npmjs.org/real-require/-/real-require-1.0.0.tgz",
++			"integrity": "sha512-P4nbQYQfePJxRSmY+v/KINxVucm4NF3p3s7pJveMTtom52FR4YGltUQLB8idDXwDDWW+eYrWDFbuzUnjoWHF7g==",
++			"license": "MIT"
++		},
+ 		"node_modules/tinyglobby": {
+ 			"version": "0.2.17",
+ 			"resolved": "https://registry.npmjs.org/tinyglobby/-/tinyglobby-0.2.17.tgz",
+diff --git a/package.json b/package.json
+index a687e30..3470dcd 100644
+--- a/package.json
++++ b/package.json
+@@ -21,6 +21,7 @@
+ 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
+ 		"@tailwindcss/vite": "^4.3.0",
+ 		"@types/node": "^26.6.6",
++		"@types/nodemailer": "^8.0.2",
+ 		"svelte": "^5.57.2",
+ 		"svelte-check": "^4.6.0",
+ 		"tailwindcss": "^4.3.0",
+@@ -33,8 +34,10 @@
+ 		"@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+ 		"@fontsource/instrument-serif": "^5.3.0",
+ 		"fast-xml-parser": "^5.12.0",
++		"imapflow": "^2.12.2",
+ 		"lighthouse": "^13.6.0",
+ 		"node-html-parser": "^9.0.7",
++		"nodemailer": "^10.6.1",
+ 		"puppeteer-core": "^25.17.0",
+ 		"simple-icons": "^16.38.0"
+ 	}
+diff --git a/src/lib/components/Inbox.svelte b/src/lib/components/Inbox.svelte
+index 6228351..eff50ec 100644
+--- a/src/lib/components/Inbox.svelte
++++ b/src/lib/components/Inbox.svelte
+@@ -21,7 +21,8 @@
+ 		lang?: 'fr' | 'nl' | 'en';
+ 		instagram?: string;
+ 	};
+-	let { items, week, waiting = 0, t }: { items: Item[]; week: { sent: number; replied: number; won: number }; waiting?: number; t: Dict } = $props();
++	let { items, week, waiting = 0, t, mailbox = null }: { items: Item[]; week: { sent: number; replied: number; won: number }; waiting?: number; t: Dict; mailbox?: string | null } = $props();
++	let sendError = $state(false);
+ 
+ 	let hidden = $state<Record<string, boolean>>({});
+ 	let done = $state<{ key: string; id: string; name: string; label: string; first: boolean; sent: boolean }[]>([]);
+@@ -115,12 +116,29 @@
+ 							hidden[it.key] = true;
+ 							done = [...done, { key: it.key, id: it.id, first: it.kind === 'first', sent: how !== 'skip', name: it.name, label: how === 'skip' ? (it.kind === 'first' ? t.doneSkipped : t.doneLater) : t.doneSent }];
+ 							editing = false;
+-							return async ({ update }) => update({ reset: false });
++							sendError = false;
++							return async ({ update, result }) => {
++								// sending from the mailbox failed: the business comes back to the top
++								if (how === 'send' && result.type !== 'success') {
++									hidden[it.key] = false;
++									done = done.filter((d) => d.key !== it.key);
++									sent--;
++									sendError = true;
++									return;
++								}
++								await update({ reset: false });
++							};
+ 						}}
+ 					>
+ 						<input type="hidden" name="kind" value={cur.kind} />
+ 						<input type="hidden" name="id" value={cur.id} />
+-						{#if cur.to}
++						<input type="hidden" name="to" value={cur.to ?? ''} />
++						<input type="hidden" name="subject" value={cur.subject} />
++						<input type="hidden" name="message" value={text(cur)} />
++						{#if cur.to && mailbox}
++							<button formaction={act('send')} data-how="send" class="btn btn-primary text-sm">{t.sendFrom(mailbox)}</button>
++							<button name="sent" value="1" data-how="dm" class="pill text-sm">{cur.instagram ? t.copyDm : t.copyDmPlain}</button>
++						{:else if cur.to}
+ 							<button name="sent" value="1" data-how="mail" class="btn btn-primary text-sm">{t.sendEmail}</button>
+ 							<button name="sent" value="1" data-how="dm" class="pill text-sm">{cur.instagram ? t.copyDm : t.copyDmPlain}</button>
+ 						{:else}
+@@ -158,4 +176,5 @@
+ 		</aside>
+ 	</div>
+ 	{#if copied}<p class="mt-3 text-sm text-good" role="status">{t.copied}</p>{/if}
++	{#if sendError}<p class="mt-3 text-sm text-bad" role="alert">{t.sendFailed} <a href="/app/settings#mailbox" class="underline">{t.navSettings}</a></p>{/if}
+ </section>
+diff --git a/src/lib/i18n.ts b/src/lib/i18n.ts
+index 6f69f5e..7b63882 100644
+--- a/src/lib/i18n.ts
++++ b/src/lib/i18n.ts
+@@ -122,6 +122,30 @@ const fr = {
+ 	undo: 'Annuler',
+ 	oldBanner: 'Ces commerces ont été analysés avec l’ancienne version (moins précise). Remplacez-les par une nouvelle recherche : sites lus page par page, test mobile de Google, avis Google.',
+ 	oldBtn: 'Remplacer par 5 nouveaux',
++	sendFrom: (e: string) => `Envoyer depuis ${e}`,
++	sendFailed: 'L’envoi a échoué. Vérifiez votre boîte mail dans Réglages.',
++	mailboxTitle: 'Votre boîte mail',
++	mailboxHelp: 'Connectez votre adresse : Undercut envoie les messages et les relances depuis chez vous, voit qui a répondu et arrête les relances tout seul.',
++	providers: { gmail: 'Gmail', icloud: 'iCloud', yahoo: 'Yahoo', other: 'Autre (IMAP/SMTP)' } as Record<string, string>,
++	mailboxEmail: 'Votre adresse e-mail',
++	mailboxPass: 'Mot de passe d’application',
++	mailboxPassHelp: 'Pas votre mot de passe habituel : un mot de passe d’application, créé en 1 minute.',
++	howPass: 'Créer un mot de passe d’application',
++	smtpHost: 'Serveur SMTP (envoi)',
++	imapHost: 'Serveur IMAP (lecture)',
++	port: 'Port',
++	mailboxConnect: 'Connecter',
++	mailboxTesting: 'Vérification…',
++	mailboxConnected: (e: string) => `Connectée : ${e}`,
++	mailboxOff: 'Déconnecter',
++	mailboxSafe: 'Le mot de passe est chiffré et n’est jamais affiché.',
++	mailboxErr: { email: 'Adresse ou mot de passe manquant.', hosts: 'Indiquez les serveurs IMAP et SMTP.', smtp: 'Impossible d’envoyer avec ces identifiants. Vérifiez le mot de passe d’application.', imap: 'Impossible de lire la boîte. Activez IMAP dans votre messagerie et vérifiez le mot de passe.' } as Record<string, string>,
++	lastCheck: (x: string) => `Réponses vérifiées ${x}`,
++	checkNow: 'Vérifier maintenant',
++	repliedLabel: 'A répondu',
++	autoReplies: 'Les réponses arrivent ici toutes seules depuis votre boîte mail.',
++	connectForAuto: 'Connectez votre boîte mail dans Réglages : les réponses arriveront ici toutes seules et les relances s’arrêteront.',
++	mailboxProblem: 'Impossible de lire votre boîte mail. Vérifiez la connexion dans Réglages.',
+ 	// settings
+ 	settings: 'Réglages',
+ 	tabAgency: 'Votre agence',
+@@ -252,6 +276,30 @@ const nl: Dict = {
+ 	undo: 'Ongedaan maken',
+ 	oldBanner: 'Deze zaken werden met de oude (minder nauwkeurige) versie geanalyseerd. Vervang ze door een nieuwe zoekopdracht: websites pagina per pagina gelezen, mobiele test van Google, Google-reviews.',
+ 	oldBtn: 'Vervangen door 5 nieuwe',
++	sendFrom: (e) => `Versturen vanaf ${e}`,
++	sendFailed: 'Versturen mislukt. Controleer uw mailbox in Instellingen.',
++	mailboxTitle: 'Uw mailbox',
++	mailboxHelp: 'Koppel uw adres: Undercut verstuurt de berichten en opvolgingen vanaf uw adres, ziet wie antwoordde en stopt de opvolgingen vanzelf.',
++	providers: { gmail: 'Gmail', icloud: 'iCloud', yahoo: 'Yahoo', other: 'Andere (IMAP/SMTP)' },
++	mailboxEmail: 'Uw e-mailadres',
++	mailboxPass: 'App-wachtwoord',
++	mailboxPassHelp: 'Niet uw gewone wachtwoord: een app-wachtwoord, aangemaakt in 1 minuut.',
++	howPass: 'Een app-wachtwoord aanmaken',
++	smtpHost: 'SMTP-server (versturen)',
++	imapHost: 'IMAP-server (lezen)',
++	port: 'Poort',
++	mailboxConnect: 'Koppelen',
++	mailboxTesting: 'Controleren…',
++	mailboxConnected: (e) => `Gekoppeld: ${e}`,
++	mailboxOff: 'Ontkoppelen',
++	mailboxSafe: 'Het wachtwoord wordt versleuteld en nooit getoond.',
++	mailboxErr: { email: 'Adres of wachtwoord ontbreekt.', hosts: 'Vul de IMAP- en SMTP-servers in.', smtp: 'Versturen lukt niet met deze gegevens. Controleer het app-wachtwoord.', imap: 'De mailbox lezen lukt niet. Zet IMAP aan en controleer het wachtwoord.' },
++	lastCheck: (x) => `Antwoorden gecontroleerd ${x}`,
++	checkNow: 'Nu controleren',
++	repliedLabel: 'Antwoordde',
++	autoReplies: 'Antwoorden komen hier vanzelf binnen vanuit uw mailbox.',
++	connectForAuto: 'Koppel uw mailbox in Instellingen: antwoorden komen hier vanzelf binnen en de opvolgingen stoppen.',
++	mailboxProblem: 'Uw mailbox lezen lukt niet. Controleer de koppeling in Instellingen.',
+ 	settings: 'Instellingen',
+ 	tabAgency: 'Uw bureau',
+ 	agencyTitle: 'Uw bureau en wie te vinden',
+@@ -380,6 +428,30 @@ const en: Dict = {
+ 	undo: 'Undo',
+ 	oldBanner: 'These businesses were analysed with the old, less precise version. Replace them with a new search: sites read page by page, Google’s mobile test, Google reviews.',
+ 	oldBtn: 'Replace with 5 new ones',
++	sendFrom: (e) => `Send from ${e}`,
++	sendFailed: 'Sending failed. Check your mailbox in Settings.',
++	mailboxTitle: 'Your mailbox',
++	mailboxHelp: 'Connect your address: Undercut sends the messages and follow-ups from it, sees who replied and stops the follow-ups by itself.',
++	providers: { gmail: 'Gmail', icloud: 'iCloud', yahoo: 'Yahoo', other: 'Other (IMAP/SMTP)' },
++	mailboxEmail: 'Your email address',
++	mailboxPass: 'App password',
++	mailboxPassHelp: 'Not your usual password: an app password, created in 1 minute.',
++	howPass: 'Create an app password',
++	smtpHost: 'SMTP server (sending)',
++	imapHost: 'IMAP server (reading)',
++	port: 'Port',
++	mailboxConnect: 'Connect',
++	mailboxTesting: 'Checking…',
++	mailboxConnected: (e) => `Connected: ${e}`,
++	mailboxOff: 'Disconnect',
++	mailboxSafe: 'The password is encrypted and never shown.',
++	mailboxErr: { email: 'Address or password missing.', hosts: 'Fill in the IMAP and SMTP servers.', smtp: 'Can’t send with these details. Check the app password.', imap: 'Can’t read the mailbox. Turn on IMAP and check the password.' },
++	lastCheck: (x) => `Replies checked ${x}`,
++	checkNow: 'Check now',
++	repliedLabel: 'Replied',
++	autoReplies: 'Replies arrive here by themselves from your mailbox.',
++	connectForAuto: 'Connect your mailbox in Settings: replies will arrive here by themselves and follow-ups will stop.',
++	mailboxProblem: 'Can’t read your mailbox. Check the connection in Settings.',
+ 	settings: 'Settings',
+ 	tabAgency: 'Your agency',
+ 	agencyTitle: 'Your agency and who to find',
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index ce9c8dd..93958e2 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -5,7 +5,7 @@ import type { AgencyProfile } from './agency-profile.ts';
+ import { findProspects, type Prospect } from './prospects.ts';
+ 
+ export type Stage = 'new' | 'contacted' | 'talking' | 'won' | 'lost';
+-export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */; followups?: number /* follow-ups sent after the first message */; contactedAt?: string };
++export type PipelineItem = Prospect & { stage: Stage; addedAt: string; updatedAt: string; note?: string; next?: string /* follow-up date YYYY-MM-DD */; value?: number /* € per month if signed */; followups?: number /* follow-ups sent after the first message */; contactedAt?: string; msgIds?: string[] /* emails we sent from the agency's mailbox */; reply?: { at: string; subject: string; from: string } /* seen in the agency's inbox */ };
+ export type BlockId = 'prospects' | 'pipeline' | 'clients' | 'tasks' | 'agenda' | 'money' | 'analytics';
+ export const BLOCKS: { id: BlockId; label: string; help: string }[] = [
+ 	{ id: 'prospects', label: 'New prospects', help: 'Local businesses that need what you sell' },
+diff --git a/src/lib/server/auth.ts b/src/lib/server/auth.ts
+index b4ef8c1..4b2c163 100644
+--- a/src/lib/server/auth.ts
++++ b/src/lib/server/auth.ts
+@@ -14,7 +14,7 @@ export type User = { email: string; name: string; role: Member['role']; clientId
+ export const COOKIE = 'uc_session';
+ const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+ 
+-function secret() {
++export function secret() {
+ 	if (env.SESSION_SECRET) return env.SESSION_SECRET;
+ 	const dir = join(process.cwd(), '.data');
+ 	const p = join(dir, 'secret.txt');
+diff --git a/src/lib/server/mailbox-actions.ts b/src/lib/server/mailbox-actions.ts
+new file mode 100644
+index 0000000..0ccbfb2
+--- /dev/null
++++ b/src/lib/server/mailbox-actions.ts
+@@ -0,0 +1,60 @@
++// Form actions for the agency's mailbox: connect / disconnect (Settings), send from it (Today), check replies now.
++import { fail, type RequestEvent } from '@sveltejs/kit';
++import { connectMailbox, disconnectMailbox, sendFromMailbox, syncReplies, type Provider } from './mailbox.ts';
++import { getOS, saveOS } from './agency-os.ts';
++import { resolveItem, type InboxKind } from './inbox.ts';
++
++type E = RequestEvent;
++const str = (f: FormData, k: string, max = 500) => String(f.get(k) ?? '').trim().slice(0, max);
++
++export const mailboxActions = {
++	mailbox: async ({ request }: E) => {
++		const f = await request.formData();
++		const provider = (['gmail', 'icloud', 'yahoo', 'other'].includes(str(f, 'provider')) ? str(f, 'provider') : 'other') as Provider;
++		const err = await connectMailbox({
++			email: str(f, 'email', 160),
++			pass: String(f.get('pass') ?? ''),
++			provider,
++			name: getOS().profile?.name,
++			smtpHost: str(f, 'smtpHost', 120),
++			smtpPort: Number(str(f, 'smtpPort')) || undefined,
++			imapHost: str(f, 'imapHost', 120),
++			imapPort: Number(str(f, 'imapPort')) || undefined
++		});
++		if (err) return fail(400, { mailboxError: err });
++		return { mailboxOk: true };
++	},
++	mailboxOff: async () => {
++		disconnectMailbox();
++		return { mailboxOff: true };
++	},
++	syncNow: async () => ({ synced: await syncReplies(true) }),
++	/** "Send": from the agency's own address, then the item moves on like any approved message. */
++	send: async ({ request }: E) => {
++		const f = await request.formData();
++		const kind = str(f, 'kind') as InboxKind;
++		const id = str(f, 'id');
++		const to = str(f, 'to', 200);
++		let subject = str(f, 'subject', 200);
++		const text = String(f.get('message') ?? '').slice(0, 5000);
++		if (!to || !text) return fail(400, { sendError: 'empty' });
++		const os = getOS();
++		const p = kind === 'payment' ? undefined : os.pipeline.find((x) => x.id === id);
++		// follow-ups go in the same thread as the first message
++		const inReplyTo = kind === 'followup' ? p?.msgIds?.[0] : undefined;
++		if (inReplyTo && p?.subject) subject = `Re: ${p.subject}`;
++		let msgId: string;
++		try {
++			msgId = await sendFromMailbox({ to, subject, text, inReplyTo, fromName: os.profile?.name });
++		} catch {
++			return fail(400, { sendError: 'smtp' });
++		}
++		if (p) {
++			p.msgIds = [...(p.msgIds ?? []), msgId];
++			if (kind === 'first') p.subject = subject;
++			saveOS(os);
++		}
++		resolveItem(kind, id, true);
++		return { sent: id };
++	}
++};
+diff --git a/src/lib/server/mailbox.ts b/src/lib/server/mailbox.ts
+new file mode 100644
+index 0000000..b8633c0
+--- /dev/null
++++ b/src/lib/server/mailbox.ts
+@@ -0,0 +1,156 @@
++// The agency's own mailbox (Gmail, iCloud, Yahoo, or any IMAP/SMTP provider), connected with an app password.
++// Undercut sends the first messages and follow-ups from it, and reads the inbox to see who replied:
++// the card moves to "Replied" by itself and the follow-ups stop. The password is stored encrypted, never sent back to the browser.
++import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
++import nodemailer from 'nodemailer';
++import { ImapFlow } from 'imapflow';
++import { readData, writeData } from './store.ts';
++import { secret } from './auth.ts';
++import { getOS, saveOS } from './agency-os.ts';
++
++export type Provider = 'gmail' | 'icloud' | 'yahoo' | 'other';
++type Box = {
++	email: string;
++	name?: string;
++	provider: Provider;
++	smtp: { host: string; port: number };
++	imap: { host: string; port: number };
++	pass: string; // encrypted
++	connectedAt: string;
++	lastSync?: string;
++	lastError?: string;
++};
++const FILE = 'mailbox.json';
++export const PRESETS: Record<Exclude<Provider, 'other'>, { smtp: { host: string; port: number }; imap: { host: string; port: number } }> = {
++	gmail: { smtp: { host: 'smtp.gmail.com', port: 465 }, imap: { host: 'imap.gmail.com', port: 993 } },
++	icloud: { smtp: { host: 'smtp.mail.me.com', port: 587 }, imap: { host: 'imap.mail.me.com', port: 993 } },
++	yahoo: { smtp: { host: 'smtp.mail.yahoo.com', port: 465 }, imap: { host: 'imap.mail.yahoo.com', port: 993 } }
++};
++
++// ---------- the password, encrypted at rest ----------
++const key = () => createHash('sha256').update(`${secret()}:mailbox`).digest();
++function seal(plain: string) {
++	const iv = randomBytes(12);
++	const c = createCipheriv('aes-256-gcm', key(), iv);
++	const enc = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
++	return [iv, c.getAuthTag(), enc].map((b) => b.toString('base64url')).join('.');
++}
++function open(sealed: string) {
++	const [iv, tag, enc] = sealed.split('.').map((s) => Buffer.from(s, 'base64url'));
++	const d = createDecipheriv('aes-256-gcm', key(), iv);
++	d.setAuthTag(tag);
++	return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
++}
++
++const getBox = () => readData<Box | null>(FILE, null);
++/** What the app may show: never the password. */
++export function mailboxInfo() {
++	const b = getBox();
++	return b ? { email: b.email, provider: b.provider, connectedAt: b.connectedAt, lastSync: b.lastSync, lastError: b.lastError } : null;
++}
++
++const transport = (b: Box, pass: string) => nodemailer.createTransport({ host: b.smtp.host, port: b.smtp.port, secure: b.smtp.port === 465, auth: { user: b.email, pass }, connectionTimeout: 15000 });
++const imapClient = (b: Box, pass: string) => new ImapFlow({ host: b.imap.host, port: b.imap.port, secure: true, auth: { user: b.email, pass }, logger: false, socketTimeout: 30000 });
++
++/** Check both sending and reading work, then save. */
++export async function connectMailbox(input: { email: string; pass: string; provider: Provider; name?: string; smtpHost?: string; smtpPort?: number; imapHost?: string; imapPort?: number }): Promise<string | null> {
++	const email = input.email.trim().toLowerCase();
++	const pass = input.pass.replace(/\s+/g, ''); // Google shows app passwords as "abcd efgh ijkl mnop"
++	if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !pass) return 'email';
++	const preset = input.provider !== 'other' ? PRESETS[input.provider] : null;
++	const b: Box = {
++		email,
++		name: input.name,
++		provider: input.provider,
++		smtp: preset?.smtp ?? { host: input.smtpHost ?? '', port: input.smtpPort || 465 },
++		imap: preset?.imap ?? { host: input.imapHost ?? '', port: input.imapPort || 993 },
++		pass: '',
++		connectedAt: new Date().toISOString()
++	};
++	if (!b.smtp.host || !b.imap.host) return 'hosts';
++	try {
++		await transport(b, pass).verify();
++	} catch {
++		return 'smtp';
++	}
++	const c = imapClient(b, pass);
++	try {
++		await c.connect();
++		await c.logout();
++	} catch {
++		return 'imap';
++	}
++	b.pass = seal(pass);
++	writeData(FILE, b);
++	return null;
++}
++
++export function disconnectMailbox() {
++	writeData(FILE, null);
++}
++
++/** Send one message from the agency's own address. Returns the Message-ID, to recognise the reply. */
++export async function sendFromMailbox(m: { to: string; subject: string; text: string; inReplyTo?: string; fromName?: string }): Promise<string> {
++	const b = getBox();
++	if (!b) throw new Error('no-mailbox');
++	const info = await transport(b, open(b.pass)).sendMail({
++		from: { name: m.fromName || b.name || b.email, address: b.email },
++		to: m.to,
++		subject: m.subject,
++		text: m.text,
++		...(m.inReplyTo ? { inReplyTo: m.inReplyTo, references: [m.inReplyTo] } : {})
++	});
++	return info.messageId;
++}
++
++const FREE = /^(gmail|googlemail|hotmail|outlook|live|yahoo|icloud|me|skynet|telenet|proximus|scarlet|voo|orange|free|laposte|wanadoo|hotmail\.fr|msn)\./i;
++
++/**
++ * Read the inbox since the oldest open conversation: a message from a contacted business (same address, or same company domain,
++ * or a reply to our message) moves it to "Replied" and stops the follow-ups. Runs every few minutes at most.
++ */
++export async function syncReplies(force = false): Promise<number> {
++	const b = getBox();
++	if (!b) return 0;
++	if (!force && b.lastSync && Date.now() - new Date(b.lastSync).getTime() < 5 * 60_000) return 0;
++	const os = getOS();
++	const open_ = os.pipeline.filter((p) => (p.stage === 'contacted' || p.stage === 'lost') && p.contactedAt && p.email);
++	b.lastSync = new Date().toISOString();
++	if (!open_.length) {
++		writeData(FILE, b);
++		return 0;
++	}
++	const since = new Date(Math.min(...open_.map((p) => new Date(p.contactedAt! + 'T00:00:00').getTime())));
++	const byEmail = new Map(open_.map((p) => [p.email!.toLowerCase(), p]));
++	const byDomain = new Map(open_.filter((p) => !FREE.test(p.email!.split('@')[1] + '.')).map((p) => [p.email!.split('@')[1].toLowerCase(), p]));
++	const byMsgId = new Map(open_.flatMap((p) => (p.msgIds ?? []).map((id) => [id, p] as const)));
++	const c = imapClient(b, open(b.pass));
++	let moved = 0;
++	try {
++		await c.connect();
++		const lock = await c.getMailboxLock('INBOX');
++		try {
++			const uids = (await c.search({ since }, { uid: true })) || [];
++			for await (const msg of c.fetch(uids.slice(-400), { envelope: true, uid: true }, { uid: true })) {
++				const from = msg.envelope?.from?.[0]?.address?.toLowerCase() ?? '';
++				if (!from || from === b.email) continue;
++				const p = byMsgId.get(msg.envelope?.inReplyTo ?? '') ?? byEmail.get(from) ?? byDomain.get(from.split('@')[1] ?? '');
++				if (!p || p.stage === 'talking') continue;
++				const when = msg.envelope?.date ? new Date(msg.envelope.date) : new Date();
++				if (when.getTime() < new Date(p.contactedAt! + 'T00:00:00').getTime()) continue;
++				Object.assign(p, { stage: 'talking', reply: { at: when.toISOString(), subject: msg.envelope?.subject ?? '', from }, updatedAt: new Date().toISOString() });
++				delete p.next;
++				moved++;
++			}
++		} finally {
++			lock.release();
++		}
++		await c.logout();
++		b.lastError = undefined;
++	} catch (e) {
++		b.lastError = e instanceof Error ? e.message.slice(0, 200) : 'imap';
++	}
++	if (moved) saveOS(os);
++	writeData(FILE, b);
++	return moved;
++}
+diff --git a/src/lib/server/scheduler.ts b/src/lib/server/scheduler.ts
+index c40dc54..bce3e70 100644
+--- a/src/lib/server/scheduler.ts
++++ b/src/lib/server/scheduler.ts
+@@ -8,12 +8,15 @@ import { snapshotAllApps } from './appstore.ts';
+ import { inWorkspace } from './context.ts';
+ import { dbOn } from './db.ts';
+ import { sendMorningBrief } from './brief.ts';
++import { syncReplies } from './mailbox.ts';
+ 
+ let started = false;
+ 
+ async function runFor(base: string) {
+ 	const now = new Date();
+ 	const today = now.toLocaleDateString('sv-SE'); // YYYY-MM-DD in server time zone
++	// replies in the agency's mailbox: every tick (10 min)
++	await syncReplies(true).catch((e) => console.error('[scheduler] replies', e));
+ 	const state = readData<{ alerts?: string; digest?: string; store?: string; brief?: string }>('scheduler.json', {});
+ 	if (state.store !== today) {
+ 		// App Store positions, ratings and competitors: one snapshot per day
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index e2cb8a9..6953a78 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -2,9 +2,15 @@ import { getOS, monthlyQuota, usedThisMonth } from '#lib/server/agency-os.ts';
+ import { agencyActions } from '#lib/server/agency-actions.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
+ import { inboxItems, weekStats } from '#lib/server/inbox.ts';
++import { mailboxInfo, syncReplies } from '#lib/server/mailbox.ts';
++import { mailboxActions } from '#lib/server/mailbox-actions.ts';
++
++const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+ 
+ // Today: Undercut does one thing, find clients. First messages and follow-ups to approve, one at a time.
+-export const load = () => {
++export const load = async () => {
++	// who replied since last time (from the agency's mailbox, at most every 5 minutes)
++	await Promise.race([syncReplies().catch(() => 0), wait(5000)]);
+ 	const os = getOS();
+ 	const ui = os.ui ?? os.profile?.lang ?? 'fr';
+ 	return {
+@@ -14,8 +20,9 @@ export const load = () => {
+ 		week: weekStats(),
+ 		waiting: os.pipeline.filter((p) => p.stage === 'new').length,
+ 		quota: monthlyQuota(),
+-		used: usedThisMonth(os)
++		used: usedThisMonth(os),
++		mailbox: mailboxInfo()?.email ?? null
+ 	};
+ };
+ 
+-export const actions = { start: agencyActions.start, find: agencyActions.find, refresh: agencyActions.refresh, stage: agencyActions.stage, inbox: businessActions.inbox };
++export const actions = { start: agencyActions.start, find: agencyActions.find, refresh: agencyActions.refresh, stage: agencyActions.stage, inbox: businessActions.inbox, send: mailboxActions.send };
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index 8153d99..5795400 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -43,7 +43,7 @@
+ 			<button class="btn btn-primary text-sm" disabled={finding}>{finding ? `${t.finding} ${data.profile.city}…` : t.oldBtn}</button>
+ 		</form>
+ 	{/if}
+-	<div class="mt-6"><Inbox items={data.inbox} week={data.week} waiting={data.waiting} {t} /></div>
++	<div class="mt-6"><Inbox items={data.inbox} week={data.week} waiting={data.waiting} {t} mailbox={data.mailbox} /></div>
+ 
+ 	<form
+ 		method="POST"
+diff --git a/src/routes/app/pipeline/+page.server.ts b/src/routes/app/pipeline/+page.server.ts
+index 722731d..eb0c494 100644
+--- a/src/routes/app/pipeline/+page.server.ts
++++ b/src/routes/app/pipeline/+page.server.ts
+@@ -2,9 +2,14 @@ import { getOS } from '#lib/server/agency-os.ts';
+ import { agencyActions } from '#lib/server/agency-actions.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
+ import { getBiz } from '#lib/server/business.ts';
++import { mailboxInfo, syncReplies } from '#lib/server/mailbox.ts';
++import { mailboxActions } from '#lib/server/mailbox-actions.ts';
++
++const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+ 
+ // Pipeline: everyone you wrote to, in three steps. Undercut moves them (follow-ups, "Not now" after 2 without answer).
+-export const load = () => {
++export const load = async () => {
++	await Promise.race([syncReplies().catch(() => 0), wait(5000)]);
+ 	const os = getOS();
+ 	const clients = Object.fromEntries(getBiz().clients.filter((c) => c.fromProspect).map((c) => [c.fromProspect!, c.id]));
+ 	const card = (p: (typeof os.pipeline)[number]) => ({
+@@ -19,10 +24,12 @@ export const load = () => {
+ 		value: p.value,
+ 		email: p.email,
+ 		phone: p.phone,
++		reply: p.reply,
+ 		clientId: clients[p.id]
+ 	});
+ 	const cards = os.pipeline.filter((p) => p.stage !== 'new').sort((a, z) => z.updatedAt.localeCompare(a.updatedAt)).map((p) => ({ ...card(p), stage: p.stage }));
+-	return { cards, toSend: os.pipeline.filter((p) => p.stage === 'new').length };
++	const mb = mailboxInfo();
++	return { mailbox: mb ? { email: mb.email, lastSync: mb.lastSync ?? null, error: mb.lastError ?? null } : null, cards, toSend: os.pipeline.filter((p) => p.stage === 'new').length };
+ };
+ 
+-export const actions = { stage: agencyActions.stage, item: agencyActions.item, makeClient: businessActions.makeClient };
++export const actions = { syncNow: mailboxActions.syncNow, stage: agencyActions.stage, item: agencyActions.item, makeClient: businessActions.makeClient };
+diff --git a/src/routes/app/pipeline/+page.svelte b/src/routes/app/pipeline/+page.svelte
+index efd838c..c92bf79 100644
+--- a/src/routes/app/pipeline/+page.svelte
++++ b/src/routes/app/pipeline/+page.svelte
+@@ -1,5 +1,6 @@
+ <script lang="ts">
+ 	import { invalidateAll } from '$app/navigation';
++	import { enhance } from '$app/forms';
+ 	import { page } from '$app/state';
+ 	import { act } from '#lib/act.ts';
+ 	import { dict, weekday, type UiLang } from '#lib/i18n.ts';
+@@ -11,6 +12,7 @@
+ 	type Stage = 'contacted' | 'talking' | 'won' | 'lost' | 'new';
+ 
+ 	// drag & drop between columns; the card moves at once, the server follows
++	let checking = $state(false);
+ 	let moved = $state<Record<string, Stage>>({});
+ 	let dragging = $state<string | null>(null);
+ 	let over = $state<string | null>(null);
+@@ -54,6 +56,15 @@
+ 	<p class="mt-2 hidden text-xs text-muted sm:block">{t.dragHint}</p>
+ </section>
+ 
++{#if data.mailbox}
++	<form method="POST" action={act('syncNow')} use:enhance={() => { checking = true; return async ({ update }) => { await update({ reset: false }); checking = false; }; }} class="mt-4 flex flex-wrap items-center gap-3 rounded-[18px] bg-tile px-4 py-3 text-sm">
++		<span class="text-ink-2">{data.mailbox.error ? t.mailboxProblem : t.autoReplies}{data.mailbox.lastSync ? ` · ${t.lastCheck(new Date(data.mailbox.lastSync).toLocaleTimeString(ui, { hour: '2-digit', minute: '2-digit' }))}` : ''}</span>
++		<button class="pill text-sm" disabled={checking}>{checking ? '…' : t.checkNow}</button>
++	</form>
++{:else}
++	<p class="mt-4 rounded-[18px] bg-warn-bg px-4 py-3 text-sm text-warn">{t.connectForAuto} <a href="/app/settings#mailbox" class="underline">{t.navSettings} →</a></p>
++{/if}
++
+ <div class="mt-6 grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(210px,1fr))]">
+ 	{#each cols as col (col.stage)}
+ 		<section
+@@ -100,6 +111,7 @@
+ 							{:else if col.stage === 'lost'}{skipped(c) ? t.skippedNote : t.noAnswerNote}{c.category ? ` · ${c.category}` : ''}
+ 							{:else}{[c.category, c.email || c.phone].filter(Boolean).join(' · ')}{/if}
+ 						</p>
++						{#if c.reply && col.stage === 'talking'}<p class="rounded-[12px] bg-white px-3 py-2 text-xs text-ink-2"><b class="font-medium text-ink">{t.repliedLabel}</b> · {new Date(c.reply.at).toLocaleDateString(ui, { day: 'numeric', month: 'short' })}{c.reply.subject ? ` · « ${c.reply.subject} »` : ''}</p>{/if}
+ 						<div class="mt-1 flex flex-wrap items-center gap-2">
+ 							{#if col.stage === 'contacted'}
+ 								<button class={btn} onclick={() => move(c.id, 'talking')}>{t.theyReplied}</button>
+diff --git a/src/routes/app/settings/+page.server.ts b/src/routes/app/settings/+page.server.ts
+index 1de2c9b..3fbcdc6 100644
+--- a/src/routes/app/settings/+page.server.ts
++++ b/src/routes/app/settings/+page.server.ts
+@@ -2,11 +2,13 @@ import { getOS } from '#lib/server/agency-os.ts';
+ import { agencyActions } from '#lib/server/agency-actions.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
+ import { emailReady } from '#lib/server/email.ts';
++import { mailboxInfo } from '#lib/server/mailbox.ts';
++import { mailboxActions } from '#lib/server/mailbox-actions.ts';
+ 
+ // Settings: the agency and who to find, the app's language, the morning email.
+ export const load = () => {
+ 	const os = getOS();
+-	return { profile: os.profile, brief: { on: os.brief !== false, ready: emailReady() } };
++	return { profile: os.profile, mailbox: mailboxInfo(), brief: { on: os.brief !== false, ready: emailReady() } };
+ };
+ 
+-export const actions = { setup: agencyActions.setup, ui: agencyActions.ui, brief: businessActions.brief };
++export const actions = { mailbox: mailboxActions.mailbox, mailboxOff: mailboxActions.mailboxOff, setup: agencyActions.setup, ui: agencyActions.ui, brief: businessActions.brief };
+diff --git a/src/routes/app/settings/+page.svelte b/src/routes/app/settings/+page.svelte
+index 5cf3344..6f8e0e9 100644
+--- a/src/routes/app/settings/+page.svelte
++++ b/src/routes/app/settings/+page.svelte
+@@ -7,6 +7,9 @@
+ 	let { data, form } = $props();
+ 	const t = $derived(dict(page.data.ui));
+ 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
++	let provider = $state('gmail');
++	let testing = $state(false);
++	const HOW: Record<string, string> = { gmail: 'https://myaccount.google.com/apppasswords', icloud: 'https://account.apple.com/account/manage', yahoo: 'https://login.yahoo.com/account/security' };
+ </script>
+ 
+ <svelte:head><title>{t.settings} · Undercut</title></svelte:head>
+@@ -17,6 +20,49 @@
+ 		<div class="mt-5"><StartSetup profile={data.profile} error={form?.setupError ?? ''} {t} mode="save" saved={Boolean(form?.setupOk)} /></div>
+ 	</section>
+ 	<div class="grid content-start gap-4">
++		<section class="card p-6" id="mailbox">
++			<h2 class="font-medium">{t.mailboxTitle}</h2>
++			<p class="mt-1 text-sm text-muted">{t.mailboxHelp}</p>
++			{#if data.mailbox}
++				<div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[18px] bg-good-bg p-3 text-sm text-good">
++					<span>✓ {t.mailboxConnected(data.mailbox.email)}</span>
++					<form method="POST" action={act('mailboxOff')} use:enhance={keep}><button class="text-ink underline">{t.mailboxOff}</button></form>
++				</div>
++				{#if data.mailbox.lastError}<p class="mt-2 text-xs text-bad">{t.mailboxProblem}</p>{/if}
++			{:else}
++				<form
++					method="POST"
++					action={act('mailbox')}
++					class="mt-4 grid gap-3"
++					use:enhance={() => {
++						testing = true;
++						return async ({ update }) => {
++							await update();
++							testing = false;
++						};
++					}}
++				>
++					<div class="flex flex-wrap gap-2">
++						{#each ['gmail', 'icloud', 'yahoo', 'other'] as k (k)}
++							<label class="cursor-pointer"><input type="radio" name="provider" value={k} bind:group={provider} class="peer sr-only" /><span class="pill text-sm peer-checked:border-ink peer-checked:bg-ink peer-checked:text-white">{t.providers[k]}</span></label>
++						{/each}
++					</div>
++					<label class="text-sm"><span class="label">{t.mailboxEmail}</span><input name="email" type="email" required autocomplete="email" class="input mt-1.5" /></label>
++					<label class="text-sm"><span class="label">{t.mailboxPass}</span><input name="pass" type="password" required autocomplete="off" class="input mt-1.5" /></label>
++					<p class="-mt-1 text-xs text-muted">{t.mailboxPassHelp}{#if HOW[provider]} <a href={HOW[provider]} target="_blank" rel="noopener noreferrer" class="ml-1 text-ink underline">{t.howPass} ↗</a>{/if}</p>
++					{#if provider === 'other'}
++						<div class="grid grid-cols-[1fr_90px] gap-2">
++							<label class="text-sm"><span class="label">{t.smtpHost}</span><input name="smtpHost" placeholder="smtp.example.be" class="input mt-1.5" /></label>
++							<label class="text-sm"><span class="label">{t.port}</span><input name="smtpPort" inputmode="numeric" placeholder="465" class="input mt-1.5" /></label>
++							<label class="text-sm"><span class="label">{t.imapHost}</span><input name="imapHost" placeholder="imap.example.be" class="input mt-1.5" /></label>
++							<label class="text-sm"><span class="label">{t.port}</span><input name="imapPort" inputmode="numeric" placeholder="993" class="input mt-1.5" /></label>
++						</div>
++					{/if}
++					{#if form?.mailboxError}<p class="text-sm text-bad">{t.mailboxErr[form.mailboxError] ?? form.mailboxError}</p>{/if}
++					<div class="flex flex-wrap items-center gap-3"><button class="btn btn-primary text-sm" disabled={testing}>{testing ? t.mailboxTesting : t.mailboxConnect}</button><span class="text-xs text-muted">{t.mailboxSafe}</span></div>
++				</form>
++			{/if}
++		</section>
+ 		<section class="card p-6">
+ 			<h2 class="font-medium">{t.langTitle}</h2>
+ 			<p class="mt-1 text-sm text-muted">{t.langHelp}</p>
+-- 
+2.43.0
+
