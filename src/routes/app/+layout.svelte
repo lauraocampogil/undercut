@@ -3,7 +3,9 @@
 	import Logo from '#lib/components/Logo.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import Assistant from '#lib/components/Assistant.svelte';
+	import { dict } from '#lib/i18n.ts';
 	let { data, children } = $props();
+	const t = $derived(dict(data.ui));
 
 	let drawer = $state(false); // mobile sidebar
 	// lock the page behind the open mobile sidebar
@@ -21,17 +23,12 @@
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	type Item = { href: string; label: string; icon: any; badge?: number };
+	// Undercut does one thing: find clients. Three places only.
 	const agencyNav = $derived([
-		{ href: '/app', label: 'Today', icon: 'grid', badge: data.toApprove },
-		{ href: '/app/pipeline', label: 'Pipeline', icon: 'target' },
-		{ href: '/app/crm', label: 'Clients', icon: 'team' }
+		{ href: '/app', label: t.navToday, icon: 'grid', badge: data.toApprove },
+		{ href: '/app/pipeline', label: t.navReplies, icon: 'target' },
+		{ href: '/app/settings', label: t.navSettings, icon: 'cog' }
 	] as Item[]);
-	const moreNav = [
-		{ href: '/app/prospects', label: 'All prospects', icon: 'search' },
-		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
-		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
-		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
-	] as Item[];
 	const clientNav = $derived.by(() => {
 		if (!current) return [] as { group: string; items: Item[] }[];
 		const b = `/app/clients/${current.id}`;
@@ -66,7 +63,7 @@
 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
 			return path === hp && (hq === 'mode=app') === appMode;
 		}
-		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline'].includes(hp)) return path === hp || path.startsWith(hp + '/');
+		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline', '/app/settings'].includes(hp)) return path === hp || path.startsWith(hp + '/');
 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
 	};
 
@@ -109,25 +106,12 @@
 		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Agency">
 			{#each agencyNav as it (it.href)}{@render link(it)}{/each}
 		</nav>
-		<nav class="mt-4 flex flex-col gap-0.5" aria-label="More">
-			<p class="px-3 pb-1 text-[10px] font-medium tracking-wider text-muted uppercase">More</p>
-			{#each moreNav as it (it.href)}{@render link(it)}{/each}
-		</nav>
 
-		{#if current}
-			<nav class="mt-4 flex flex-col gap-0.5 border-t border-line pt-4" aria-label="{current.name} sections">
-				<p class="flex items-center gap-2 px-3 pb-1 text-[11px] font-medium text-muted"><span class="size-2 rounded-full" style="background:{current.color}"></span><span class="truncate">{current.name}</span></p>
-				{#each clientNav as g, gi (gi)}
-					{#if g.group}<p class="mt-2 px-3 pb-0.5 text-[10px] font-medium tracking-wider text-muted uppercase">{g.group}</p>{/if}
-					{#each g.items as it (it.href)}{@render link(it)}{/each}
-				{/each}
-			</nav>
-		{/if}
 
 		<div class="mt-auto flex flex-col gap-2 pt-4">
 			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
-				<span class="flex-1 text-left">Ask Undercut AI</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
+				<span class="flex-1 text-left">{t.askAi}</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
 			</button>
 
 			<!-- account & settings -->
@@ -139,19 +123,19 @@
 							<span class="grid size-6 place-items-center rounded-md bg-accent text-[11px] text-accent-ink">{initial(data.agency.name)}</span>
 							<span class="flex-1 truncate">{data.agency.name}</span><span class="rounded-full bg-tile px-2 py-0.5 text-[10px] font-normal">{data.beta ? 'Beta' : planLabel}</span>
 						</a>
-						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>Agency settings</a>
-						<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>Team</a>
-						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>Billing & usage</a>
+						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>{t.navSettings}</a>
+						<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>{t.team}</a>
+						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>{t.billing}</a>
 						<div class="my-2 border-t border-line"></div>
-						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>My account</a>
-						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>Log out</a>
+						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>{t.myAccount}</a>
+						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>{t.logout}</a>
 					</div>
 				{/if}
 				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
 					<span class="relative grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-ink">
 						{initial(data.account.name)}
 					</span>
-					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">Account & settings</span></span>
+					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">{t.account}</span></span>
 					<Icon name="cog" size={15} />
 				</button>
 			</div>

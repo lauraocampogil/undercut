@@ -12,7 +12,7 @@ const eur = (n: number) => new Intl.NumberFormat('en-IE', { style: 'currency', c
 export function briefContent(base: string) {
 	const os = getOS();
 	const b = getBiz();
-	const items = inboxItems();
+	const items = inboxItems({ payments: false, ui: os.ui ?? os.profile?.lang });
 	const t = today();
 	const plan = agenda(b, [], 0).filter((a) => a.kind === 'meeting' || a.kind === 'task'); // follow-ups and invoices are already in the inbox
 	const m = money(b);

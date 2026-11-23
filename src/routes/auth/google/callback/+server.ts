@@ -8,7 +8,7 @@ import { markJoined, rowByCode, seatsLeft } from '#lib/server/beta.ts';
 
 export const GET = async ({ url, cookies, locals }) => {
 	const mode = cookies.get('oauth_mode') === 'login' ? 'login' : 'data';
-	const next = cookies.get('oauth_next') || (mode === 'login' ? '/app' : '/app/settings');
+	const next = cookies.get('oauth_next') || (mode === 'login' ? '/app' : '/app/settings/advanced');
 	const invite = cookies.get('oauth_invite');
 	const beta = cookies.get('oauth_beta');
 	for (const k of ['oauth_next', 'oauth_mode', 'oauth_invite', 'oauth_beta']) cookies.delete(k, { path: '/' });

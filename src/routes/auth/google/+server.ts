@@ -8,7 +8,7 @@ export const GET = ({ url, cookies, locals }) => {
 	const m = url.searchParams.get('mode');
 	const mode = m === 'login' ? 'login' : m === 'manage' ? 'manage' : 'data';
 	const next = url.searchParams.get('next');
-	const back = next && next.startsWith('/') && !next.startsWith('//') ? next : mode === 'login' ? '/app' : '/app/settings';
+	const back = next && next.startsWith('/') && !next.startsWith('//') ? next : mode === 'login' ? '/app' : '/app/settings/advanced';
 	if (!googleConfigured()) redirect(303, `${mode === 'login' ? '/login' : back}${back.includes('?') && mode !== 'login' ? '&' : '?'}error=not_configured`);
 	if (mode !== 'login' && !locals.user) redirect(303, `/login?next=${encodeURIComponent(back)}`);
 	const state = crypto.randomUUID();

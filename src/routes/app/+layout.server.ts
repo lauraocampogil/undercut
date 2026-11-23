@@ -20,7 +20,9 @@ export const load = ({ locals }) => {
 		account: { name: u?.name || 'Agency owner', email: u?.email ?? '', role: u?.role ?? 'owner' },
 		billing: getBilling(),
 		unread: unreadCount(),
-		toApprove: os.profile ? inboxItems().length : 0,
+		toApprove: os.profile ? inboxItems({ payments: false }).length : 0,
+		// the app speaks the language the agency chose (default: the language of its own site)
+		ui: os.ui ?? os.profile?.lang ?? 'fr',
 		hasProfile: Boolean(os.profile),
 		beta: dbOn(),
 		isAdmin: dbOn() ? isAdmin(u?.email) : u?.role === 'owner',

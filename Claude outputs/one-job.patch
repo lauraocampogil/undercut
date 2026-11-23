@@ -1,0 +1,2025 @@
+From 8c17fba141974ced4f6bd41bce116e094d059110 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 23 Nov 2026 00:27:08 +0100
+Subject: [PATCH] Undercut does one thing: find clients. Three places: Today
+ (one business at a time), Replies, Settings; analytics, tasks, invoices, CRM
+ and the block dashboard leave the menu (code kept). App in the agency's
+ language (FR/NL/EN, chosen in Settings, default from its site); clearer
+ buttons; colour follows the agency's site automatically, no Customise
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/components/Inbox.svelte               | 111 ++----
+ src/lib/components/StartSetup.svelte          |  66 ++--
+ src/lib/i18n.ts                               | 363 ++++++++++++++++++
+ src/lib/server/agency-actions.ts              |   7 +-
+ src/lib/server/agency-os.ts                   |  10 +-
+ src/lib/server/brief.ts                       |   2 +-
+ src/lib/server/inbox.ts                       |  19 +-
+ src/routes/app/+layout.server.ts              |   4 +-
+ src/routes/app/+layout.svelte                 |  44 +--
+ src/routes/app/+page.server.ts                |  32 +-
+ src/routes/app/+page.svelte                   | 322 ++--------------
+ src/routes/app/pipeline/+page.svelte          |  64 ++-
+ src/routes/app/settings/+layout.svelte        |  19 +-
+ src/routes/app/settings/+page.server.ts       |  50 +--
+ src/routes/app/settings/+page.svelte          | 176 ++-------
+ .../app/settings/advanced/+page.server.ts     |  42 ++
+ src/routes/app/settings/advanced/+page.svelte | 154 ++++++++
+ src/routes/auth/google/+server.ts             |   2 +-
+ src/routes/auth/google/callback/+server.ts    |   2 +-
+ 19 files changed, 788 insertions(+), 701 deletions(-)
+ create mode 100644 src/lib/i18n.ts
+ create mode 100644 src/routes/app/settings/advanced/+page.server.ts
+ create mode 100644 src/routes/app/settings/advanced/+page.svelte
+
+diff --git a/src/lib/components/Inbox.svelte b/src/lib/components/Inbox.svelte
+index f72ed62..adde10b 100644
+--- a/src/lib/components/Inbox.svelte
++++ b/src/lib/components/Inbox.svelte
+@@ -1,36 +1,26 @@
+ <script lang="ts">
+-	// "To approve": what Undercut prepared today, one card at a time. Send or skip, and the next one comes up.
++	// "To approve": what Undercut prepared today, one business at a time. Send or skip, and the next one comes up.
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
++	import type { Dict } from '#lib/i18n.ts';
+ 	type Item = {
+ 		key: string;
+ 		kind: 'first' | 'followup' | 'payment';
+ 		id: string;
+-		title: string;
+-		why: string;
+ 		to?: string;
+ 		phone?: string;
+ 		subject: string;
+ 		message: string;
+ 		step?: number;
+-		late?: boolean;
+ 		name: string;
+ 		meta: string;
+-		reasonsTitle?: string;
++		reasonsTitle?: 'why' | 'told';
+ 		reasons?: string[];
+ 		proof?: { label: string; url: string }[];
+ 		lang?: 'fr' | 'nl' | 'en';
+ 		instagram?: string;
+ 	};
+-	let {
+-		items,
+-		clients,
+-		error = '',
+-		brief,
+-		briefMsg = '',
+-		week,
+-		waiting = 0
+-	}: { items: Item[]; clients: { id: string; name: string }[]; error?: string; brief: { on: boolean; ready: boolean }; briefMsg?: string; week: { sent: number; replied: number; won: number }; waiting?: number } = $props();
++	let { items, week, waiting = 0, t }: { items: Item[]; week: { sent: number; replied: number; won: number }; waiting?: number; t: Dict } = $props();
+ 
+ 	let hidden = $state<Record<string, boolean>>({});
+ 	let done = $state<{ key: string; name: string; label: string }[]>([]);
+@@ -38,46 +28,22 @@
+ 	let editing = $state(false);
+ 	let edited = $state<Record<string, string>>({});
+ 	let copied = $state(false);
+-	let adding = $state(false);
+ 
+ 	const queue = $derived(items.filter((i) => !hidden[i.key]));
+ 	const cur = $derived<Item | undefined>(queue[0]);
+ 	const total = $derived(queue.length + done.length);
+ 	const pct = $derived(total ? Math.round((done.length / total) * 100) : 100);
+-	const today = new Date().toISOString().slice(0, 10);
+-	const LANG = { fr: 'French', nl: 'Dutch', en: 'English' } as const;
+ 	const text = (it: Item) => edited[it.key] ?? it.message;
+ 	const mailto = (it: Item) => `mailto:${it.to ?? ''}?subject=${encodeURIComponent(it.subject)}&body=${encodeURIComponent(text(it))}`;
+-	const tag = (it: Item) => (it.kind === 'first' ? 'New prospect' : it.kind === 'followup' ? `Follow-up ${it.step} of 2` : it.step === 2 ? 'Payment reminder 2' : 'Payment reminder');
+-	const heading = (it: Item) => (it.kind === 'payment' ? it.title.replace('owes', 'owes you') : it.name);
+ </script>
+ 
+ <section class="card p-5 sm:p-6">
+-	<div class="flex flex-wrap items-center justify-between gap-3">
+-		<div>
+-			<p class="font-medium">To approve <span class="text-sm font-normal text-muted">· {queue.length} left{total ? `, ${done.length} of ${total} done` : ''}</span></p>
+-			<p class="mt-0.5 text-xs text-muted">One at a time: read it, edit if you want, then send or skip. Nothing goes out without you.</p>
+-		</div>
+-		<button type="button" class="pill text-sm" onclick={() => (adding = !adding)}>{adding ? 'Close' : '+ Someone owes me money'}</button>
++	<div>
++		<p class="font-medium">{t.queueTitle} <span class="text-sm font-normal text-muted">· {t.queueLeft(queue.length, done.length, total)}</span></p>
++		<p class="mt-0.5 text-xs text-muted">{t.queueHelp}</p>
+ 	</div>
+ 	{#if total}
+-		<div class="mt-3 h-1 overflow-hidden rounded-full bg-tile" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Done today"><div class="h-1 rounded-full bg-ink transition-[width] duration-500" style="width:{pct}%"></div></div>
+-	{/if}
+-
+-	{#if adding}
+-		<form method="POST" action={act('payment')} use:enhance={() => async ({ update, result }) => { await update(); if (result.type === 'success') adding = false; }} class="mt-4 grid gap-3 rounded-[18px] bg-tile p-4 sm:grid-cols-2">
+-			<label class="text-sm"><span class="label">Who</span>
+-				<select name="clientId" class="input mt-1.5"><option value="">Someone else (type below)</option>{#each clients as c (c.id)}<option value={c.id}>{c.name}</option>{/each}</select>
+-			</label>
+-			<label class="text-sm"><span class="label">Or their name</span><input name="who" class="input mt-1.5" placeholder="Corner Bakery" /></label>
+-			<label class="text-sm"><span class="label">Amount (€)</span><input name="amount" inputmode="decimal" required class="input mt-1.5" placeholder="450" /></label>
+-			<label class="text-sm"><span class="label">Due on</span><input name="due" type="date" required value={today} class="input mt-1.5" /></label>
+-			<label class="text-sm"><span class="label">What for</span><input name="label" class="input mt-1.5" placeholder="e.g. facture 2026-014 (written in the message)" /></label>
+-			<label class="text-sm"><span class="label">Their email (optional)</span><input name="email" type="email" class="input mt-1.5" /></label>
+-			{#if error}<p class="text-sm text-bad sm:col-span-2">{error}</p>{/if}
+-			<p class="text-xs text-muted sm:col-span-2">Keep invoicing in your usual tool. When the date passes, Undercut writes the reminder for you.</p>
+-			<div class="sm:col-span-2"><button class="btn btn-primary text-sm">Save</button></div>
+-		</form>
++		<div class="mt-3 h-1 overflow-hidden rounded-full bg-tile" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><div class="h-1 rounded-full bg-ink transition-[width] duration-500" style="width:{pct}%"></div></div>
+ 	{/if}
+ 
+ 	<div class="mt-4 grid items-start gap-4 lg:grid-cols-[1fr_260px]">
+@@ -86,20 +52,20 @@
+ 				<article class="min-w-0 rounded-[22px] border border-line bg-white">
+ 					<div class="p-4 sm:p-5">
+ 						<div class="flex flex-wrap items-center justify-between gap-2">
+-							<span class="rounded-full px-2.5 py-1 text-[11px] {cur.kind === 'payment' ? 'bg-bad-bg text-bad' : cur.kind === 'followup' ? 'bg-tile text-ink' : 'bg-ink text-white'}">{tag(cur)}</span>
+-							<span class="text-xs text-muted">{done.length + 1} of {total}</span>
++							<span class="rounded-full px-2.5 py-1 text-[11px] {cur.kind === 'followup' ? 'bg-tile text-ink' : 'bg-ink text-white'}">{cur.kind === 'followup' ? t.tagFollow(cur.step ?? 1) : t.tagFirst}</span>
++							<span class="text-xs text-muted">{done.length + 1} {t.of} {total}</span>
+ 						</div>
+-						<h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">{heading(cur)}</h3>
++						<h3 class="mt-3 text-[26px] leading-tight font-medium tracking-[-0.03em]">{cur.name}</h3>
+ 						<p class="mt-1 text-sm text-ink-2">{cur.meta}</p>
+ 						{#if cur.reasons?.length}
+ 							<div class="mt-4 rounded-[18px] bg-tile p-4">
+-								<p class="label">{cur.reasonsTitle}</p>
++								<p class="label">{cur.reasonsTitle === 'told' ? t.told : t.why}</p>
+ 								<ul class="mt-2 grid gap-1.5 text-sm">
+ 									{#each cur.reasons as r, i (i)}<li class="flex items-baseline gap-2"><span class="text-good">✓</span>{r}</li>{/each}
+ 								</ul>
+ 								{#if cur.proof?.length}
+ 									<p class="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+-										<span class="text-muted">Check it yourself:</span>
++										<span class="text-muted">{t.check}</span>
+ 										{#each cur.proof as p (p.url)}<a href={p.url} target="_blank" rel="noopener noreferrer" class="text-ink underline">{p.label}</a>{/each}
+ 									</p>
+ 								{/if}
+@@ -108,16 +74,16 @@
+ 					</div>
+ 					<div class="border-t border-line p-4 sm:p-5">
+ 						<div class="flex flex-wrap justify-between gap-2 text-xs text-muted">
+-							<span>{#if cur.to}To: <b class="font-medium text-ink">{cur.to}</b>{:else}No email found: copy it for a DM{cur.phone ? ' or call' : ''}{/if}</span>
+-							{#if cur.lang}<span>Written in {LANG[cur.lang]}</span>{/if}
++							<span>{#if cur.to}{t.to} <b class="font-medium text-ink">{cur.to}</b>{:else}{t.noEmail}{cur.phone ? t.orCall : ''}{/if}</span>
++							{#if cur.lang}<span>{t.writtenIn[cur.lang]}</span>{/if}
+ 						</div>
+ 						<p class="mt-2 text-sm font-medium">{cur.subject}</p>
+ 						{#if editing}
+-							<textarea rows="11" class="input mt-2 text-sm" value={text(cur)} oninput={(e) => (edited[cur!.key] = e.currentTarget.value)} aria-label="Message"></textarea>
++							<textarea rows="11" class="input mt-2 text-sm" value={text(cur)} oninput={(e) => (edited[cur!.key] = e.currentTarget.value)} aria-label={t.edit}></textarea>
+ 						{:else}
+ 							<div class="mt-2 rounded-[16px] bg-tile p-4 text-sm leading-relaxed whitespace-pre-line text-ink-2">{text(cur)}</div>
+ 						{/if}
+-						<button type="button" class="mt-2 text-xs text-ink-2 underline" onclick={() => (editing = !editing)}>{editing ? 'Done editing' : 'Edit message'}</button>
++						<button type="button" class="mt-2 text-xs text-ink-2 underline" onclick={() => (editing = !editing)}>{editing ? t.doneEditing : t.edit}</button>
+ 					</div>
+ 					<form
+ 						method="POST"
+@@ -133,9 +99,9 @@
+ 								setTimeout(() => (copied = false), 2500);
+ 								if (how === 'dm' && it.instagram) window.open(it.instagram, '_blank', 'noopener');
+ 							}
+-							if (how !== 'skip' && how !== 'paid') sent++;
++							if (how !== 'skip') sent++;
+ 							hidden[it.key] = true;
+-							done = [...done, { key: it.key, name: it.name, label: how === 'skip' ? (it.kind === 'first' ? 'Skipped' : 'Later') : how === 'paid' ? 'Paid' : 'Sent' }];
++							done = [...done, { key: it.key, name: it.name, label: how === 'skip' ? (it.kind === 'first' ? t.doneSkipped : t.doneLater) : t.doneSent }];
+ 							editing = false;
+ 							return async ({ update }) => update({ reset: false });
+ 						}}
+@@ -143,25 +109,21 @@
+ 						<input type="hidden" name="kind" value={cur.kind} />
+ 						<input type="hidden" name="id" value={cur.id} />
+ 						{#if cur.to}
+-							<button name="sent" value="1" data-how="mail" class="btn btn-primary text-sm">{cur.kind === 'payment' ? 'Send reminder' : 'Send from my email'}</button>
++							<button name="sent" value="1" data-how="mail" class="btn btn-primary text-sm">{t.sendEmail}</button>
++							<button name="sent" value="1" data-how="dm" class="pill text-sm">{cur.instagram ? t.copyDm : t.copyDmPlain}</button>
+ 						{:else}
+-							<button name="sent" value="1" data-how="copy" class="btn btn-primary text-sm">Copy & mark sent</button>
+-						{/if}
+-						{#if cur.kind === 'payment'}
+-							<button formaction={act('paid')} data-how="paid" class="pill text-sm">They paid</button>
+-						{:else if cur.to}
+-							<button name="sent" value="1" data-how="dm" class="pill text-sm">{cur.instagram ? 'Copy for Instagram DM' : 'Copy for a DM'}</button>
++							<button name="sent" value="1" data-how={cur.instagram ? 'dm' : 'copy'} class="btn btn-primary text-sm">{cur.instagram ? t.copyDm : t.copyMark}</button>
+ 						{/if}
+-						{#if cur.phone}<a href="tel:{cur.phone}" class="pill text-sm">Call</a>{/if}
++						{#if cur.phone}<a href="tel:{cur.phone}" class="pill text-sm">{t.call}</a>{/if}
+ 						<span class="flex-1"></span>
+-						<button name="sent" value="0" data-how="skip" class="text-sm text-muted underline">{cur.kind === 'first' ? 'Not a fit' : 'Later'}</button>
++						<button name="sent" value="0" data-how="skip" class="text-sm text-muted underline">{cur.kind === 'first' ? t.notFit : t.later}</button>
+ 					</form>
+ 				</article>
+ 			{/key}
+ 		{:else}
+ 			<div class="rounded-[22px] bg-tile p-6 text-center">
+-				<p class="text-lg font-medium">All done for today ✓</p>
+-				<p class="mx-auto mt-1 max-w-md text-sm text-ink-2">{sent ? `You sent ${sent} message${sent === 1 ? '' : 's'}. ` : ''}Undercut follows up after 4 days if nobody answers, and payment reminders come back here when they’re due.{waiting ? ` ${waiting} more ready for tomorrow.` : ''}</p>
++				<p class="text-lg font-medium">{t.allDone} ✓</p>
++				<p class="mx-auto mt-1 max-w-md text-sm text-ink-2">{t.allDoneText(sent, waiting)}</p>
+ 			</div>
+ 		{/if}
+ 
+@@ -169,26 +131,19 @@
+ 			{#if total}
+ 				<ol class="grid gap-1 rounded-[18px] bg-tile p-2 text-sm">
+ 					{#each done as d (d.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-muted"><span class="truncate">{d.name}</span><span class="text-xs">{d.label}</span></li>{/each}
+-					{#each queue as q, i (q.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 {i === 0 ? 'bg-white font-medium' : ''}"><span class="truncate">{q.name}</span><span class="text-xs text-muted">{i === 0 ? 'Now' : q.kind === 'first' ? 'New' : q.kind === 'followup' ? 'Follow-up' : 'Payment'}</span></li>{/each}
++					{#each queue as q, i (q.key)}<li class="flex items-center justify-between gap-2 rounded-xl px-3 py-2 {i === 0 ? 'bg-white font-medium' : ''}"><span class="truncate">{q.name}</span><span class="text-xs text-muted">{i === 0 ? t.nowLabel : q.kind === 'first' ? t.newLabel : t.followLabel}</span></li>{/each}
+ 				</ol>
+ 			{/if}
+ 			<div class="rounded-[18px] bg-tile p-4">
+-				<p class="label">This week</p>
++				<p class="label">{t.thisWeek}</p>
+ 				<div class="mt-2 grid grid-cols-3 gap-2">
+-					<div><p class="big text-3xl">{week.sent}</p><p class="mt-1 text-[11px] text-muted">sent</p></div>
+-					<div><p class="big text-3xl">{week.replied}</p><p class="mt-1 text-[11px] text-muted">replied</p></div>
+-					<div><p class="big text-3xl">{week.won}</p><p class="mt-1 text-[11px] text-muted">won</p></div>
++					<div><p class="big text-3xl">{week.sent}</p><p class="mt-1 text-[11px] text-muted">{t.statSent}</p></div>
++					<div><p class="big text-3xl">{week.replied}</p><p class="mt-1 text-[11px] text-muted">{t.statReplied}</p></div>
++					<div><p class="big text-3xl">{week.won}</p><p class="mt-1 text-[11px] text-muted">{t.statWon}</p></div>
+ 				</div>
+-				<a href="/app/pipeline" class="mt-3 inline-block text-xs text-ink-2 underline">See who replied →</a>
++				<a href="/app/pipeline" class="mt-3 inline-block text-xs text-ink-2 underline">{t.seeReplies}</a>
+ 			</div>
+ 		</aside>
+ 	</div>
+-	{#if copied}<p class="mt-3 text-sm text-good" role="status">Copied. Paste it in your DM or email.</p>{/if}
+-
+-	<div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted">
+-		<span>Morning email (weekdays, 7:00):</span>
+-		<form method="POST" action={act('brief')} use:enhance={() => async ({ update }) => update({ reset: false })}><input type="hidden" name="on" value={brief.on ? '0' : '1'} /><button class="rounded-full px-2.5 py-1 {brief.on ? 'bg-ink text-white' : 'bg-tile text-ink'}">{brief.on ? 'On' : 'Off'}</button></form>
+-		{#if brief.ready}<form method="POST" action={act('briefTest')} use:enhance={() => async ({ update }) => update({ reset: false })}><button class="underline">Send me today’s now</button></form>{:else}<span>· starts once email is set up</span>{/if}
+-		{#if briefMsg}<span class="text-ink">{briefMsg}</span>{/if}
+-	</div>
++	{#if copied}<p class="mt-3 text-sm text-good" role="status">{t.copied}</p>{/if}
+ </section>
+diff --git a/src/lib/components/StartSetup.svelte b/src/lib/components/StartSetup.svelte
+index 4e9408f..99063c4 100644
+--- a/src/lib/components/StartSetup.svelte
++++ b/src/lib/components/StartSetup.svelte
+@@ -1,41 +1,28 @@
+ <script lang="ts">
+-	// First run: URL + 3 questions, then Undercut finds the first 5 businesses right away. Styled like AgencySetup (dark card).
++	// The agency and who to find: URL + 3 questions. On Today it finds the first 5 right away; in Settings it just saves.
+ 	import { enhance } from '$app/forms';
+ 	import { act } from '#lib/act.ts';
++	import type { Dict } from '#lib/i18n.ts';
+ 	type Profile = { url: string; name: string; city: string; services: string[]; target?: string } | null;
+-	let { profile, error = '' }: { profile: Profile; error?: string } = $props();
+-
+-	const SERVICES = [
+-		['web', 'Websites'],
+-		['branding', 'Branding'],
+-		['social', 'Social media'],
+-		['seo', 'SEO'],
+-		['ads', 'Ads'],
+-		['video', 'Photo & video'],
+-		['app', 'Apps']
+-	] as const;
+-	const TARGETS = [
+-		['small', 'Small local shops'],
+-		['big', 'Bigger companies'],
+-		['any', 'Both']
+-	] as const;
+-	const SVC: Record<string, string> = Object.fromEntries(SERVICES);
++	let { profile, error = '', t, mode = 'start', saved = false }: { profile: Profile; error?: string; t: Dict; mode?: 'start' | 'save'; saved?: boolean } = $props();
+ 
++	const SERVICES = ['web', 'branding', 'social', 'seo', 'ads', 'video', 'app'];
++	const TARGETS = ['small', 'big', 'any'];
+ 	let busy = $state(false);
+ 	let si = $state(0);
+-	const steps = $derived(['Reading your site…', `Looking around ${profile?.city || 'your city'}…`, 'Checking each business…', 'Writing the messages in their language…', 'Almost there…']);
+ 	$effect(() => {
+-		if (!busy) return;
++		if (!busy || mode !== 'start') return;
+ 		si = 0;
+-		const t = setInterval(() => (si = Math.min(steps.length - 1, si + 1)), 4000);
+-		return () => clearInterval(t);
++		const id = setInterval(() => (si = Math.min(t.startBusy.length - 1, si + 1)), 4000);
++		return () => clearInterval(id);
+ 	});
++	const busyText = $derived(si === 1 ? `${t.startBusy[1]} ${profile?.city || ''}…` : t.startBusy[si]);
+ 	const field = 'bg-white/10 text-white placeholder:text-white/35';
+ </script>
+ 
+ <form
+ 	method="POST"
+-	action={act('start')}
++	action={act(mode === 'start' ? 'start' : 'setup')}
+ 	use:enhance={() => {
+ 		busy = true;
+ 		return async ({ update }) => {
+@@ -46,38 +33,43 @@
+ 	class="grid gap-5"
+ >
+ 	<label class="block text-sm">
+-		<span class="text-white/60">1 · Your agency’s website, Instagram, TikTok or LinkedIn</span>
+-		<input name="url" value={profile?.url ?? ''} required inputmode="url" placeholder="youragency.com or instagram.com/youragency" class="mt-1.5 w-full rounded-2xl px-4 py-3 text-base outline-none focus:ring-1 focus:ring-accent {field}" />
+-		{#if profile}<span class="mt-1.5 block text-xs text-accent">✓ Found: {profile.name}{profile.city ? `, ${profile.city}` : ''}{profile.services.length ? ` · ${profile.services.map((s) => SVC[s] ?? s).join(', ').toLowerCase()}` : ''}</span>{/if}
++		<span class="text-white/60">{t.qUrl}</span>
++		<input name="url" value={profile?.url ?? ''} required inputmode="url" placeholder={t.qUrlPh} class="mt-1.5 w-full rounded-2xl px-4 py-3 text-base outline-none focus:ring-1 focus:ring-accent {field}" />
++		{#if profile}<span class="mt-1.5 block text-xs text-accent">✓ {t.foundYou} {profile.name}{profile.city ? `, ${profile.city}` : ''}</span>{/if}
+ 	</label>
+ 
+ 	<div>
+-		<p class="text-sm text-white/60">2 · What you sell <span class="text-white/40">{profile ? '(we guessed, fix it if needed)' : '(we guess from your site if you skip this)'}</span></p>
++		<p class="text-sm text-white/60">{t.qSell} <span class="text-white/40">{profile ? t.qSellGuess : t.qSellSkip}</span></p>
+ 		<input type="hidden" name="servicesSent" value="1" />
+ 		<div class="mt-2 flex flex-wrap gap-2">
+-			{#each SERVICES as [k, l] (k)}
+-				<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={profile?.services.includes(k) ?? false} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink peer-focus-visible:ring-1 peer-focus-visible:ring-accent">{l}</span></label>
++			{#each SERVICES as k (k)}
++				<label class="cursor-pointer"><input type="checkbox" name="services" value={k} checked={profile?.services.includes(k) ?? false} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink peer-focus-visible:ring-1 peer-focus-visible:ring-accent">{t.services[k]}</span></label>
+ 			{/each}
+ 		</div>
+ 	</div>
+ 
+ 	<div>
+-		<p class="text-sm text-white/60">3 · Which businesses do you want as clients?</p>
++		<p class="text-sm text-white/60">{t.qWho}</p>
+ 		<div class="mt-2 flex flex-wrap gap-2">
+-			{#each TARGETS as [k, l] (k)}
+-				<label class="cursor-pointer"><input type="radio" name="target" value={k} checked={(profile?.target ?? 'small') === k} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink peer-focus-visible:ring-1 peer-focus-visible:ring-accent">{l}</span></label>
++			{#each TARGETS as k (k)}
++				<label class="cursor-pointer"><input type="radio" name="target" value={k} checked={(profile?.target ?? 'small') === k} class="peer sr-only" /><span class="inline-block rounded-full bg-white/10 px-4 py-2 text-sm peer-checked:bg-accent peer-checked:text-accent-ink peer-focus-visible:ring-1 peer-focus-visible:ring-accent">{t.targets[k]}</span></label>
+ 			{/each}
+ 		</div>
+-		<p class="mt-1.5 text-xs text-white/45">Small: shops, restaurants, salons, independents. Bigger: hotels, clinics, law and accounting firms, offices.</p>
++		<p class="mt-1.5 text-xs text-white/45">{t.qWhoHelp}</p>
+ 		<label class="mt-4 block text-sm">
+-			<span class="text-white/60">Around which city?</span>
+-			<input name="city" value={profile?.city ?? ''} placeholder={profile ? 'Your city' : 'Detected from your site, or type it'} class="mt-1.5 w-full rounded-2xl px-4 py-3 outline-none focus:ring-1 focus:ring-accent sm:max-w-sm {field}" />
++			<span class="text-white/60">{t.qCity}</span>
++			<input name="city" value={profile?.city ?? ''} placeholder={t.qCityPh} class="mt-1.5 w-full rounded-2xl px-4 py-3 outline-none focus:ring-1 focus:ring-accent sm:max-w-sm {field}" />
+ 		</label>
+ 	</div>
+ 
+ 	<div class="flex flex-wrap items-center gap-3">
+-		<button class="btn btn-accent" disabled={busy}>{busy ? steps[si] : 'Find my first 5 clients →'}</button>
+-		<span class="text-xs text-white/50">{busy ? 'Up to a minute: every business is checked before you see it.' : 'You see each business and its message before anything is sent.'}</span>
++		{#if mode === 'start'}
++			<button class="btn btn-accent" disabled={busy}>{busy ? busyText : t.startBtn}</button>
++			<span class="text-xs text-white/50">{busy ? t.startWait : t.startNote}</span>
++		{:else}
++			<button class="btn btn-accent" disabled={busy}>{t.saveBtn}</button>
++			{#if saved && !busy}<span class="text-sm text-accent">{t.saved}</span>{/if}
++		{/if}
+ 	</div>
+ 	{#if error}<p class="text-sm text-bad">{error}</p>{/if}
+ </form>
+diff --git a/src/lib/i18n.ts b/src/lib/i18n.ts
+new file mode 100644
+index 0000000..61c5a00
+--- /dev/null
++++ b/src/lib/i18n.ts
+@@ -0,0 +1,363 @@
++// The app's words in the language the agency chose (Settings). Messages to businesses use the business's own language.
++export type UiLang = 'fr' | 'nl' | 'en';
++export const UI_LANGS: [UiLang, string][] = [
++	['fr', 'Français'],
++	['nl', 'Nederlands'],
++	['en', 'English']
++];
++
++const fr = {
++	navToday: 'Aujourd’hui',
++	navReplies: 'Réponses',
++	navSettings: 'Réglages',
++	askAi: 'Demander à Undercut',
++	account: 'Compte & réglages',
++	team: 'Équipe',
++	billing: 'Abonnement',
++	myAccount: 'Mon compte',
++	logout: 'Se déconnecter',
++	hello: ['Bonjour', 'Bon après-midi', 'Bonsoir'],
++	today: 'Aujourd’hui',
++	toApprove: 'à valider',
++	sentWeek: 'envoyés cette semaine',
++	repliesWeek: 'réponses cette semaine',
++	find5: 'Trouver 5 clients de plus',
++	finding: 'Recherche autour de',
++	searchesLeft: (n: number, q: number) => `${n} recherches sur ${q} restantes ce mois-ci`,
++	found: (n: number) => `${n} nouveau${n > 1 ? 'x' : ''} commerce${n > 1 ? 's' : ''} ajouté${n > 1 ? 's' : ''}.`,
++	queueTitle: 'À valider',
++	queueLeft: (l: number, d: number, t: number) => `${l} restant${l > 1 ? 's' : ''}${t ? ` · ${d} sur ${t} fait${d > 1 ? 's' : ''}` : ''}`,
++	queueHelp: 'Un commerce à la fois : lisez le message, modifiez-le si vous voulez, puis envoyez-le ou passez. Rien ne part sans vous.',
++	tagFirst: 'Nouveau client potentiel',
++	tagFollow: (n: number) => `Relance ${n} sur 2`,
++	of: 'sur',
++	why: 'Pourquoi ils ont besoin de vous',
++	told: 'Ce que vous leur avez écrit',
++	check: 'Vérifiez vous-même :',
++	to: 'À :',
++	noEmail: 'Pas d’e-mail trouvé : copiez le message pour Instagram, Facebook ou WhatsApp',
++	orCall: ' ou appelez',
++	writtenIn: { fr: 'Écrit en français, comme leur site', nl: 'Écrit en néerlandais, comme leur site', en: 'Écrit en anglais, comme leur site' },
++	edit: 'Modifier le message',
++	doneEditing: 'Terminer',
++	sendEmail: 'Envoyer par e-mail',
++	copyMark: 'Copier le message (marqué envoyé)',
++	copyDm: 'Copier pour Instagram',
++	copyDmPlain: 'Copier pour un message privé',
++	call: 'Appeler',
++	notFit: 'Pas intéressant',
++	later: 'Plus tard',
++	copied: 'Copié. Collez-le dans votre message.',
++	allDone: 'Tout est fait pour aujourd’hui',
++	allDoneText: (sent: number, waiting: number) => `${sent ? `Vous avez envoyé ${sent} message${sent > 1 ? 's' : ''}. ` : ''}Undercut vous rappelle de relancer après 4 jours sans réponse.${waiting ? ` ${waiting} autre${waiting > 1 ? 's' : ''} prêt${waiting > 1 ? 's' : ''} pour demain.` : ''}`,
++	seeReplies: 'Voir qui a répondu →',
++	statSent: 'envoyés',
++	statReplied: 'réponses',
++	statWon: 'clients',
++	thisWeek: 'Cette semaine',
++	nowLabel: 'Maintenant',
++	newLabel: 'Nouveau',
++	followLabel: 'Relance',
++	doneSent: 'Envoyé',
++	doneSkipped: 'Passé',
++	doneLater: 'Plus tard',
++	// start
++	start1: 'Prend 1 minute',
++	startTitle: 'Qui devons-nous trouver pour vous ?',
++	startText: 'Collez votre site ou votre profil et répondez à 3 questions. Undercut trouve des commerces près de chez vous qui ont besoin de ce que vous vendez, et écrit le premier message.',
++	qUrl: '1 · Le site, Instagram, TikTok ou LinkedIn de votre agence',
++	qUrlPh: 'votreagence.be ou instagram.com/votreagence',
++	foundYou: 'Trouvé :',
++	qSell: '2 · Ce que vous vendez',
++	qSellGuess: '(on a deviné, corrigez si besoin)',
++	qSellSkip: '(on devine depuis votre site si vous passez)',
++	qWho: '3 · Quels clients voulez-vous ?',
++	qWhoHelp: 'Petits : commerces, restaurants, salons, indépendants. Plus grands : hôtels, cliniques, cabinets d’avocats et de comptables, bureaux.',
++	qCity: 'Autour de quelle ville ?',
++	qCityPh: 'Détectée depuis votre site, ou tapez-la',
++	startBtn: 'Trouver mes 5 premiers clients →',
++	saveBtn: 'Enregistrer',
++	saved: 'Enregistré.',
++	startBusy: ['Lecture de votre site…', 'Recherche autour de', 'Vérification de chaque commerce…', 'Rédaction des messages dans leur langue…', 'Presque fini…'],
++	startWait: 'Jusqu’à une minute : chaque commerce est vérifié avant que vous le voyiez.',
++	startNote: 'Vous voyez chaque commerce et son message avant tout envoi.',
++	services: { web: 'Sites web', branding: 'Branding', social: 'Réseaux sociaux', seo: 'SEO', ads: 'Publicité', video: 'Photo & vidéo', app: 'Apps' } as Record<string, string>,
++	targets: { small: 'Petits commerces', big: 'Plus grandes entreprises', any: 'Les deux' } as Record<string, string>,
++	// replies
++	repliesTitle: 'Réponses',
++	repliesHelp: 'Tous ceux à qui vous avez écrit. Undercut vous rappelle les relances ; quand quelqu’un répond, cliquez sur « Ils ont répondu ».',
++	waitingInToday: (n: number) => `${n} en attente dans Aujourd’hui`,
++	colWaiting: 'En attente de réponse',
++	colWaitingHint: 'Relances prévues',
++	colReplied: 'Ont répondu',
++	colRepliedHint: 'À vous de jouer',
++	colWon: 'Clients',
++	colWonHint: 'Signés',
++	emptyWaiting: 'Les messages envoyés depuis Aujourd’hui arrivent ici.',
++	emptyReplied: 'Quand quelqu’un répond, cliquez sur « Ils ont répondu » sur sa carte.',
++	emptyWon: 'Vos clients signés apparaissent ici.',
++	theyReplied: 'Ils ont répondu',
++	theySigned: 'Client signé',
++	notNow: 'Pas maintenant',
++	email: 'E-mail',
++	sentToday: 'Envoyé aujourd’hui',
++	yesterday: 'Hier',
++	days: (n: number) => `${n} jours`,
++	waitingNext: (n: number, day: string) => `Relance ${n} ${day}`,
++	waitingLast: (day: string) => `Dernière relance envoyée · passe en « Pas maintenant » ${day}`,
++	waitingAnswer: 'En attente de leur réponse',
++	lostLine: (n: number) => `Pas de réponse après 2 relances ? Ils passent en`,
++	lostLink: (n: number) => `Pas maintenant (${n})`,
++	lostEnd: 'et vous ne les relancez plus.',
++	nobody: 'Personne ici.',
++	// settings
++	settings: 'Réglages',
++	tabAgency: 'Votre agence',
++	agencyTitle: 'Votre agence et qui trouver',
++	langTitle: 'Langue de l’application',
++	langHelp: 'Les messages aux commerces sont toujours écrits dans leur langue à eux.',
++	briefTitle: 'E-mail du matin',
++	briefHelp: 'Chaque matin de semaine à 7 h : ce qu’il y a à valider aujourd’hui.',
++	briefOn: 'Activé',
++	briefOff: 'Désactivé',
++	briefNotReady: 'Démarre dès que l’envoi d’e-mails est configuré.',
++	advanced: 'Réglages avancés (Google, rapports)'
++};
++export type Dict = typeof fr;
++
++const nl: Dict = {
++	...fr,
++	navToday: 'Vandaag',
++	navReplies: 'Antwoorden',
++	navSettings: 'Instellingen',
++	askAi: 'Vraag het Undercut',
++	account: 'Account & instellingen',
++	team: 'Team',
++	billing: 'Abonnement',
++	myAccount: 'Mijn account',
++	logout: 'Afmelden',
++	hello: ['Goeiemorgen', 'Goeiemiddag', 'Goeienavond'],
++	today: 'Vandaag',
++	toApprove: 'goed te keuren',
++	sentWeek: 'verstuurd deze week',
++	repliesWeek: 'antwoorden deze week',
++	find5: 'Vind 5 klanten meer',
++	finding: 'Zoeken rond',
++	searchesLeft: (n, q) => `nog ${n} van ${q} zoekopdrachten deze maand`,
++	found: (n) => `${n} nieuwe zaak${n > 1 ? 'en' : ''} toegevoegd.`,
++	queueTitle: 'Goed te keuren',
++	queueLeft: (l, d, t) => `nog ${l}${t ? ` · ${d} van ${t} klaar` : ''}`,
++	queueHelp: 'Eén zaak tegelijk: lees het bericht, pas het aan als u wilt, verstuur het of sla het over. Er vertrekt niets zonder u.',
++	tagFirst: 'Nieuwe potentiële klant',
++	tagFollow: (n) => `Opvolging ${n} van 2`,
++	of: 'van',
++	why: 'Waarom ze u nodig hebben',
++	told: 'Wat u hun schreef',
++	check: 'Controleer het zelf:',
++	to: 'Aan:',
++	noEmail: 'Geen e-mail gevonden: kopieer het bericht voor Instagram, Facebook of WhatsApp',
++	orCall: ' of bel',
++	writtenIn: { fr: 'In het Frans, zoals hun website', nl: 'In het Nederlands, zoals hun website', en: 'In het Engels, zoals hun website' },
++	edit: 'Bericht aanpassen',
++	doneEditing: 'Klaar',
++	sendEmail: 'Versturen per e-mail',
++	copyMark: 'Bericht kopiëren (gemarkeerd als verstuurd)',
++	copyDm: 'Kopiëren voor Instagram',
++	copyDmPlain: 'Kopiëren voor een privébericht',
++	call: 'Bellen',
++	notFit: 'Niet interessant',
++	later: 'Later',
++	copied: 'Gekopieerd. Plak het in uw bericht.',
++	allDone: 'Alles gedaan voor vandaag',
++	allDoneText: (sent, waiting) => `${sent ? `U verstuurde ${sent} bericht${sent > 1 ? 'en' : ''}. ` : ''}Undercut herinnert u eraan op te volgen na 4 dagen zonder antwoord.${waiting ? ` Nog ${waiting} klaar voor morgen.` : ''}`,
++	seeReplies: 'Bekijk wie antwoordde →',
++	statSent: 'verstuurd',
++	statReplied: 'antwoorden',
++	statWon: 'klanten',
++	thisWeek: 'Deze week',
++	nowLabel: 'Nu',
++	newLabel: 'Nieuw',
++	followLabel: 'Opvolging',
++	doneSent: 'Verstuurd',
++	doneSkipped: 'Overgeslagen',
++	doneLater: 'Later',
++	start1: 'Duurt 1 minuut',
++	startTitle: 'Wie moeten we voor u vinden?',
++	startText: 'Plak uw website of profiel en beantwoord 3 vragen. Undercut vindt zaken in de buurt die nodig hebben wat u verkoopt, en schrijft het eerste bericht.',
++	qUrl: '1 · De website, Instagram, TikTok of LinkedIn van uw bureau',
++	qUrlPh: 'uwbureau.be of instagram.com/uwbureau',
++	foundYou: 'Gevonden:',
++	qSell: '2 · Wat u verkoopt',
++	qSellGuess: '(we raadden het, pas aan indien nodig)',
++	qSellSkip: '(we raden het van uw website als u dit overslaat)',
++	qWho: '3 · Welke klanten wilt u?',
++	qWhoHelp: 'Klein: winkels, restaurants, salons, zelfstandigen. Groter: hotels, klinieken, advocaten- en boekhoudkantoren, bedrijven.',
++	qCity: 'Rond welke stad?',
++	qCityPh: 'Gevonden op uw website, of typ ze',
++	startBtn: 'Vind mijn eerste 5 klanten →',
++	saveBtn: 'Opslaan',
++	saved: 'Opgeslagen.',
++	startBusy: ['Uw website lezen…', 'Zoeken rond', 'Elke zaak controleren…', 'Berichten schrijven in hun taal…', 'Bijna klaar…'],
++	startWait: 'Tot een minuut: elke zaak wordt gecontroleerd voor u ze ziet.',
++	startNote: 'U ziet elke zaak en haar bericht voor er iets vertrekt.',
++	services: { web: 'Websites', branding: 'Branding', social: 'Sociale media', seo: 'SEO', ads: 'Advertenties', video: 'Foto & video', app: 'Apps' },
++	targets: { small: 'Kleine zaken', big: 'Grotere bedrijven', any: 'Allebei' },
++	repliesTitle: 'Antwoorden',
++	repliesHelp: 'Iedereen die u schreef. Undercut herinnert u aan de opvolgingen; antwoordt iemand, klik dan op “Ze antwoordden”.',
++	waitingInToday: (n) => `${n} wachten in Vandaag`,
++	colWaiting: 'Wachten op antwoord',
++	colWaitingHint: 'Opvolging gepland',
++	colReplied: 'Antwoordden',
++	colRepliedHint: 'Uw beurt',
++	colWon: 'Klanten',
++	colWonHint: 'Getekend',
++	emptyWaiting: 'Berichten die u vanuit Vandaag verstuurt, komen hier.',
++	emptyReplied: 'Antwoordt iemand, klik dan op “Ze antwoordden” op de kaart.',
++	emptyWon: 'Uw getekende klanten verschijnen hier.',
++	theyReplied: 'Ze antwoordden',
++	theySigned: 'Klant getekend',
++	notNow: 'Niet nu',
++	email: 'E-mail',
++	sentToday: 'Vandaag verstuurd',
++	yesterday: 'Gisteren',
++	days: (n) => `${n} dagen`,
++	waitingNext: (n, day) => `Opvolging ${n} ${day}`,
++	waitingLast: (day) => `Laatste opvolging verstuurd · gaat naar “Niet nu” ${day}`,
++	waitingAnswer: 'Wachten op hun antwoord',
++	lostLine: () => 'Geen antwoord na 2 opvolgingen? Ze gaan naar',
++	lostLink: (n) => `Niet nu (${n})`,
++	lostEnd: 'en u volgt ze niet meer op.',
++	nobody: 'Niemand hier.',
++	settings: 'Instellingen',
++	tabAgency: 'Uw bureau',
++	agencyTitle: 'Uw bureau en wie te vinden',
++	langTitle: 'Taal van de app',
++	langHelp: 'Berichten aan zaken worden altijd in hun eigen taal geschreven.',
++	briefTitle: 'Ochtendmail',
++	briefHelp: 'Elke weekdag om 7 u: wat u vandaag moet goedkeuren.',
++	briefOn: 'Aan',
++	briefOff: 'Uit',
++	briefNotReady: 'Start zodra het versturen van e-mails is ingesteld.',
++	advanced: 'Geavanceerde instellingen (Google, rapporten)'
++};
++
++const en: Dict = {
++	...fr,
++	navToday: 'Today',
++	navReplies: 'Replies',
++	navSettings: 'Settings',
++	askAi: 'Ask Undercut',
++	account: 'Account & settings',
++	team: 'Team',
++	billing: 'Billing',
++	myAccount: 'My account',
++	logout: 'Log out',
++	hello: ['Good morning', 'Good afternoon', 'Good evening'],
++	today: 'Today',
++	toApprove: 'to approve',
++	sentWeek: 'sent this week',
++	repliesWeek: 'replies this week',
++	find5: 'Find 5 more clients',
++	finding: 'Looking around',
++	searchesLeft: (n, q) => `${n} of ${q} searches left this month`,
++	found: (n) => `${n} new business${n > 1 ? 'es' : ''} added.`,
++	queueTitle: 'To approve',
++	queueLeft: (l, d, t) => `${l} left${t ? ` · ${d} of ${t} done` : ''}`,
++	queueHelp: 'One business at a time: read the message, edit it if you want, then send it or skip. Nothing goes out without you.',
++	tagFirst: 'New potential client',
++	tagFollow: (n) => `Follow-up ${n} of 2`,
++	of: 'of',
++	why: 'Why they need you',
++	told: 'What you wrote to them',
++	check: 'Check it yourself:',
++	to: 'To:',
++	noEmail: 'No email found: copy the message for Instagram, Facebook or WhatsApp',
++	orCall: ' or call',
++	writtenIn: { fr: 'Written in French, like their site', nl: 'Written in Dutch, like their site', en: 'Written in English, like their site' },
++	edit: 'Edit message',
++	doneEditing: 'Done',
++	sendEmail: 'Send by email',
++	copyMark: 'Copy message (marked as sent)',
++	copyDm: 'Copy for Instagram',
++	copyDmPlain: 'Copy for a direct message',
++	call: 'Call',
++	notFit: 'Not interesting',
++	later: 'Later',
++	copied: 'Copied. Paste it in your message.',
++	allDone: 'All done for today',
++	allDoneText: (sent, waiting) => `${sent ? `You sent ${sent} message${sent > 1 ? 's' : ''}. ` : ''}Undercut reminds you to follow up after 4 days without an answer.${waiting ? ` ${waiting} more ready for tomorrow.` : ''}`,
++	seeReplies: 'See who replied →',
++	statSent: 'sent',
++	statReplied: 'replies',
++	statWon: 'clients',
++	thisWeek: 'This week',
++	nowLabel: 'Now',
++	newLabel: 'New',
++	followLabel: 'Follow-up',
++	doneSent: 'Sent',
++	doneSkipped: 'Skipped',
++	doneLater: 'Later',
++	start1: 'Takes 1 minute',
++	startTitle: 'Who should we find for you?',
++	startText: 'Paste your site or profile and answer 3 questions. Undercut finds local businesses that need what you sell, and writes the first message.',
++	qUrl: '1 · Your agency’s website, Instagram, TikTok or LinkedIn',
++	qUrlPh: 'youragency.com or instagram.com/youragency',
++	foundYou: 'Found:',
++	qSell: '2 · What you sell',
++	qSellGuess: '(we guessed, fix it if needed)',
++	qSellSkip: '(we guess from your site if you skip this)',
++	qWho: '3 · Which clients do you want?',
++	qWhoHelp: 'Small: shops, restaurants, salons, independents. Bigger: hotels, clinics, law and accounting firms, offices.',
++	qCity: 'Around which city?',
++	qCityPh: 'Detected from your site, or type it',
++	startBtn: 'Find my first 5 clients →',
++	saveBtn: 'Save',
++	saved: 'Saved.',
++	startBusy: ['Reading your site…', 'Looking around', 'Checking each business…', 'Writing the messages in their language…', 'Almost there…'],
++	startWait: 'Up to a minute: every business is checked before you see it.',
++	startNote: 'You see each business and its message before anything is sent.',
++	services: { web: 'Websites', branding: 'Branding', social: 'Social media', seo: 'SEO', ads: 'Ads', video: 'Photo & video', app: 'Apps' },
++	targets: { small: 'Small local shops', big: 'Bigger companies', any: 'Both' },
++	repliesTitle: 'Replies',
++	repliesHelp: 'Everyone you wrote to. Undercut reminds you to follow up; when someone answers, click “They replied”.',
++	waitingInToday: (n) => `${n} waiting in Today`,
++	colWaiting: 'Waiting for a reply',
++	colWaitingHint: 'Follow-ups planned',
++	colReplied: 'Replied',
++	colRepliedHint: 'Your turn',
++	colWon: 'Clients',
++	colWonHint: 'Signed',
++	emptyWaiting: 'Messages you send from Today land here.',
++	emptyReplied: 'When someone answers, click “They replied” on their card.',
++	emptyWon: 'Your signed clients show up here.',
++	theyReplied: 'They replied',
++	theySigned: 'Client signed',
++	notNow: 'Not now',
++	email: 'Email',
++	sentToday: 'Sent today',
++	yesterday: 'Yesterday',
++	days: (n) => `${n} days`,
++	waitingNext: (n, day) => `Follow-up ${n} ${day}`,
++	waitingLast: (day) => `Last follow-up sent · moves to “Not now” ${day}`,
++	waitingAnswer: 'Waiting for their answer',
++	lostLine: () => 'No answer after 2 follow-ups? They move to',
++	lostLink: (n) => `Not now (${n})`,
++	lostEnd: 'and you stop following up.',
++	nobody: 'Nobody here.',
++	settings: 'Settings',
++	tabAgency: 'Your agency',
++	agencyTitle: 'Your agency and who to find',
++	langTitle: 'App language',
++	langHelp: 'Messages to businesses are always written in their own language.',
++	briefTitle: 'Morning email',
++	briefHelp: 'Every weekday at 7:00: what to approve today.',
++	briefOn: 'On',
++	briefOff: 'Off',
++	briefNotReady: 'Starts once email sending is set up.',
++	advanced: 'Advanced settings (Google, reports)'
++};
++
++export const DICT: Record<UiLang, Dict> = { fr, nl, en };
++export const dict = (l: string | null | undefined): Dict => DICT[(l as UiLang) in DICT ? (l as UiLang) : 'fr'];
++/** Weekday in the app's language, for "on Tuesday" lines. */
++export const weekday = (d: string, l: UiLang) => new Date(d + 'T12:00:00').toLocaleDateString(l === 'nl' ? 'nl-BE' : l === 'fr' ? 'fr-BE' : 'en-GB', { weekday: 'long' });
+diff --git a/src/lib/server/agency-actions.ts b/src/lib/server/agency-actions.ts
+index 250a80d..06c18cf 100644
+--- a/src/lib/server/agency-actions.ts
++++ b/src/lib/server/agency-actions.ts
+@@ -1,7 +1,7 @@
+ // Form actions shared by the cockpit (/app) and the prospects page (/app/prospects).
+ import { fail, type RequestEvent } from '@sveltejs/kit';
+ import { profileFromUrl, type Service } from './agency-profile.ts';
+-import { applyAsk, dismissBuilt, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
++import { applyAsk, dismissBuilt, findMore, getOS, setUi, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
+ import { isHex } from '#lib/theme.ts';
+ 
+ const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', 'video'];
+@@ -46,6 +46,11 @@ export const agencyActions = {
+ 		if (found.error) return fail(400, { findError: found.error });
+ 		return { found: found.added };
+ 	},
++	ui: async ({ request }: E) => {
++		const v = String((await request.formData()).get('ui'));
++		if (v === 'fr' || v === 'nl' || v === 'en') setUi(v);
++		return { uiSaved: true };
++	},
+ 	find: async () => {
+ 		const r = await findMore(5);
+ 		if (r.error) return fail(400, { findError: r.error });
+diff --git a/src/lib/server/agency-os.ts b/src/lib/server/agency-os.ts
+index 353d55e..364e41a 100644
+--- a/src/lib/server/agency-os.ts
++++ b/src/lib/server/agency-os.ts
+@@ -30,6 +30,7 @@ export type AgencyOS = {
+ 	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
+ 	layoutV?: number; // version of the block set the saved layout was made for
+ 	brief?: boolean; // morning email (on unless turned off)
++	ui?: 'fr' | 'nl' | 'en'; // language of the app, chosen by the agency (messages to businesses use their own language)
+ };
+ const LAYOUT_V = 4; // v4: the sales loop first; tasks, agenda and analytics off by default (add them in Customise)
+ export type Size = 's' | 'm' | 'l' | 'xl';
+@@ -142,7 +143,8 @@ export function setProfile(profile: AgencyProfile) {
+ 		s.built = { at: new Date().toISOString(), kind: l.kind, why: l.why, seen: first ? false : s.built?.seen };
+ 	}
+ 	// the dashboard takes the colour of the agency's site, unless the user picked one
+-	if (profile.color && !s.theme.picked) s.theme = { accent: profile.color };
++	// the dashboard takes the agency's own colour, automatically
++	if (profile.color) s.theme = { accent: profile.color };
+ 	saveOS(s);
+ }
+ 
+@@ -239,3 +241,9 @@ export function dismissBuilt() {
+ 	if (s.built) s.built.seen = true;
+ 	saveOS(s);
+ }
++
++export function setUi(ui: 'fr' | 'nl' | 'en') {
++	const s = getOS();
++	s.ui = ui;
++	saveOS(s);
++}
+diff --git a/src/lib/server/brief.ts b/src/lib/server/brief.ts
+index fc1b899..76a2434 100644
+--- a/src/lib/server/brief.ts
++++ b/src/lib/server/brief.ts
+@@ -12,7 +12,7 @@ const eur = (n: number) => new Intl.NumberFormat('en-IE', { style: 'currency', c
+ export function briefContent(base: string) {
+ 	const os = getOS();
+ 	const b = getBiz();
+-	const items = inboxItems();
++	const items = inboxItems({ payments: false, ui: os.ui ?? os.profile?.lang });
+ 	const t = today();
+ 	const plan = agenda(b, [], 0).filter((a) => a.kind === 'meeting' || a.kind === 'task'); // follow-ups and invoices are already in the inbox
+ 	const m = money(b);
+diff --git a/src/lib/server/inbox.ts b/src/lib/server/inbox.ts
+index 372c976..538edff 100644
+--- a/src/lib/server/inbox.ts
++++ b/src/lib/server/inbox.ts
+@@ -20,7 +20,7 @@ export type InboxItem = {
+ 	// for the one-card-at-a-time "Today" view
+ 	name: string; // the business or the person
+ 	meta: string; // one line under the name
+-	reasonsTitle?: string;
++	reasonsTitle?: 'why' | 'told';
+ 	reasons?: string[]; // why they need the agency (or what you told them)
+ 	proof?: { label: string; url: string }[]; // links to check it yourself
+ 	lang?: Lang;
+@@ -65,7 +65,9 @@ const REMIND: Record<Lang, (p: { who: string; label: string; amount: string; due
+ };
+ 
+ /** Everything to approve today, most urgent first. */
+-export function inboxItems(): InboxItem[] {
++export function inboxItems(opts: { payments?: boolean; ui?: Lang } = {}): InboxItem[] {
++	const ui: Lang = opts.ui ?? 'en';
++	const W = { fr: { wrote: 'écrit le', google: 'sur Google', high: 'Bon budget', medium: 'Budget moyen', low: 'Petit budget' }, nl: { wrote: 'geschreven op', google: 'op Google', high: 'Goed budget', medium: 'Gemiddeld budget', low: 'Klein budget' }, en: { wrote: 'you wrote on', google: 'on Google', high: 'Good budget', medium: 'Medium budget', low: 'Small budget' } }[ui];
+ 	const os = getOS();
+ 	const b = getBiz();
+ 	const t = today();
+@@ -76,14 +78,14 @@ export function inboxItems(): InboxItem[] {
+ 	// 1) payment reminders: overdue, and no reminder in the last 7 days
+ 	const recent = (d?: string) => Boolean(d && d > addDays(t, -7));
+ 	const cname = (id?: string) => (id ? b.clients.find((c) => c.id === id) : undefined);
+-	for (const p of b.payments) {
++	for (const p of opts.payments === false ? [] : b.payments) {
+ 		if (p.paidAt || p.due >= t || recent(p.lastReminder)) continue;
+ 		const step = Math.min(2, (p.reminders ?? 0) + 1);
+ 		const c = cname(p.clientId);
+ 		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || p.who, label: p.label || (lang === 'fr' ? 'ma facture' : lang === 'nl' ? 'mijn factuur' : 'my invoice'), amount: money(p.amount, lang), due: date(p.due, lang), agency, step, iban: b.details.iban });
+ 		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, name: p.who, meta: `${p.label || 'Invoice'} · due ${date(p.due, 'en')} · ${p.reminders ? `${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : 'no reminder sent yet'}`, lang, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
+ 	}
+-	for (const d of b.docs) {
++	for (const d of opts.payments === false ? [] : b.docs) {
+ 		if (d.kind !== 'invoice' || d.status !== 'sent' || !d.due || d.due >= t || recent(d.lastReminder)) continue;
+ 		const c = cname(d.clientId);
+ 		const step = Math.min(2, (d.reminders ?? 0) + 1);
+@@ -100,22 +102,21 @@ export function inboxItems(): InboxItem[] {
+ 	for (const p of due) {
+ 		const step = Math.min(MAX_FOLLOWUPS, (p.followups ?? 0) + 1);
+ 		const m = FOLLOW[p.lang ?? lang](step, p.name, agency);
+-		const wrote = p.contactedAt ? date(p.contactedAt, 'en') : '';
+-		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, name: p.name, meta: [p.category, p.city, wrote && `you wrote on ${wrote}`].filter(Boolean).join(' · '), reasonsTitle: 'What you told them', reasons: [p.detail || p.pitch].filter(Boolean), lang: p.lang ?? lang, instagram: p.instagram, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
++		const wrote = p.contactedAt ? date(p.contactedAt, ui) : '';
++		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, name: p.name, meta: [p.category, p.city, wrote && `${W.wrote} ${wrote}`].filter(Boolean).join(' · '), reasonsTitle: 'told', reasons: [p.detail || p.pitch].filter(Boolean), lang: p.lang ?? lang, instagram: p.instagram, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
+ 	}
+ 
+ 	// 3) first messages: the best new prospects, a few a day
+ 	const sentToday = os.pipeline.filter((p) => p.contactedAt === t).length;
+ 	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, Math.max(0, FIRST_PER_DAY - sentToday));
+-	const BUDGET = { high: 'Good budget', medium: 'Medium budget', low: 'Small budget' } as const;
+ 	for (const p of fresh)
+ 		items.push({
+ 			key: `first:${p.id}`,
+ 			kind: 'first',
+ 			id: p.id,
+ 			name: p.name,
+-			meta: [p.category, p.address || p.city, p.google?.rating ? `★ ${p.google.rating} on Google (${p.google.count ?? 0})` : '', p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
+-			reasonsTitle: 'Why they need you',
++			meta: [p.category, p.address || p.city, p.google?.rating ? `★ ${p.google.rating} ${W.google} (${p.google.count ?? 0})` : '', p.budget && W[p.budget]].filter(Boolean).join(' · '),
++			reasonsTitle: 'why',
+ 			// a real customer complaint first, then the biggest problems
+ 			reasons: [...(p.detail ? [p.detail] : []), ...[...p.issues].sort((a, z) => (z.key === 'review' ? 99 : z.weight) - (a.key === 'review' ? 99 : a.weight)).map((i) => i.label)].slice(0, 3),
+ 			proof: p.proof,
+diff --git a/src/routes/app/+layout.server.ts b/src/routes/app/+layout.server.ts
+index 1849d00..7ef56b2 100644
+--- a/src/routes/app/+layout.server.ts
++++ b/src/routes/app/+layout.server.ts
+@@ -20,7 +20,9 @@ export const load = ({ locals }) => {
+ 		account: { name: u?.name || 'Agency owner', email: u?.email ?? '', role: u?.role ?? 'owner' },
+ 		billing: getBilling(),
+ 		unread: unreadCount(),
+-		toApprove: os.profile ? inboxItems().length : 0,
++		toApprove: os.profile ? inboxItems({ payments: false }).length : 0,
++		// the app speaks the language the agency chose (default: the language of its own site)
++		ui: os.ui ?? os.profile?.lang ?? 'fr',
+ 		hasProfile: Boolean(os.profile),
+ 		beta: dbOn(),
+ 		isAdmin: dbOn() ? isAdmin(u?.email) : u?.role === 'owner',
+diff --git a/src/routes/app/+layout.svelte b/src/routes/app/+layout.svelte
+index f624c15..23635bc 100644
+--- a/src/routes/app/+layout.svelte
++++ b/src/routes/app/+layout.svelte
+@@ -3,7 +3,9 @@
+ 	import Logo from '#lib/components/Logo.svelte';
+ 	import Icon from '#lib/components/Icon.svelte';
+ 	import Assistant from '#lib/components/Assistant.svelte';
++	import { dict } from '#lib/i18n.ts';
+ 	let { data, children } = $props();
++	const t = $derived(dict(data.ui));
+ 
+ 	let drawer = $state(false); // mobile sidebar
+ 	// lock the page behind the open mobile sidebar
+@@ -21,17 +23,12 @@
+ 
+ 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 	type Item = { href: string; label: string; icon: any; badge?: number };
++	// Undercut does one thing: find clients. Three places only.
+ 	const agencyNav = $derived([
+-		{ href: '/app', label: 'Today', icon: 'grid', badge: data.toApprove },
+-		{ href: '/app/pipeline', label: 'Pipeline', icon: 'target' },
+-		{ href: '/app/crm', label: 'Clients', icon: 'team' }
++		{ href: '/app', label: t.navToday, icon: 'grid', badge: data.toApprove },
++		{ href: '/app/pipeline', label: t.navReplies, icon: 'target' },
++		{ href: '/app/settings', label: t.navSettings, icon: 'cog' }
+ 	] as Item[]);
+-	const moreNav = [
+-		{ href: '/app/prospects', label: 'All prospects', icon: 'search' },
+-		{ href: '/app/tasks', label: 'Tasks & agenda', icon: 'calendar' },
+-		{ href: '/app/invoices', label: 'Quotes & invoices', icon: 'bill' },
+-		{ href: '/app/analytics', label: 'Analytics', icon: 'chart' }
+-	] as Item[];
+ 	const clientNav = $derived.by(() => {
+ 		if (!current) return [] as { group: string; items: Item[] }[];
+ 		const b = `/app/clients/${current.id}`;
+@@ -66,7 +63,7 @@
+ 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
+ 			return path === hp && (hq === 'mode=app') === appMode;
+ 		}
+-		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline'].includes(hp)) return path === hp || path.startsWith(hp + '/');
++		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline', '/app/settings'].includes(hp)) return path === hp || path.startsWith(hp + '/');
+ 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
+ 	};
+ 
+@@ -109,25 +106,12 @@
+ 		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Agency">
+ 			{#each agencyNav as it (it.href)}{@render link(it)}{/each}
+ 		</nav>
+-		<nav class="mt-4 flex flex-col gap-0.5" aria-label="More">
+-			<p class="px-3 pb-1 text-[10px] font-medium tracking-wider text-muted uppercase">More</p>
+-			{#each moreNav as it (it.href)}{@render link(it)}{/each}
+-		</nav>
+ 
+-		{#if current}
+-			<nav class="mt-4 flex flex-col gap-0.5 border-t border-line pt-4" aria-label="{current.name} sections">
+-				<p class="flex items-center gap-2 px-3 pb-1 text-[11px] font-medium text-muted"><span class="size-2 rounded-full" style="background:{current.color}"></span><span class="truncate">{current.name}</span></p>
+-				{#each clientNav as g, gi (gi)}
+-					{#if g.group}<p class="mt-2 px-3 pb-0.5 text-[10px] font-medium tracking-wider text-muted uppercase">{g.group}</p>{/if}
+-					{#each g.items as it (it.href)}{@render link(it)}{/each}
+-				{/each}
+-			</nav>
+-		{/if}
+ 
+ 		<div class="mt-auto flex flex-col gap-2 pt-4">
+ 			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
+ 				<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
+-				<span class="flex-1 text-left">Ask Undercut AI</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
++				<span class="flex-1 text-left">{t.askAi}</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
+ 			</button>
+ 
+ 			<!-- account & settings -->
+@@ -139,19 +123,19 @@
+ 							<span class="grid size-6 place-items-center rounded-md bg-accent text-[11px] text-accent-ink">{initial(data.agency.name)}</span>
+ 							<span class="flex-1 truncate">{data.agency.name}</span><span class="rounded-full bg-tile px-2 py-0.5 text-[10px] font-normal">{data.beta ? 'Beta' : planLabel}</span>
+ 						</a>
+-						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>Agency settings</a>
+-						<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>Team</a>
+-						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>Billing & usage</a>
++						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>{t.navSettings}</a>
++						<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>{t.team}</a>
++						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>{t.billing}</a>
+ 						<div class="my-2 border-t border-line"></div>
+-						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>My account</a>
+-						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>Log out</a>
++						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>{t.myAccount}</a>
++						<a href="/app/settings/account#logout" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>{t.logout}</a>
+ 					</div>
+ 				{/if}
+ 				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
+ 					<span class="relative grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-ink">
+ 						{initial(data.account.name)}
+ 					</span>
+-					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">Account & settings</span></span>
++					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">{t.account}</span></span>
+ 					<Icon name="cog" size={15} />
+ 				</button>
+ 			</div>
+diff --git a/src/routes/app/+page.server.ts b/src/routes/app/+page.server.ts
+index 9c8c88d..eb25b8c 100644
+--- a/src/routes/app/+page.server.ts
++++ b/src/routes/app/+page.server.ts
+@@ -1,37 +1,21 @@
+-import { getOS, monthlyQuota, pipelineStats, usedThisMonth } from '#lib/server/agency-os.ts';
++import { getOS, monthlyQuota, usedThisMonth } from '#lib/server/agency-os.ts';
+ import { agencyActions } from '#lib/server/agency-actions.ts';
+ import { businessActions } from '#lib/server/business-actions.ts';
+-import { agenda, getBiz, money } from '#lib/server/business.ts';
+-import { analyticsRows } from '#lib/server/analytics-rows.ts';
+ import { inboxItems, weekStats } from '#lib/server/inbox.ts';
+-import { emailReady } from '#lib/server/email.ts';
+ 
+-export const load = async () => {
++// Today: Undercut does one thing, find clients. First messages and follow-ups to approve, one at a time.
++export const load = () => {
+ 	const os = getOS();
+-	const b = getBiz();
+-	const stats = pipelineStats(os);
+-	const names = Object.fromEntries(b.clients.map((c) => [c.id, c.name]));
++	const ui = os.ui ?? os.profile?.lang ?? 'fr';
+ 	return {
+-		inbox: os.profile ? inboxItems() : [],
++		profile: os.profile,
+ 		started: os.pipeline.length > 0,
++		inbox: os.profile ? inboxItems({ payments: false, ui }) : [],
+ 		week: weekStats(),
+ 		waiting: os.pipeline.filter((p) => p.stage === 'new').length,
+-		brief: { on: os.brief !== false, ready: emailReady() },
+-		os: { profile: os.profile, blocks: os.blocks, order: os.order, sizes: os.sizes, goal: os.goal, built: os.built && !os.built.seen ? os.built : null, fresh: os.pipeline.filter((p) => p.stage === 'new').slice(0, 4) },
+-		stats: { counts: stats.counts, wonMonth: stats.wonMonth, wonValue: stats.wonValue, replyRate: stats.replyRate },
+ 		quota: monthlyQuota(),
+-		used: usedThisMonth(os),
+-		tasks: b.tasks.filter((t) => !t.done).sort((a, z) => (a.due ?? '9').localeCompare(z.due ?? '9')).slice(0, 6).map((t) => ({ ...t, client: t.clientId ? names[t.clientId] : undefined })),
+-		openTasks: b.tasks.filter((t) => !t.done).length,
+-		agenda: agenda(b, os.pipeline, 7).slice(0, 7),
+-		clients: b.clients.filter((c) => c.status === 'active').sort((a, z) => (z.fee ?? 0) - (a.fee ?? 0)).slice(0, 6).map((c) => ({ id: c.id, name: c.name, services: c.services, fee: c.fee, site: c.site ? c.site.status >= 200 && c.site.status < 400 : null })),
+-		clientCount: b.clients.length,
+-		clientOptions: b.clients.filter((c) => c.status !== 'ended').map((c) => ({ id: c.id, name: c.name })),
+-		money: money(b),
+-		currency: b.details.currency,
+-		// analytics block: only read the tracked sites when the block is shown
+-		analytics: os.blocks.analytics ? (await analyticsRows()).slice(0, 3) : []
++		used: usedThisMonth(os)
+ 	};
+ };
+ 
+-export const actions = { ...agencyActions, ...businessActions };
++export const actions = { start: agencyActions.start, find: agencyActions.find, inbox: businessActions.inbox };
+diff --git a/src/routes/app/+page.svelte b/src/routes/app/+page.svelte
+index d184d67..fee0a66 100644
+--- a/src/routes/app/+page.svelte
++++ b/src/routes/app/+page.svelte
+@@ -1,311 +1,59 @@
+ <script lang="ts">
+-	import ArrowLink from '#lib/components/ArrowLink.svelte';
+-	import HealthRing from '#lib/components/HealthRing.svelte';
+-	import { n } from '#lib/format.ts';
+ 	import { enhance } from '$app/forms';
++	import { page } from '$app/state';
+ 	import { act } from '#lib/act.ts';
+ 	import StartSetup from '#lib/components/StartSetup.svelte';
+ 	import Inbox from '#lib/components/Inbox.svelte';
+-	import { SWATCHES, NEUTRAL } from '#lib/theme.ts';
+-	import { eur, dayLabel, todayIso } from '#lib/biz-format.ts';
+-	import { flip } from 'svelte/animate';
++	import { dict } from '#lib/i18n.ts';
+ 	let { data, form } = $props();
+ 
+-	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+-	const clear = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update();
+-	let finding = $state(false);
+-	let customise = $state(false);
+-	const LABEL: Record<string, string> = { prospects: 'New prospects', pipeline: 'Pipeline', tasks: 'Tasks', agenda: 'Agenda', clients: 'Clients', money: 'Revenue', analytics: 'Analytics' };
+-	const SPAN: Record<string, string> = { s: 'lg:col-span-4', m: 'lg:col-span-6', l: 'lg:col-span-8', xl: 'lg:col-span-12' };
+-	const SIZE_LABEL: Record<string, string> = { s: '⅓', m: '½', l: '⅔', xl: 'Full' };
+-	type B = (typeof data.os.order)[number];
+-	// local, editable copy of the layout (drag & drop, sizes, visibility); saved to the server after each change
+-	let order = $state<B[]>([]);
+-	let sizes = $state<Record<string, string>>({});
+-	let visible = $state<Record<string, boolean>>({});
+-	$effect.pre(() => {
+-		order = [...data.os.order];
+-		sizes = { ...data.os.sizes };
+-		visible = { ...data.os.blocks };
+-	});
+-	const shown = $derived(order.filter((b) => visible[b]));
+-	const hiddenBlocks = $derived(order.filter((b) => !visible[b]));
+-	let dragging = $state<B | null>(null);
+-	let saving = $state(false);
+-	async function saveLayout() {
+-		saving = true;
+-		const f = new FormData();
+-		f.set('order', JSON.stringify(order));
+-		f.set('sizes', JSON.stringify(sizes));
+-		f.set('visible', JSON.stringify(order.filter((b) => visible[b])));
+-		await fetch(act('layout'), { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true' } });
+-		saving = false;
+-	}
+-	const moveTo = (b: B, target: B) => {
+-		if (b === target) return;
+-		const next = order.filter((x) => x !== b);
+-		next.splice(next.indexOf(target), 0, b);
+-		order = next;
+-	};
+-	const cycleSize = (b: B) => {
+-		const list = ['s', 'm', 'l', 'xl'];
+-		sizes = { ...sizes, [b]: list[(list.indexOf(sizes[b] ?? 'm') + 1) % list.length] };
+-		saveLayout();
+-	};
+-	const setVisible = (b: B, on: boolean) => {
+-		visible = { ...visible, [b]: on };
+-		saveLayout();
+-	};
++	const t = $derived(dict(page.data.ui));
+ 	const hour = new Date().getHours();
+-	const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+-	const t = todayIso();
+-	const cur = $derived(data.currency);
+-	const STAGE_LABEL = { new: 'To contact', contacted: 'Contacted', talking: 'Talking', won: 'Won' } as const;
+-	const KIND: Record<string, string> = { meeting: 'Meeting', task: 'Task', followup: 'Follow-up', invoice: 'Invoice' };
+-	const todayCount = $derived(data.inbox.length);
++	const hello = $derived(t.hello[hour < 12 ? 0 : hour < 18 ? 1 : 2]);
++	const left = $derived(Math.max(0, data.quota - data.used));
++	let finding = $state(false);
+ </script>
+ 
+-<svelte:head><title>Dashboard · Undercut</title></svelte:head>
++<svelte:head><title>{t.today} · Undercut</title></svelte:head>
+ 
+-{#if !data.os.profile || !data.started}
++{#if !data.profile || !data.started}
+ 	<section class="card-dark relative overflow-hidden p-6 sm:p-10">
+ 		<div class="pointer-events-none absolute -right-24 -bottom-24 size-96 rounded-full bg-accent/30 blur-3xl"></div>
+-		<p class="relative text-sm text-accent">Takes 1 minute</p>
+-		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">Who should we find for you?</h1>
+-		<p class="relative mt-3 max-w-xl text-white/60">Paste your site or profile and answer 3 questions. Undercut finds local businesses that need exactly what you sell, and writes the first message.</p>
+-		<div class="relative mt-6 max-w-2xl"><StartSetup profile={data.os.profile} error={form?.setupError ?? form?.findError ?? ''} /></div>
++		<p class="relative text-sm text-accent">{t.start1}</p>
++		<h1 class="relative mt-2 max-w-3xl text-[34px] leading-tight font-medium sm:text-[52px]">{t.startTitle}</h1>
++		<p class="relative mt-3 max-w-xl text-white/60">{t.startText}</p>
++		<div class="relative mt-6 max-w-2xl"><StartSetup profile={data.profile} error={form?.setupError ?? form?.findError ?? ''} {t} /></div>
+ 	</section>
+ {:else}
+ 	<section class="flex flex-wrap items-end justify-between gap-6">
+ 		<div>
+-			<p class="label">{hello} · {data.os.profile.name}</p>
+-			<h1 class="display mt-2 text-[48px] sm:text-[76px]"><em>Today</em></h1>
++			<p class="label">{hello} · {data.profile.name}</p>
++			<h1 class="display mt-2 text-[48px] sm:text-[76px]"><em>{t.today}</em></h1>
+ 		</div>
+-		<div class="flex flex-wrap gap-x-10 gap-y-4">
+-			<div><p class="big text-5xl">{todayCount}</p><p class="mt-1 text-sm text-muted">to approve</p></div>
+-			<div><p class="big text-5xl">{data.openTasks}</p><p class="mt-1 text-sm text-muted">open tasks</p></div>
+-			<div><p class="big text-5xl">{eur(data.money.mrr, cur)}</p><p class="mt-1 text-sm text-muted">per month</p></div>
++		<div class="flex flex-wrap items-end gap-x-10 gap-y-4">
++			<div><p class="big text-5xl">{data.inbox.length}</p><p class="mt-1 text-sm text-muted">{t.toApprove}</p></div>
++			<div><p class="big text-5xl">{data.week.sent}</p><p class="mt-1 text-sm text-muted">{t.sentWeek}</p></div>
++			<div><p class="big text-5xl">{data.week.replied}</p><p class="mt-1 text-sm text-muted">{t.repliesWeek}</p></div>
+ 		</div>
+ 	</section>
+ 
+-	{#if data.os.built}
+-		{@const p = data.os.profile}
+-		<section class="card-dark relative mt-6 overflow-hidden p-6 sm:p-8">
+-			<p class="text-sm text-white/60">✦ Built from {p.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}</p>
+-			<h2 class="mt-2 text-[28px] leading-tight font-medium tracking-[-0.03em] sm:text-[34px]">We built this dashboard for {p.name}.</h2>
+-			<div class="mt-5 flex flex-wrap gap-2 text-sm">
+-				{#each [data.os.built.kind, p.city, p.services.map((x) => ({ web: 'Websites', app: 'Apps', social: 'Social media', seo: 'SEO', branding: 'Branding', ads: 'Ads', video: 'Photo & video' })[x] ?? x).join(', '), { fr: 'Français', nl: 'Nederlands', en: 'English' }[p.lang]].filter(Boolean) as t, i (i)}
+-					<span class="rounded-full bg-white/10 px-3 py-1.5 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{i * 120}ms">{t}</span>
+-				{/each}
+-				{#if data.accent}<span class="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5"><span class="size-3 rounded-full" style="background:{data.accent}"></span>Your colour</span>{/if}
+-			</div>
+-			<ul class="mt-5 grid gap-1.5 text-sm text-white/75 sm:grid-cols-2">
+-				{#each data.os.built.why as w, i (w)}<li class="flex items-center gap-2 [animation:fade-up_.5s_var(--ease-out)_both]" style="animation-delay:{500 + i * 120}ms"><span class="text-white">✓</span>{w}</li>{/each}
+-			</ul>
+-			<div class="mt-6 flex flex-wrap items-center gap-3">
+-				<form method="POST" action={act('built')} use:enhance={keep}><button class="btn bg-white text-ink hover:bg-white/90">Looks good</button></form>
+-				<button type="button" class="btn btn-ghost border-white/20 text-white" onclick={() => (customise = true)}>Change it</button>
+-				<span class="text-xs text-white/50">Or type below: “tasks first”, “hide agenda”…</span>
+-			</div>
+-		</section>
+-	{/if}
+-
+-	<div class="mt-6"><Inbox items={data.inbox} clients={data.clientOptions} error={form?.paymentError ?? ''} brief={data.brief} briefMsg={form?.briefMsg ?? ''} week={data.week} waiting={data.waiting} /></div>
++	<div class="mt-6"><Inbox items={data.inbox} week={data.week} waiting={data.waiting} {t} /></div>
+ 
+-	<!-- ask to change: plain-language edits to the dashboard -->
+-	<form method="POST" action={act('ask')} use:enhance={keep} class="card mt-6 flex flex-col gap-2 p-2 sm:flex-row sm:items-center">
+-		<span class="hidden pl-3 text-muted sm:block">✦</span>
+-		<input name="q" placeholder="Change your dashboard: “hide agenda”, “tasks first”, “make it blue”…" class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none" />
+-		<div class="flex gap-2"><button class="btn btn-accent text-sm">Change</button><button type="button" class="pill text-sm {customise ? 'pill-active' : ''}" onclick={() => (customise = !customise)}>{customise ? 'Done' : 'Customise'}</button></div>
++	<form
++		method="POST"
++		action={act('find')}
++		class="mt-4 flex flex-wrap items-center gap-3"
++		use:enhance={() => {
++			finding = true;
++			return async ({ update }) => {
++				await update({ reset: false });
++				finding = false;
++			};
++		}}
++	>
++		<button class="btn btn-primary" disabled={finding || !left}>{finding ? `${t.finding} ${data.profile.city}…` : `+ ${t.find5}`}</button>
++		<span class="text-xs text-muted">{t.searchesLeft(left, data.quota)}</span>
++		{#if form?.findError}<span class="text-sm text-bad">{form.findError}</span>{/if}
++		{#if form?.found}<span class="text-sm text-good">{t.found(Number(form.found))}</span>{/if}
+ 	</form>
+-	{#if form?.asked}<p class="mt-2 text-sm text-muted">{form.asked}</p>{/if}
+-	{#if customise}
+-		<div class="card mt-3 grid gap-5 p-5">
+-		<div>
+-			<p class="label">Colour</p>
+-			<div class="mt-2 flex flex-wrap items-center gap-2">
+-				<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="" /><button class="pill text-sm {!data.accent || data.accent === NEUTRAL ? 'pill-active' : ''}"><span class="size-3.5 rounded-full border border-line bg-[linear-gradient(135deg,#fff_50%,#0d0d0d_50%)]"></span>Black & white</button></form>
+-				{#if data.siteColor}
+-					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value="site" /><button class="pill text-sm {data.accent === data.siteColor ? 'pill-active' : ''}"><span class="size-3.5 rounded-full" style="background:{data.siteColor}"></span>Your site’s colour</button></form>
+-				{/if}
+-				{#each SWATCHES as c (c)}
+-					<form method="POST" action={act('theme')} use:enhance={keep}><input type="hidden" name="accent" value={c} /><button class="grid size-9 place-items-center rounded-full ring-offset-2 {data.accent?.toLowerCase() === c.toLowerCase() ? 'ring-2 ring-ink' : ''}" style="background:{c}" aria-label="Use {c}"></button></form>
+-				{/each}
+-				<form method="POST" action={act('theme')} use:enhance={keep} class="flex items-center gap-2">
+-					<label class="relative grid size-9 cursor-pointer place-items-center overflow-hidden rounded-full border border-line bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]" title="Any colour"><input type="color" name="accent" value={data.accent ?? '#2f6bff'} class="absolute inset-0 cursor-pointer opacity-0" onchange={(e) => e.currentTarget.form?.requestSubmit()} /></label>
+-				</form>
+-			</div>
+-		</div>
+-		<div class="flex flex-wrap items-center justify-between gap-3 rounded-[18px] bg-black/[.03] px-4 py-3 text-sm">
+-			<p class="text-ink-2"><b class="font-medium text-ink">Edit mode:</b> drag blocks to move them, change their width, hide them, or add new ones below.</p>
+-			<span class="text-xs text-muted">{saving ? 'Saving…' : 'Saved automatically'}</span>
+-		</div>
+-		</div>
+-	{/if}
+-
+-	<!-- 12-column grid: blocks on the same row share the same height -->
+-	<div class="mt-5 grid gap-4 lg:auto-rows-[minmax(330px,auto)] lg:grid-flow-dense lg:grid-cols-12">
+-		{#each shown as b (b)}
+-			<div
+-				class="relative flex min-w-0 flex-col transition-[opacity,transform] duration-200 {SPAN[sizes[b] ?? 'm']} {customise ? 'cursor-grab rounded-[30px] outline-2 outline-offset-4 outline-dashed outline-black/15 active:cursor-grabbing' : ''} {dragging === b ? 'scale-[.98] opacity-40' : ''}"
+-				animate:flip={{ duration: 300 }}
+-				draggable={customise}
+-				role="listitem"
+-				ondragstart={(e) => {
+-					dragging = b;
+-					e.dataTransfer?.setData('text/plain', b);
+-				}}
+-				ondragover={(e) => {
+-					if (!dragging) return;
+-					e.preventDefault();
+-					moveTo(dragging, b);
+-				}}
+-				ondragend={() => {
+-					if (dragging) saveLayout();
+-					dragging = null;
+-				}}
+-			>
+-				{#if customise}
+-					<div class="absolute -top-3 right-4 z-20 flex items-center gap-1 rounded-full bg-ink p-1 text-xs text-white shadow-lg">
+-						<span class="px-2 select-none" title="Drag to move">⠿ {LABEL[b]}</span>
+-						<button type="button" class="rounded-full bg-white/10 px-2.5 py-1 hover:bg-white/20" onclick={() => cycleSize(b)} title="Change width">{SIZE_LABEL[sizes[b] ?? 'm']}</button>
+-						<button type="button" class="grid size-6 place-items-center rounded-full hover:bg-white/20" onclick={() => setVisible(b, false)} aria-label="Hide {LABEL[b]}">✕</button>
+-					</div>
+-				{/if}
+-				<div class="flex flex-1 flex-col {customise ? 'pointer-events-none select-none' : ''}">
+-				{#if b === 'prospects'}
+-					<section class="card-dark relative flex flex-1 flex-col overflow-hidden p-5 sm:p-7">
+-						<div class="pointer-events-none absolute -top-20 -right-20 size-72 rounded-full bg-accent/20 blur-3xl"></div>
+-						<div class="relative flex flex-wrap items-start justify-between gap-3">
+-							<div><p class="font-medium">New prospects</p><p class="mt-1 text-sm text-white/50">Around {data.os.profile.city} · {Math.max(0, data.quota - data.used)} of {data.quota} left this month</p></div>
+-							<form method="POST" action={act('find')} use:enhance={() => { finding = true; return async ({ update }) => { await update({ reset: false }); finding = false; }; }}>
+-								<button class="btn btn-accent text-sm" disabled={finding || data.used >= data.quota}>{finding ? 'Looking…' : '+ Find 5'}</button>
+-							</form>
+-						</div>
+-						{#if form?.findError}<p class="relative mt-3 text-sm text-[#ffb4a8]">{form.findError}</p>{/if}
+-						<ul class="relative mt-5 grid min-w-0 flex-1 grid-cols-1 content-start gap-2">
+-							{#each data.os.fresh as p (p.id)}
+-								<li class="min-w-0"><a href="/app/prospects" class="flex min-w-0 items-center gap-3 rounded-[18px] bg-white/[.06] p-3 hover:bg-white/10">
+-									<span class="grid size-10 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold text-accent-ink">{p.score}</span>
+-									<span class="min-w-0"><b class="block truncate text-sm font-medium">{p.name}</b><span class="block truncate text-xs text-white/50">{p.category} · {p.pitch}</span></span>
+-								</a></li>
+-							{:else}
+-								<li class="rounded-[18px] bg-white/[.06] p-4 text-sm text-white/60">{finding ? 'Checking the websites of businesses around you…' : 'Press “Find 5”: we look at real businesses around you, check each website and write the first message.'}</li>
+-							{/each}
+-						</ul>
+-						{#if data.os.fresh.length}<a href="/app/prospects" class="relative mt-4 inline-block text-sm text-white/80 hover:underline">See all and contact them →</a>{/if}
+-					</section>
+-				{:else if b === 'pipeline'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between"><p class="font-medium">Pipeline</p><ArrowLink href="/app/prospects" label="Open pipeline" /></div>
+-						<ul class="mt-5 grid gap-3">
+-							{#each Object.entries(STAGE_LABEL) as [k, l] (k)}
+-								{@const c = data.stats.counts[k as keyof typeof STAGE_LABEL]}
+-								{@const max = Math.max(1, ...Object.keys(STAGE_LABEL).map((x) => data.stats.counts[x as keyof typeof STAGE_LABEL]))}
+-								<li class="grid grid-cols-[88px_1fr_28px] items-center gap-3 text-sm"><span class="text-muted">{l}</span><span class="h-2.5 overflow-hidden rounded-full bg-tile"><span class="block h-full rounded-full bg-ink" style="width:{(c / max) * 100}%"></span></span><b class="text-right font-medium">{c}</b></li>
+-							{/each}
+-						</ul>
+-						<p class="mt-auto pt-4 text-xs text-muted">{data.stats.replyRate != null ? `${data.stats.replyRate}% of contacted businesses answered.` : 'Move prospects along as you contact them. When one signs, press “Make client”.'}</p>
+-					</section>
+-				{:else if b === 'tasks'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between"><p class="font-medium">Tasks <span class="text-sm font-normal text-muted">· {data.openTasks} open</span></p><ArrowLink href="/app/tasks" label="All tasks" /></div>
+-						<form method="POST" action={act('task')} use:enhance={clear} class="mt-4 flex gap-2">
+-							<input name="title" required placeholder="Add a task…" class="input text-sm" />
+-							<input name="due" type="date" class="input hidden w-36 min-w-0 shrink-0 text-sm sm:block" aria-label="Due date" />
+-							<button class="pill text-sm">Add</button>
+-						</form>
+-						<ul class="mt-3 flex-1 divide-y divide-line">
+-							{#each data.tasks as k (k.id)}
+-								<li class="flex items-center gap-3 py-2 text-sm">
+-									<form method="POST" action={act('toggleTask')} use:enhance={keep}><input type="hidden" name="id" value={k.id} /><button class="grid size-5 place-items-center rounded-md border border-ink/25 hover:border-ink" aria-label="Mark as done"></button></form>
+-									<span class="min-w-0 flex-1"><span class="block truncate">{k.title}</span>{#if k.client}<span class="block truncate text-xs text-muted">{k.client}</span>{/if}</span>
+-									{#if k.due}<span class="shrink-0 text-xs {k.due < t ? 'text-bad' : 'text-muted'}">{k.due === t ? 'Today' : dayLabel(k.due)}</span>{/if}
+-								</li>
+-							{:else}
+-								<li class="py-2 text-sm text-muted">Nothing to do yet. Add your first task above.</li>
+-							{/each}
+-						</ul>
+-					</section>
+-				{:else if b === 'agenda'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between"><p class="font-medium">Agenda <span class="text-sm font-normal text-muted">· next 7 days</span></p><ArrowLink href="/app/tasks" label="Open agenda" /></div>
+-						<ul class="mt-4 flex-1 space-y-1.5">
+-							{#each data.agenda as a (a.kind + a.id)}
+-								<li><a href={a.href} class="flex items-center gap-3 rounded-[14px] bg-tile px-3 py-2 text-sm hover:bg-[#e6e6e1]">
+-									<span class="w-[88px] shrink-0 text-xs {a.late ? 'text-bad' : 'text-muted'}">{a.late ? 'Late' : a.date === t ? 'Today' : dayLabel(a.date)}{a.time ? ` ${a.time}` : ''}</span>
+-									<span class="min-w-0 flex-1 truncate">{a.title}{#if a.sub}<span class="text-muted"> · {a.sub}</span>{/if}</span>
+-									<span class="hidden shrink-0 text-[11px] text-muted sm:inline">{KIND[a.kind]}</span>
+-								</a></li>
+-							{:else}
+-								<li class="text-sm text-muted">Nothing planned this week. Meetings, tasks with a date, follow-ups and invoices due show up here.</li>
+-							{/each}
+-						</ul>
+-						<a href="/app/tasks" class="mt-4 text-sm text-ink-2 hover:underline">+ Add a meeting</a>
+-					</section>
+-				{:else if b === 'clients'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between gap-3"><p class="font-medium">Clients <span class="text-sm font-normal text-muted">· {data.money.active} active</span></p><ArrowLink href="/app/crm" label="All clients" /></div>
+-						{#if data.clients.length}
+-							<ul class="mt-4 flex-1 divide-y divide-line">
+-								{#each data.clients as c (c.id)}
+-									<li><a href="/app/crm/{c.id}" class="flex items-center gap-3 py-2.5 text-sm hover:underline">
+-										<span class="grid size-8 shrink-0 place-items-center rounded-full bg-tile text-xs font-semibold">{c.name.slice(0, 1).toUpperCase()}</span>
+-										<span class="min-w-0 flex-1"><span class="block truncate font-medium">{c.name}</span><span class="block truncate text-xs text-muted">{c.services.join(', ') || 'No services listed'}</span></span>
+-										{#if c.site !== null}<span class="text-xs {c.site ? 'text-good' : 'text-bad'}" title="Website check">{c.site ? '● site online' : '● site down'}</span>{/if}
+-										<span class="w-20 shrink-0 text-right">{c.fee ? eur(c.fee, cur) : '—'}</span>
+-									</a></li>
+-								{/each}
+-							</ul>
+-						{:else}
+-							<p class="mt-4 flex-1 text-sm text-muted">{data.clientCount ? 'No active clients right now.' : 'Add the clients you already work for, or turn a won prospect into a client from your pipeline.'}</p>
+-						{/if}
+-						<a href="/app/crm" class="btn btn-primary mt-4 self-start text-sm">+ Add client</a>
+-					</section>
+-				{:else if b === 'money'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between"><p class="font-medium">Revenue</p><ArrowLink href="/app/invoices" label="Quotes & invoices" /></div>
+-						<p class="mt-4 text-xs text-muted">Monthly retainers</p>
+-						<p class="big text-5xl">{eur(data.money.mrr, cur)}</p>
+-						<dl class="mt-4 grid grid-cols-2 gap-2 text-sm">
+-							<div class="rounded-[14px] bg-tile p-3"><dt class="text-xs text-muted">Paid this month</dt><dd class="mt-0.5 font-medium">{eur(data.money.paidMonth, cur)}</dd></div>
+-							<div class="rounded-[14px] bg-tile p-3"><dt class="text-xs text-muted">Waiting</dt><dd class="mt-0.5 font-medium {data.money.overdue ? 'text-bad' : ''}">{eur(data.money.unpaid, cur)}{data.money.overdue ? ` · ${data.money.overdue} late` : ''}</dd></div>
+-						</dl>
+-						<div class="mt-auto pt-5">
+-							<div class="flex items-baseline justify-between text-sm"><span class="text-muted">New clients this month</span><b class="font-medium">{data.stats.wonMonth} / {data.os.goal.wonPerMonth}</b></div>
+-							<div class="mt-2 h-2 overflow-hidden rounded-full bg-tile"><div class="h-full rounded-full bg-ink" style="width:{Math.min(100, (data.stats.wonMonth / data.os.goal.wonPerMonth) * 100)}%"></div></div>
+-							<form method="POST" action={act('goal')} use:enhance={keep} class="mt-2 flex items-center gap-2 text-xs text-muted">Goal <input name="won" type="number" min="1" max="100" value={data.os.goal.wonPerMonth} class="input w-16 py-1 text-sm" /> per month <button class="pill text-xs">Save</button></form>
+-						</div>
+-					</section>
+-				{:else if b === 'analytics'}
+-					<section class="card flex flex-1 flex-col p-5 sm:p-6">
+-						<div class="flex items-center justify-between gap-3"><p class="font-medium">Analytics <span class="text-sm font-normal text-muted">· your clients’ sites and apps</span></p><ArrowLink href="/app/analytics" label="All analytics" /></div>
+-						{#if data.analytics.length}
+-							<div class="mt-4 grid flex-1 gap-3 sm:grid-cols-3">
+-								{#each data.analytics as r (r.client.id)}
+-									<a href="/app/clients/{r.client.id}" class="flex flex-col rounded-[20px] bg-tile p-4 hover:bg-[#e6e6e1]">
+-										<div class="flex items-center justify-between gap-3"><b class="truncate text-sm font-medium">{r.client.name}</b><HealthRing score={r.health.score} size={40} /></div>
+-										{#if r.main && (r.main.value || r.main.prev)}<p class="mt-3 big text-3xl">{n(r.main.value)}</p><p class="text-xs text-muted">{r.main.label}, 28 days</p>{:else}<p class="mt-3 text-sm text-muted">No data yet: connect Google or the snippet.</p>{/if}
+-										{#if r.tasks[0]}<p class="mt-auto truncate pt-3 text-xs text-ink-2">→ {r.tasks[0].title}</p>{/if}
+-									</a>
+-								{/each}
+-							</div>
+-						{:else}
+-							<p class="mt-4 flex-1 text-sm text-muted">Track your clients’ websites and apps: visits, leads, Google, heatmaps, SEO fixes, app users. Real data only, from the tools you connect.</p>
+-						{/if}
+-						<a href="/app/clients/new" class="pill mt-4 self-start text-sm">+ Track a site or app</a>
+-					</section>
+-				{/if}
+-				</div>
+-			</div>
+-		{/each}
+-	</div>
+-	{#if customise && hiddenBlocks.length}
+-		<div class="mt-6 rounded-[28px] border-2 border-dashed border-black/10 p-5">
+-			<p class="label">Add a block</p>
+-			<div class="mt-3 flex flex-wrap gap-2">
+-				{#each hiddenBlocks as b (b)}<button type="button" class="pill text-sm" onclick={() => setVisible(b, true)}>+ {LABEL[b]}</button>{/each}
+-			</div>
+-		</div>
+-	{/if}
+ {/if}
+diff --git a/src/routes/app/pipeline/+page.svelte b/src/routes/app/pipeline/+page.svelte
+index d6858b6..ba25553 100644
+--- a/src/routes/app/pipeline/+page.svelte
++++ b/src/routes/app/pipeline/+page.svelte
+@@ -1,36 +1,33 @@
+ <script lang="ts">
+ 	import { enhance } from '$app/forms';
++	import { page } from '$app/state';
+ 	import { act } from '#lib/act.ts';
+-	import { eur } from '#lib/biz-format.ts';
++	import { dict, weekday, type UiLang } from '#lib/i18n.ts';
+ 	let { data } = $props();
+ 
++	const t = $derived(dict(page.data.ui));
++	const ui = $derived((page.data.ui ?? 'fr') as UiLang);
+ 	type Card = (typeof data.waiting)[number];
+ 	let showLost = $state(false);
+ 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+-	const DAY = 86400000;
+ 	const ago = (d?: string) => {
+ 		if (!d) return '';
+-		const n = Math.round((Date.now() - new Date(d + 'T12:00:00').getTime()) / DAY);
+-		return n <= 0 ? 'Today' : n === 1 ? 'Yesterday' : `${n} days`;
+-	};
+-	const day = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
+-	const waitingLine = (c: Card) => {
+-		if (!c.next) return 'Waiting for their answer';
+-		if (c.followups >= 2) return `Last follow-up sent · moves to Not now on ${day(c.next)}`;
+-		return `Follow-up ${c.followups + 1} on ${day(c.next)}${c.followups ? ' · last one after that' : ''}`;
++		const n = Math.round((Date.now() - new Date(d + 'T12:00:00').getTime()) / 86400000);
++		return n <= 0 ? t.sentToday : n === 1 ? t.yesterday : t.days(n);
+ 	};
++	const waitingLine = (c: Card) => (!c.next ? t.waitingAnswer : c.followups >= 2 ? t.waitingLast(weekday(c.next, ui)) : t.waitingNext(c.followups + 1, weekday(c.next, ui)));
+ 	const cols = $derived([
+-		{ key: 'waiting', title: 'Waiting for a reply', hint: 'Undercut follows up', cards: data.waiting, empty: 'Messages you send from Today land here.' },
+-		{ key: 'replied', title: 'Replied', hint: 'Your turn', cards: data.replied, empty: 'When someone answers, tap “They replied” on their card.' },
+-		{ key: 'won', title: 'Clients', hint: 'Won', cards: data.won, empty: 'Signed clients show up here.' }
++		{ key: 'waiting', title: t.colWaiting, hint: t.colWaitingHint, cards: data.waiting, empty: t.emptyWaiting },
++		{ key: 'replied', title: t.colReplied, hint: t.colRepliedHint, cards: data.replied, empty: t.emptyReplied },
++		{ key: 'won', title: t.colWon, hint: t.colWonHint, cards: data.won, empty: t.emptyWon }
+ 	]);
+ </script>
+ 
+-<svelte:head><title>Pipeline · Undercut</title></svelte:head>
++<svelte:head><title>{t.repliesTitle} · Undercut</title></svelte:head>
+ 
+ <section>
+-	<p class="label">Everyone you wrote to · Undercut follows up for you{#if data.toSend} · <a href="/app" class="underline">{data.toSend} waiting in Today</a>{/if}</p>
+-	<h1 class="display mt-2 text-[48px] sm:text-[72px]">Your <em>pipeline</em></h1>
++	<p class="label">{t.repliesHelp}{#if data.toSend} · <a href="/app" class="underline">{t.waitingInToday(data.toSend)}</a>{/if}</p>
++	<h1 class="display mt-2 text-[48px] sm:text-[72px]"><em>{t.repliesTitle}</em></h1>
+ </section>
+ 
+ <div class="mt-6 grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
+@@ -45,26 +42,21 @@
+ 					<article class="flex flex-col gap-1.5 rounded-[18px] bg-tile p-4">
+ 						<div class="flex items-baseline justify-between gap-2">
+ 							<h3 class="min-w-0 truncate font-medium">{c.name}</h3>
+-							<span class="text-xs whitespace-nowrap text-muted">{col.key === 'waiting' ? (ago(c.contactedAt) === 'Today' ? 'Sent today' : ago(c.contactedAt)) : col.key === 'replied' ? ago(c.updatedAt) : `Since ${new Date(c.updatedAt + 'T12:00:00').toLocaleDateString('en-GB', { month: 'short' })}`}</span>
++							<span class="text-xs whitespace-nowrap text-muted">{col.key === 'waiting' ? ago(c.contactedAt) : ago(c.updatedAt)}</span>
+ 						</div>
+-						<p class="text-sm text-ink-2">
+-							{#if col.key === 'waiting'}{waitingLine(c)}
+-							{:else if col.key === 'replied'}{c.note || c.category}
+-							{:else}{[c.category, c.value ? `${eur(c.value)}/month` : ''].filter(Boolean).join(' · ')}{/if}
+-						</p>
++						<p class="text-sm text-ink-2">{col.key === 'waiting' ? waitingLine(c) : [c.category, c.email || c.phone].filter(Boolean).join(' · ')}</p>
+ 						<div class="mt-1 flex flex-wrap items-center gap-2">
+ 							{#if col.key === 'waiting'}
+-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="btn btn-primary text-sm">They replied</button></form>
+-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">Not now</button></form>
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="btn btn-primary text-sm">{t.theyReplied}</button></form>
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">{t.notNow}</button></form>
+ 							{:else if col.key === 'replied'}
+-								<form method="POST" action={act('makeClient')}><input type="hidden" name="id" value={c.id} /><button class="btn btn-primary text-sm">They signed</button></form>
+-								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">Email</a>{/if}
+-								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">Call</a>{/if}
+-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">Not now</button></form>
+-							{:else if c.clientId}
+-								<a href="/app/crm/{c.clientId}" class="pill text-sm">Open client</a>
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="won" class="btn btn-primary text-sm">{t.theySigned}</button></form>
++								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">{t.email}</a>{/if}
++								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">{t.call}</a>{/if}
++								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">{t.notNow}</button></form>
+ 							{:else}
+-								<form method="POST" action={act('makeClient')}><input type="hidden" name="id" value={c.id} /><button class="pill text-sm">Open client</button></form>
++								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">{t.email}</a>{/if}
++								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">{t.call}</a>{/if}
+ 							{/if}
+ 						</div>
+ 					</article>
+@@ -77,19 +69,19 @@
+ </div>
+ 
+ <p class="mt-5 text-sm text-muted">
+-	No answer after 2 follow-ups? They move to
+-	<button class="text-ink underline" onclick={() => (showLost = !showLost)} aria-expanded={showLost}>Not now ({data.lost.length})</button>
+-	and you never chase them again.
++	{t.lostLine(data.lost.length)}
++	<button class="text-ink underline" onclick={() => (showLost = !showLost)} aria-expanded={showLost}>{t.lostLink(data.lost.length)}</button>
++	{t.lostEnd}
+ </p>
+ {#if showLost}
+ 	<ul class="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
+ 		{#each data.lost as c (c.id)}
+ 			<li class="card flex items-center justify-between gap-3 px-4 py-3">
+ 				<span class="min-w-0"><span class="block truncate font-medium">{c.name}</span><span class="block text-xs text-muted">{c.category}</span></span>
+-				<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="pill text-sm">They replied</button></form>
++				<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="pill text-sm">{t.theyReplied}</button></form>
+ 			</li>
+ 		{:else}
+-			<li class="text-sm text-muted">Nobody here.</li>
++			<li class="text-sm text-muted">{t.nobody}</li>
+ 		{/each}
+ 	</ul>
+ {/if}
+diff --git a/src/routes/app/settings/+layout.svelte b/src/routes/app/settings/+layout.svelte
+index bffae4e..7d2c337 100644
+--- a/src/routes/app/settings/+layout.svelte
++++ b/src/routes/app/settings/+layout.svelte
+@@ -1,17 +1,18 @@
+ <script lang="ts">
+ 	import { page } from '$app/state';
++	import { dict } from '#lib/i18n.ts';
+ 	let { children } = $props();
+-	const tabs = [
+-		{ href: '/app/settings', label: 'Agency' },
+-		{ href: '/app/settings/alerts', label: 'Alerts' },
+-		{ href: '/app/settings/team', label: 'Team' },
+-		{ href: '/app/settings/billing', label: 'Billing & usage' },
+-		{ href: '/app/settings/account', label: 'My account' }
+-	];
++	const t = $derived(dict(page.data.ui));
++	const tabs = $derived([
++		{ href: '/app/settings', label: t.tabAgency },
++		{ href: '/app/settings/team', label: t.team },
++		{ href: '/app/settings/billing', label: t.billing },
++		{ href: '/app/settings/account', label: t.myAccount }
++	]);
+ </script>
+ 
+-<h1 class="display text-[56px] sm:text-[72px]">Settings</h1>
++<h1 class="display text-[56px] sm:text-[72px]">{t.settings}</h1>
+ <nav class="scrollbar-none mt-4 -mx-3 flex gap-2 overflow-x-auto px-3">
+-	{#each tabs as t (t.href)}<a href={t.href} class="pill {page.url.pathname === t.href ? 'pill-active' : ''}">{t.label}</a>{/each}
++	{#each tabs as tb (tb.href)}<a href={tb.href} class="pill {page.url.pathname === tb.href ? 'pill-active' : ''}">{tb.label}</a>{/each}
+ </nav>
+ <div class="mt-6">{@render children()}</div>
+diff --git a/src/routes/app/settings/+page.server.ts b/src/routes/app/settings/+page.server.ts
+index de0f7c7..1de2c9b 100644
+--- a/src/routes/app/settings/+page.server.ts
++++ b/src/routes/app/settings/+page.server.ts
+@@ -1,42 +1,12 @@
+-import { redirect } from '@sveltejs/kit';
+-import * as env from '$app/env/private';
+-import { getAgency, listClients, saveAgency, saveTokens } from '#lib/server/store.ts';
+-import { SCOPES, clearGoogleCache, googleHealth, testConnection } from '#lib/server/google.ts';
++import { getOS } from '#lib/server/agency-os.ts';
++import { agencyActions } from '#lib/server/agency-actions.ts';
++import { businessActions } from '#lib/server/business-actions.ts';
++import { emailReady } from '#lib/server/email.ts';
+ 
+-export const load = ({ url }) => ({
+-	scopes: SCOPES,
+-	redirectUri: env.GOOGLE_REDIRECT_URI || `${url.origin}/auth/google/callback`,
+-	origin: url.origin,
+-	publicUrl: env.PUBLIC_BASE_URL || '',
+-	exampleClient: listClients()[0]?.id ?? null,
+-	health: googleHealth(),
+-	keys: {
+-		serpapi: Boolean(env.SERPAPI_KEY),
+-		pagespeed: Boolean(env.PAGESPEED_API_KEY),
+-		anthropic: Boolean(env.ANTHROPIC_API_KEY),
+-		resend: Boolean(env.RESEND_API_KEY),
+-		stripe: Boolean(env.STRIPE_SECRET_KEY)
+-	}
+-});
+-
+-export const actions = {
+-	save: async ({ request }) => {
+-		const f = await request.formData();
+-		const a = getAgency();
+-		saveAgency({
+-			name: String(f.get('name') || a.name),
+-			color: String(f.get('color') || a.color),
+-			reportFooter: String(f.get('reportFooter') ?? a.reportFooter)
+-		});
+-		return { saved: true };
+-	},
+-	test: async () => ({ test: await testConnection() }),
+-	refresh: () => {
+-		clearGoogleCache();
+-		return { refreshed: true };
+-	},
+-	disconnect: () => {
+-		saveTokens(null);
+-		redirect(303, '/app/settings#connections');
+-	}
++// Settings: the agency and who to find, the app's language, the morning email.
++export const load = () => {
++	const os = getOS();
++	return { profile: os.profile, brief: { on: os.brief !== false, ready: emailReady() } };
+ };
++
++export const actions = { setup: agencyActions.setup, ui: agencyActions.ui, brief: businessActions.brief };
+diff --git a/src/routes/app/settings/+page.svelte b/src/routes/app/settings/+page.svelte
+index bfb6b2d..5cf3344 100644
+--- a/src/routes/app/settings/+page.svelte
++++ b/src/routes/app/settings/+page.svelte
+@@ -1,154 +1,40 @@
+ <script lang="ts">
++	import { enhance } from '$app/forms';
+ 	import { page } from '$app/state';
++	import { act } from '#lib/act.ts';
++	import StartSetup from '#lib/components/StartSetup.svelte';
++	import { dict, UI_LANGS } from '#lib/i18n.ts';
+ 	let { data, form } = $props();
+-	const g = $derived(data.google);
+-	const errors: Record<string, string> = {
+-		not_configured: 'Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the .env file first (see the developer setup below).',
+-		state: 'The login expired or was opened in another tab. Try again.',
+-		token: 'Google refused the login code. Check the redirect URI in Google Cloud.',
+-		access_denied: 'Access was not granted.'
+-	};
+-	const sources = [
+-		{ name: 'Google Analytics 4', what: 'Website visits + app usage (Firebase)' },
+-		{ name: 'Search Console', what: 'Searches, clicks, position' },
+-		{ name: 'Business Profile', what: 'Google Maps actions' },
+-		{ name: 'Tag Manager', what: 'Tracking installed correctly' }
+-	];
+-	const optional = $derived([
+-		{ name: 'Trends & ranking pages', env: 'SERPAPI_KEY', on: data.keys.serpapi, what: 'Content ideas: Google Trends and the pages that rank' },
+-		{ name: 'PageSpeed', env: 'PAGESPEED_API_KEY', on: data.keys.pagespeed, what: 'Speed checks work without; a key raises the quota' },
+-		{ name: 'AI summaries & assistant', env: 'ANTHROPIC_API_KEY', on: data.keys.anthropic, what: 'Summaries and the assistant written by Claude, in FR/NL/EN/ES' },
+-		{ name: 'Emails', env: 'RESEND_API_KEY', on: data.keys.resend, what: 'Alert emails, Monday digest and team invitations' },
+-		{ name: 'Payments', env: 'STRIPE_SECRET_KEY', on: data.keys.stripe, what: 'Subscriptions and invoices' }
+-	]);
+-	const localUrl = $derived(!data.publicUrl || /localhost|127\.0\.0\.1/.test(data.publicUrl));
+-	const apis = [
+-		['Google Analytics Data API', 'analyticsdata.googleapis.com'],
+-		['Google Analytics Admin API', 'analyticsadmin.googleapis.com'],
+-		['Google Search Console API', 'searchconsole.googleapis.com'],
+-		['Tag Manager API', 'tagmanager.googleapis.com'],
+-		['PageSpeed Insights API (Lighthouse)', 'pagespeedonline.googleapis.com'],
+-		['Site Verification API (add sites to Search Console)', 'siteverification.googleapis.com'],
+-		['Business Profile Performance API *', 'businessprofileperformance.googleapis.com'],
+-		['My Business Account Management API *', 'mybusinessaccountmanagement.googleapis.com'],
+-		['My Business Business Information API *', 'mybusinessbusinessinformation.googleapis.com']
+-	];
++	const t = $derived(dict(page.data.ui));
++	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
+ </script>
+ 
+-<svelte:head><title>Settings · Undercut</title></svelte:head>
++<svelte:head><title>{t.settings} · Undercut</title></svelte:head>
+ 
+-
+-{#if page.url.searchParams.get('ok')}<p class="mt-5 rounded-[20px] bg-good-bg p-4 text-sm text-good">Google connected. Open a client → Setup to pick its properties.</p>{/if}
+-{#if page.url.searchParams.get('error')}<p class="mt-5 rounded-[20px] bg-bad-bg p-4 text-sm text-bad">{errors[page.url.searchParams.get('error') ?? ''] ?? 'Something went wrong.'}</p>{/if}
+-
+-<form method="POST" action="?/save" class="grid gap-4 lg:grid-cols-2">
+-	<section id="agency" class="card scroll-mt-6 space-y-5 p-6 sm:p-7">
+-		<div>
+-			<h2 class="display text-[34px] leading-none">Your agency</h2>
+-			<p class="mt-2 text-sm text-muted">Shown in the workspace and on every report you send.</p>
+-		</div>
+-		<label class="block"><span class="label">Agency name</span><input class="input mt-1.5" name="name" value={data.agency.name} /></label>
+-		<label class="block"><span class="label">Agency colour</span><input class="mt-1.5 block h-[46px] w-16 cursor-pointer rounded-full border border-line bg-white p-1" type="color" name="color" value={data.agency.color} /></label>
+-		{#if form?.saved}<p class="rounded-[16px] bg-good-bg p-3 text-sm text-good">Saved.</p>{/if}
+-		<button class="btn btn-primary">Save</button>
++<div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
++	<section class="card-dark relative overflow-hidden p-6 sm:p-8">
++		<h2 class="text-[28px] leading-tight font-medium tracking-[-0.03em]">{t.agencyTitle}</h2>
++		<div class="mt-5"><StartSetup profile={data.profile} error={form?.setupError ?? ''} {t} mode="save" saved={Boolean(form?.setupOk)} /></div>
+ 	</section>
+-
+-	<section id="reports" class="card-dark scroll-mt-6 flex flex-col gap-5 p-6 sm:p-7">
+-		<div>
+-			<h2 class="display text-[34px] leading-none">Client reports</h2>
+-			<p class="mt-2 text-sm text-white/60">Each client gets a one-page report in plain words — with <b class="text-white">your</b> agency name, never "Undercut" (white-label). Open it from any client with “Client report”, then send the link or save it as PDF.</p>
+-		</div>
+-		<!-- mini preview -->
+-		<div class="rounded-[22px] bg-white p-4 text-ink">
+-			<div class="rounded-[16px] bg-ink p-4 text-white">
+-				<span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-ink">{data.agency.name}</span>
+-				<p class="display mt-6 text-3xl">Client name</p>
+-				<p class="text-[11px] text-white/60">Your website, the last 28 days</p>
++	<div class="grid content-start gap-4">
++		<section class="card p-6">
++			<h2 class="font-medium">{t.langTitle}</h2>
++			<p class="mt-1 text-sm text-muted">{t.langHelp}</p>
++			<div class="mt-4 flex flex-wrap gap-2">
++				{#each UI_LANGS as [k, l] (k)}
++					<form method="POST" action={act('ui')} use:enhance={keep}><input type="hidden" name="ui" value={k} /><button class="pill text-sm {page.data.ui === k ? 'pill-active' : ''}">{l}</button></form>
++				{/each}
+ 			</div>
+-			<div class="mt-2 grid grid-cols-4 gap-1.5">{#each ['Visits', 'People', 'Clicks', 'Contacts'] as k (k)}<div class="rounded-xl bg-tile p-2"><p class="text-[9px] text-muted">{k}</p><p class="big text-lg">—</p></div>{/each}</div>
+-		</div>
+-		<label class="block"><span class="label text-white/60!">Message at the bottom of each report</span><textarea class="input mt-1.5 text-ink" rows="2" name="reportFooter">{data.agency.reportFooter}</textarea></label>
+-		<div class="flex flex-wrap gap-2">
+-			<button class="btn btn-accent">Save</button>
+-			{#if data.exampleClient}<a href="/r/{data.exampleClient}" target="_blank" class="btn btn-ghost border-white/30 text-white">See an example ↗</a>{/if}
+-		</div>
+-	</section>
+-</form>
+-
+-<section id="connections" class="mt-4 grid scroll-mt-6 gap-4 lg:grid-cols-2">
+-	<div class="card p-6 sm:p-7">
+-		<div class="flex flex-wrap items-start justify-between gap-4">
+-			<div>
+-				<h2 class="display text-[34px] leading-none">Google</h2>
+-				<p class="mt-2 text-sm text-muted">{g.connected ? `Connected as ${g.email ?? 'your account'}` : 'One login for every client. Until then, real clients only show what the Undercut snippet measures.'}</p>
+-			</div>
+-			{#if g.connected}
+-				<form method="POST" action="?/disconnect"><button class="btn btn-ghost">Disconnect</button></form>
+-			{:else}
+-				<a href="/auth/google" class="btn btn-primary" data-sveltekit-reload>Connect with Google</a>
+-			{/if}
+-		</div>
+-		{#if g.connected}
+-			<div class="mt-5 flex flex-wrap items-center gap-2 rounded-[18px] p-3 text-sm {data.health.ok ? 'bg-good-bg text-good' : 'bg-bad-bg text-bad'}">
+-				<span class="size-2 rounded-full {data.health.ok ? 'bg-good' : 'bg-bad'}"></span>
+-				<span class="flex-1">{data.health.ok ? `Working${data.health.lastOk ? ` · last data ${new Date(data.health.lastOk).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ''}` : data.health.lastError}</span>
+-				<form method="POST" action="?/test"><button class="rounded-full bg-white px-3 py-1 text-xs text-ink">Test connection</button></form>
+-				<form method="POST" action="?/refresh"><button class="rounded-full bg-white px-3 py-1 text-xs text-ink">Refresh data</button></form>
+-			</div>
+-			{#if form?.test}<p class="mt-2 text-sm {form.test.ok ? 'text-good' : 'text-bad'}">{form.test.ok ? `Connection OK (${form.test.ms} ms)` : form.test.error}</p>{/if}
+-			{#if form?.refreshed}<p class="mt-2 text-sm text-good">Cache cleared — dashboards will load fresh numbers.</p>{/if}
+-		{:else if data.health.revoked}
+-			<p class="mt-5 rounded-[18px] bg-bad-bg p-3 text-sm text-bad">{data.health.lastError}</p>
+-		{/if}
+-		<ul class="mt-5 space-y-1.5">
+-			{#each sources as s (s.name)}
+-				<li class="flex items-center justify-between gap-4 rounded-full bg-tile px-4 py-2.5 text-sm">
+-					<span><span class="font-medium">{s.name}</span> <span class="hidden text-muted sm:inline">· {s.what}</span></span>
+-					<span class="size-2 shrink-0 rounded-full {g.connected ? 'bg-good' : 'bg-[#c4c4bf]'}"></span>
+-				</li>
+-			{/each}
+-		</ul>
+-		<details class="mt-5 text-sm" open={!g.configured}>
+-			<summary class="cursor-pointer font-medium">{g.configured ? 'Google Cloud setup' : 'Set up Google (one time, ~10 min)'}</summary>
+-			<ol class="mt-3 list-decimal space-y-3 pl-5 text-ink-2">
+-				<li>Open <a class="underline" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud Console</a> → create a project (e.g. “Undercut”).</li>
+-				<li>
+-					Enable these APIs (click each, then “Enable”):
+-					<ul class="mt-2 space-y-1">
+-						{#each apis as [n, id] (id)}<li><a class="underline" href="https://console.cloud.google.com/apis/library/{id}" target="_blank" rel="noreferrer">{n}</a></li>{/each}
+-					</ul>
+-					<p class="mt-1 text-xs text-muted">* Google Maps (Business Profile) data needs a free access request: <a class="underline" href="https://developers.google.com/my-business/content/prereqs" target="_blank" rel="noreferrer">request access</a>. Everything else works right away.</p>
+-				</li>
+-				<li><a class="underline" href="https://console.cloud.google.com/auth/branding" target="_blank" rel="noreferrer">OAuth consent screen</a> → External → app name “Undercut” → add your Google email as <b>test user</b>.</li>
+-				<li>
+-					<a class="underline" href="https://console.cloud.google.com/auth/clients/create" target="_blank" rel="noreferrer">Create an OAuth client</a> → Web application →<br />
+-					Authorized JavaScript origin: <code class="rounded bg-tile px-1.5 py-0.5 text-xs">{data.origin}</code><br />
+-					Authorized redirect URI: <code class="rounded bg-tile px-1.5 py-0.5 text-xs break-all">{data.redirectUri}</code>
+-				</li>
+-				<li>Copy the Client ID and Client secret into <code>.env</code> as <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> and restart.</li>
+-			</ol>
+-			<p class="mt-3 text-xs text-muted">The same client also powers “Continue with Google” on the login page. In “Testing” mode Google asks to reconnect every 7 days. Publish the app to stay connected (Google shows an “unverified app” notice until it is verified — fine for your own use).</p>
+-		</details>
+-	</div>
+-
+-	<div class="card p-6 sm:p-7">
+-		<h2 class="display text-[34px] leading-none">Extras</h2>
+-		<p class="mt-2 text-sm text-muted">Optional keys in <code>.env</code>. Everything works without them.</p>
+-		<div class="mt-5 rounded-[18px] p-4 text-sm {localUrl ? 'bg-warn-bg' : 'bg-good-bg'}">
+-			<p class="font-medium">{localUrl ? 'Tracking only works on this computer' : `Public address · ${data.publicUrl}`}</p>
+-			<p class="mt-1 text-xs text-ink-2">{localUrl ? 'Your clients’ sites send visits, leads and heatmaps to this app. Deploy it on a public address (see DEPLOY.md) and set PUBLIC_BASE_URL — then paste the snippet on the sites.' : 'The tracking snippet of every client points here.'}</p>
+-		</div>
+-		<ul class="mt-5 space-y-1.5">
+-			{#each optional as o (o.env)}
+-				<li class="flex items-center justify-between gap-4 rounded-[18px] bg-tile px-4 py-3 text-sm">
+-					<span><span class="block font-medium">{o.name}</span><span class="block text-xs text-muted">{o.what}</span></span>
+-					<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] {o.on ? 'bg-good-bg text-good' : 'bg-white text-muted'}">{o.on ? 'On' : o.env}</span>
+-				</li>
+-			{/each}
+-			<li class="flex items-center justify-between gap-4 rounded-[18px] bg-tile px-4 py-3 text-sm">
+-				<span><span class="block font-medium">sitemap.xml, SEO audit, questions</span><span class="block text-xs text-muted">Always on, nothing to set up</span></span>
+-				<span class="rounded-full bg-good-bg px-2.5 py-1 text-[11px] text-good">On</span>
+-			</li>
+-		</ul>
++		</section>
++		<section class="card p-6">
++			<h2 class="font-medium">{t.briefTitle}</h2>
++			<p class="mt-1 text-sm text-muted">{t.briefHelp}</p>
++			<form method="POST" action={act('brief')} use:enhance={keep} class="mt-4 flex flex-wrap items-center gap-3">
++				<input type="hidden" name="on" value={data.brief.on ? '0' : '1'} />
++				<button class="pill text-sm {data.brief.on ? 'pill-active' : ''}">{data.brief.on ? t.briefOn : t.briefOff}</button>
++				{#if !data.brief.ready}<span class="text-xs text-muted">{t.briefNotReady}</span>{/if}
++			</form>
++		</section>
++		<a href="/app/settings/advanced" class="px-2 text-xs text-muted underline">{t.advanced}</a>
+ 	</div>
+-</section>
++</div>
+diff --git a/src/routes/app/settings/advanced/+page.server.ts b/src/routes/app/settings/advanced/+page.server.ts
+new file mode 100644
+index 0000000..cc7009f
+--- /dev/null
++++ b/src/routes/app/settings/advanced/+page.server.ts
+@@ -0,0 +1,42 @@
++import { redirect } from '@sveltejs/kit';
++import * as env from '$app/env/private';
++import { getAgency, listClients, saveAgency, saveTokens } from '#lib/server/store.ts';
++import { SCOPES, clearGoogleCache, googleHealth, testConnection } from '#lib/server/google.ts';
++
++export const load = ({ url }) => ({
++	scopes: SCOPES,
++	redirectUri: env.GOOGLE_REDIRECT_URI || `${url.origin}/auth/google/callback`,
++	origin: url.origin,
++	publicUrl: env.PUBLIC_BASE_URL || '',
++	exampleClient: listClients()[0]?.id ?? null,
++	health: googleHealth(),
++	keys: {
++		serpapi: Boolean(env.SERPAPI_KEY),
++		pagespeed: Boolean(env.PAGESPEED_API_KEY),
++		anthropic: Boolean(env.ANTHROPIC_API_KEY),
++		resend: Boolean(env.RESEND_API_KEY),
++		stripe: Boolean(env.STRIPE_SECRET_KEY)
++	}
++});
++
++export const actions = {
++	save: async ({ request }) => {
++		const f = await request.formData();
++		const a = getAgency();
++		saveAgency({
++			name: String(f.get('name') || a.name),
++			color: String(f.get('color') || a.color),
++			reportFooter: String(f.get('reportFooter') ?? a.reportFooter)
++		});
++		return { saved: true };
++	},
++	test: async () => ({ test: await testConnection() }),
++	refresh: () => {
++		clearGoogleCache();
++		return { refreshed: true };
++	},
++	disconnect: () => {
++		saveTokens(null);
++		redirect(303, '/app/settings/advanced#connections');
++	}
++};
+diff --git a/src/routes/app/settings/advanced/+page.svelte b/src/routes/app/settings/advanced/+page.svelte
+new file mode 100644
+index 0000000..bfb6b2d
+--- /dev/null
++++ b/src/routes/app/settings/advanced/+page.svelte
+@@ -0,0 +1,154 @@
++<script lang="ts">
++	import { page } from '$app/state';
++	let { data, form } = $props();
++	const g = $derived(data.google);
++	const errors: Record<string, string> = {
++		not_configured: 'Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the .env file first (see the developer setup below).',
++		state: 'The login expired or was opened in another tab. Try again.',
++		token: 'Google refused the login code. Check the redirect URI in Google Cloud.',
++		access_denied: 'Access was not granted.'
++	};
++	const sources = [
++		{ name: 'Google Analytics 4', what: 'Website visits + app usage (Firebase)' },
++		{ name: 'Search Console', what: 'Searches, clicks, position' },
++		{ name: 'Business Profile', what: 'Google Maps actions' },
++		{ name: 'Tag Manager', what: 'Tracking installed correctly' }
++	];
++	const optional = $derived([
++		{ name: 'Trends & ranking pages', env: 'SERPAPI_KEY', on: data.keys.serpapi, what: 'Content ideas: Google Trends and the pages that rank' },
++		{ name: 'PageSpeed', env: 'PAGESPEED_API_KEY', on: data.keys.pagespeed, what: 'Speed checks work without; a key raises the quota' },
++		{ name: 'AI summaries & assistant', env: 'ANTHROPIC_API_KEY', on: data.keys.anthropic, what: 'Summaries and the assistant written by Claude, in FR/NL/EN/ES' },
++		{ name: 'Emails', env: 'RESEND_API_KEY', on: data.keys.resend, what: 'Alert emails, Monday digest and team invitations' },
++		{ name: 'Payments', env: 'STRIPE_SECRET_KEY', on: data.keys.stripe, what: 'Subscriptions and invoices' }
++	]);
++	const localUrl = $derived(!data.publicUrl || /localhost|127\.0\.0\.1/.test(data.publicUrl));
++	const apis = [
++		['Google Analytics Data API', 'analyticsdata.googleapis.com'],
++		['Google Analytics Admin API', 'analyticsadmin.googleapis.com'],
++		['Google Search Console API', 'searchconsole.googleapis.com'],
++		['Tag Manager API', 'tagmanager.googleapis.com'],
++		['PageSpeed Insights API (Lighthouse)', 'pagespeedonline.googleapis.com'],
++		['Site Verification API (add sites to Search Console)', 'siteverification.googleapis.com'],
++		['Business Profile Performance API *', 'businessprofileperformance.googleapis.com'],
++		['My Business Account Management API *', 'mybusinessaccountmanagement.googleapis.com'],
++		['My Business Business Information API *', 'mybusinessbusinessinformation.googleapis.com']
++	];
++</script>
++
++<svelte:head><title>Settings · Undercut</title></svelte:head>
++
++
++{#if page.url.searchParams.get('ok')}<p class="mt-5 rounded-[20px] bg-good-bg p-4 text-sm text-good">Google connected. Open a client → Setup to pick its properties.</p>{/if}
++{#if page.url.searchParams.get('error')}<p class="mt-5 rounded-[20px] bg-bad-bg p-4 text-sm text-bad">{errors[page.url.searchParams.get('error') ?? ''] ?? 'Something went wrong.'}</p>{/if}
++
++<form method="POST" action="?/save" class="grid gap-4 lg:grid-cols-2">
++	<section id="agency" class="card scroll-mt-6 space-y-5 p-6 sm:p-7">
++		<div>
++			<h2 class="display text-[34px] leading-none">Your agency</h2>
++			<p class="mt-2 text-sm text-muted">Shown in the workspace and on every report you send.</p>
++		</div>
++		<label class="block"><span class="label">Agency name</span><input class="input mt-1.5" name="name" value={data.agency.name} /></label>
++		<label class="block"><span class="label">Agency colour</span><input class="mt-1.5 block h-[46px] w-16 cursor-pointer rounded-full border border-line bg-white p-1" type="color" name="color" value={data.agency.color} /></label>
++		{#if form?.saved}<p class="rounded-[16px] bg-good-bg p-3 text-sm text-good">Saved.</p>{/if}
++		<button class="btn btn-primary">Save</button>
++	</section>
++
++	<section id="reports" class="card-dark scroll-mt-6 flex flex-col gap-5 p-6 sm:p-7">
++		<div>
++			<h2 class="display text-[34px] leading-none">Client reports</h2>
++			<p class="mt-2 text-sm text-white/60">Each client gets a one-page report in plain words — with <b class="text-white">your</b> agency name, never "Undercut" (white-label). Open it from any client with “Client report”, then send the link or save it as PDF.</p>
++		</div>
++		<!-- mini preview -->
++		<div class="rounded-[22px] bg-white p-4 text-ink">
++			<div class="rounded-[16px] bg-ink p-4 text-white">
++				<span class="rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-ink">{data.agency.name}</span>
++				<p class="display mt-6 text-3xl">Client name</p>
++				<p class="text-[11px] text-white/60">Your website, the last 28 days</p>
++			</div>
++			<div class="mt-2 grid grid-cols-4 gap-1.5">{#each ['Visits', 'People', 'Clicks', 'Contacts'] as k (k)}<div class="rounded-xl bg-tile p-2"><p class="text-[9px] text-muted">{k}</p><p class="big text-lg">—</p></div>{/each}</div>
++		</div>
++		<label class="block"><span class="label text-white/60!">Message at the bottom of each report</span><textarea class="input mt-1.5 text-ink" rows="2" name="reportFooter">{data.agency.reportFooter}</textarea></label>
++		<div class="flex flex-wrap gap-2">
++			<button class="btn btn-accent">Save</button>
++			{#if data.exampleClient}<a href="/r/{data.exampleClient}" target="_blank" class="btn btn-ghost border-white/30 text-white">See an example ↗</a>{/if}
++		</div>
++	</section>
++</form>
++
++<section id="connections" class="mt-4 grid scroll-mt-6 gap-4 lg:grid-cols-2">
++	<div class="card p-6 sm:p-7">
++		<div class="flex flex-wrap items-start justify-between gap-4">
++			<div>
++				<h2 class="display text-[34px] leading-none">Google</h2>
++				<p class="mt-2 text-sm text-muted">{g.connected ? `Connected as ${g.email ?? 'your account'}` : 'One login for every client. Until then, real clients only show what the Undercut snippet measures.'}</p>
++			</div>
++			{#if g.connected}
++				<form method="POST" action="?/disconnect"><button class="btn btn-ghost">Disconnect</button></form>
++			{:else}
++				<a href="/auth/google" class="btn btn-primary" data-sveltekit-reload>Connect with Google</a>
++			{/if}
++		</div>
++		{#if g.connected}
++			<div class="mt-5 flex flex-wrap items-center gap-2 rounded-[18px] p-3 text-sm {data.health.ok ? 'bg-good-bg text-good' : 'bg-bad-bg text-bad'}">
++				<span class="size-2 rounded-full {data.health.ok ? 'bg-good' : 'bg-bad'}"></span>
++				<span class="flex-1">{data.health.ok ? `Working${data.health.lastOk ? ` · last data ${new Date(data.health.lastOk).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ''}` : data.health.lastError}</span>
++				<form method="POST" action="?/test"><button class="rounded-full bg-white px-3 py-1 text-xs text-ink">Test connection</button></form>
++				<form method="POST" action="?/refresh"><button class="rounded-full bg-white px-3 py-1 text-xs text-ink">Refresh data</button></form>
++			</div>
++			{#if form?.test}<p class="mt-2 text-sm {form.test.ok ? 'text-good' : 'text-bad'}">{form.test.ok ? `Connection OK (${form.test.ms} ms)` : form.test.error}</p>{/if}
++			{#if form?.refreshed}<p class="mt-2 text-sm text-good">Cache cleared — dashboards will load fresh numbers.</p>{/if}
++		{:else if data.health.revoked}
++			<p class="mt-5 rounded-[18px] bg-bad-bg p-3 text-sm text-bad">{data.health.lastError}</p>
++		{/if}
++		<ul class="mt-5 space-y-1.5">
++			{#each sources as s (s.name)}
++				<li class="flex items-center justify-between gap-4 rounded-full bg-tile px-4 py-2.5 text-sm">
++					<span><span class="font-medium">{s.name}</span> <span class="hidden text-muted sm:inline">· {s.what}</span></span>
++					<span class="size-2 shrink-0 rounded-full {g.connected ? 'bg-good' : 'bg-[#c4c4bf]'}"></span>
++				</li>
++			{/each}
++		</ul>
++		<details class="mt-5 text-sm" open={!g.configured}>
++			<summary class="cursor-pointer font-medium">{g.configured ? 'Google Cloud setup' : 'Set up Google (one time, ~10 min)'}</summary>
++			<ol class="mt-3 list-decimal space-y-3 pl-5 text-ink-2">
++				<li>Open <a class="underline" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud Console</a> → create a project (e.g. “Undercut”).</li>
++				<li>
++					Enable these APIs (click each, then “Enable”):
++					<ul class="mt-2 space-y-1">
++						{#each apis as [n, id] (id)}<li><a class="underline" href="https://console.cloud.google.com/apis/library/{id}" target="_blank" rel="noreferrer">{n}</a></li>{/each}
++					</ul>
++					<p class="mt-1 text-xs text-muted">* Google Maps (Business Profile) data needs a free access request: <a class="underline" href="https://developers.google.com/my-business/content/prereqs" target="_blank" rel="noreferrer">request access</a>. Everything else works right away.</p>
++				</li>
++				<li><a class="underline" href="https://console.cloud.google.com/auth/branding" target="_blank" rel="noreferrer">OAuth consent screen</a> → External → app name “Undercut” → add your Google email as <b>test user</b>.</li>
++				<li>
++					<a class="underline" href="https://console.cloud.google.com/auth/clients/create" target="_blank" rel="noreferrer">Create an OAuth client</a> → Web application →<br />
++					Authorized JavaScript origin: <code class="rounded bg-tile px-1.5 py-0.5 text-xs">{data.origin}</code><br />
++					Authorized redirect URI: <code class="rounded bg-tile px-1.5 py-0.5 text-xs break-all">{data.redirectUri}</code>
++				</li>
++				<li>Copy the Client ID and Client secret into <code>.env</code> as <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> and restart.</li>
++			</ol>
++			<p class="mt-3 text-xs text-muted">The same client also powers “Continue with Google” on the login page. In “Testing” mode Google asks to reconnect every 7 days. Publish the app to stay connected (Google shows an “unverified app” notice until it is verified — fine for your own use).</p>
++		</details>
++	</div>
++
++	<div class="card p-6 sm:p-7">
++		<h2 class="display text-[34px] leading-none">Extras</h2>
++		<p class="mt-2 text-sm text-muted">Optional keys in <code>.env</code>. Everything works without them.</p>
++		<div class="mt-5 rounded-[18px] p-4 text-sm {localUrl ? 'bg-warn-bg' : 'bg-good-bg'}">
++			<p class="font-medium">{localUrl ? 'Tracking only works on this computer' : `Public address · ${data.publicUrl}`}</p>
++			<p class="mt-1 text-xs text-ink-2">{localUrl ? 'Your clients’ sites send visits, leads and heatmaps to this app. Deploy it on a public address (see DEPLOY.md) and set PUBLIC_BASE_URL — then paste the snippet on the sites.' : 'The tracking snippet of every client points here.'}</p>
++		</div>
++		<ul class="mt-5 space-y-1.5">
++			{#each optional as o (o.env)}
++				<li class="flex items-center justify-between gap-4 rounded-[18px] bg-tile px-4 py-3 text-sm">
++					<span><span class="block font-medium">{o.name}</span><span class="block text-xs text-muted">{o.what}</span></span>
++					<span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] {o.on ? 'bg-good-bg text-good' : 'bg-white text-muted'}">{o.on ? 'On' : o.env}</span>
++				</li>
++			{/each}
++			<li class="flex items-center justify-between gap-4 rounded-[18px] bg-tile px-4 py-3 text-sm">
++				<span><span class="block font-medium">sitemap.xml, SEO audit, questions</span><span class="block text-xs text-muted">Always on, nothing to set up</span></span>
++				<span class="rounded-full bg-good-bg px-2.5 py-1 text-[11px] text-good">On</span>
++			</li>
++		</ul>
++	</div>
++</section>
+diff --git a/src/routes/auth/google/+server.ts b/src/routes/auth/google/+server.ts
+index a158475..3082690 100644
+--- a/src/routes/auth/google/+server.ts
++++ b/src/routes/auth/google/+server.ts
+@@ -8,7 +8,7 @@ export const GET = ({ url, cookies, locals }) => {
+ 	const m = url.searchParams.get('mode');
+ 	const mode = m === 'login' ? 'login' : m === 'manage' ? 'manage' : 'data';
+ 	const next = url.searchParams.get('next');
+-	const back = next && next.startsWith('/') && !next.startsWith('//') ? next : mode === 'login' ? '/app' : '/app/settings';
++	const back = next && next.startsWith('/') && !next.startsWith('//') ? next : mode === 'login' ? '/app' : '/app/settings/advanced';
+ 	if (!googleConfigured()) redirect(303, `${mode === 'login' ? '/login' : back}${back.includes('?') && mode !== 'login' ? '&' : '?'}error=not_configured`);
+ 	if (mode !== 'login' && !locals.user) redirect(303, `/login?next=${encodeURIComponent(back)}`);
+ 	const state = crypto.randomUUID();
+diff --git a/src/routes/auth/google/callback/+server.ts b/src/routes/auth/google/callback/+server.ts
+index 1b72e48..31f4954 100644
+--- a/src/routes/auth/google/callback/+server.ts
++++ b/src/routes/auth/google/callback/+server.ts
+@@ -8,7 +8,7 @@ import { markJoined, rowByCode, seatsLeft } from '#lib/server/beta.ts';
+ 
+ export const GET = async ({ url, cookies, locals }) => {
+ 	const mode = cookies.get('oauth_mode') === 'login' ? 'login' : 'data';
+-	const next = cookies.get('oauth_next') || (mode === 'login' ? '/app' : '/app/settings');
++	const next = cookies.get('oauth_next') || (mode === 'login' ? '/app' : '/app/settings/advanced');
+ 	const invite = cookies.get('oauth_invite');
+ 	const beta = cookies.get('oauth_beta');
+ 	for (const k of ['oauth_next', 'oauth_mode', 'oauth_invite', 'oauth_beta']) cookies.delete(k, { path: '/' });
+-- 
+2.43.0
+

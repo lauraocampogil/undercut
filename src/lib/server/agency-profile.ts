@@ -2,6 +2,7 @@
 // Static HTML read (title, headings, meta, schema.org, footer) + keyword dictionaries in FR / NL / EN.
 // Optional: Claude refines the result when ANTHROPIC_API_KEY is set.
 import * as env from '$app/env/private';
+import { textLang } from './text-lang.ts';
 
 export type Service = 'web' | 'app' | 'social' | 'seo' | 'branding' | 'ads' | 'video';
 export type AgencyProfile = {
@@ -202,7 +203,8 @@ export async function profileFromUrl(raw: string): Promise<AgencyProfile> {
 		services: services.length ? services : ['web'],
 		city,
 		country: country || '',
-		lang: lang === 'nl' ? 'nl' : lang === 'en' ? 'en' : 'fr',
+		// the words on the page win over the template's lang tag; agencies in BE/FR write to clients in French or Dutch
+		lang: textLang(html) ?? (lang === 'nl' ? 'nl' : lang === 'en' ? 'en' : 'fr'),
 		summary: (desc || headings.split(' · ')[0] || '').slice(0, 200)
 	};
 	p.color = await brandColor(html, url).catch(() => undefined);

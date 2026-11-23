@@ -1,0 +1,105 @@
+From 74a468040f0fc1b38f556e4b78f490e1b17c5e7e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 23 Nov 2026 00:17:38 +0100
+Subject: [PATCH] =?UTF-8?q?Messages=20in=20the=20right=20language:=20detec?=
+ =?UTF-8?q?t=20a=20business's=20language=20from=20the=20words=20on=20its?=
+ =?UTF-8?q?=20site=20(not=20the=20template's=20lang=3D"en"=20tag),=20Bruss?=
+ =?UTF-8?q?els/Wallonia=20city=20names=20=E2=86=92=20French,=20never=20Eng?=
+ =?UTF-8?q?lish=20by=20default=20in=20Belgium?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019MkVpnoyjaaakp7yQiE2ks
+---
+ src/lib/server/agency-profile.ts |  4 +++-
+ src/lib/server/prospects.ts      | 13 ++++++++++---
+ src/lib/server/text-lang.ts      | 14 ++++++++++++++
+ 3 files changed, 27 insertions(+), 4 deletions(-)
+ create mode 100644 src/lib/server/text-lang.ts
+
+diff --git a/src/lib/server/agency-profile.ts b/src/lib/server/agency-profile.ts
+index 445dd39..adcd5dd 100644
+--- a/src/lib/server/agency-profile.ts
++++ b/src/lib/server/agency-profile.ts
+@@ -2,6 +2,7 @@
+ // Static HTML read (title, headings, meta, schema.org, footer) + keyword dictionaries in FR / NL / EN.
+ // Optional: Claude refines the result when ANTHROPIC_API_KEY is set.
+ import * as env from '$app/env/private';
++import { textLang } from './text-lang.ts';
+ 
+ export type Service = 'web' | 'app' | 'social' | 'seo' | 'branding' | 'ads' | 'video';
+ export type AgencyProfile = {
+@@ -202,7 +203,8 @@ export async function profileFromUrl(raw: string): Promise<AgencyProfile> {
+ 		services: services.length ? services : ['web'],
+ 		city,
+ 		country: country || '',
+-		lang: lang === 'nl' ? 'nl' : lang === 'en' ? 'en' : 'fr',
++		// the words on the page win over the template's lang tag; agencies in BE/FR write to clients in French or Dutch
++		lang: textLang(html) ?? (lang === 'nl' ? 'nl' : lang === 'en' ? 'en' : 'fr'),
+ 		summary: (desc || headings.split(' · ')[0] || '').slice(0, 200)
+ 	};
+ 	p.color = await brandColor(html, url).catch(() => undefined);
+diff --git a/src/lib/server/prospects.ts b/src/lib/server/prospects.ts
+index a931a0e..77ab4c0 100644
+--- a/src/lib/server/prospects.ts
++++ b/src/lib/server/prospects.ts
+@@ -9,6 +9,7 @@
+ import * as env from '$app/env/private';
+ import { reviewLead } from './lead-ai.ts';
+ import { googlePlace, type Complaint, type Topic } from './reviews.ts';
++import { textLang } from './text-lang.ts';
+ import type { AgencyProfile, Service } from './agency-profile.ts';
+ 
+ const UA = 'UndercutBot/1.0 (+https://getundercut.app; prospects)';
+@@ -126,10 +127,11 @@ function mainFor(issues: Issue[], sells: Set<string>, fallback: Main): Main {
+ }
+ 
+ // ---------- the business's language ----------
+-// Its own website says it (<html lang>); otherwise the postcode: Brussels and Wallonia → French, Flanders → Dutch.
++// What their site is actually written in (the words, not the <html lang> tag: many French sites keep a template's lang="en-US"),
++// else the postcode (Brussels and Wallonia → French, Flanders → Dutch). In Belgium and France it is never English by default.
+ export function prospectLang(html: string, address: string, country: string, fallback: Lang): Lang {
+-	const tag = /<html[^>]+lang=["']?([a-z]{2})/i.exec(html)?.[1]?.toLowerCase();
+-	if (tag === 'fr' || tag === 'nl' || tag === 'en') return tag;
++	const t = html ? textLang(html) : null;
++	if (t) return t;
+ 	if (/\b(france|frankrijk)\b/i.test(address) || country === 'FR') return 'fr';
+ 	if (country === 'NL') return 'nl';
+ 	const pc = Number(/\b([1-9]\d{3})\b/.exec(address)?.[1] ?? 0);
+@@ -137,6 +139,11 @@ export function prospectLang(html: string, address: string, country: string, fal
+ 		if ((pc >= 1000 && pc <= 1299) || (pc >= 1300 && pc <= 1499) || (pc >= 4000 && pc <= 7999)) return 'fr';
+ 		if ((pc >= 1500 && pc <= 3999) || (pc >= 8000 && pc <= 9999)) return 'nl';
+ 	}
++	if (/brux|brussel|liège|namur|charleroi|mons\b/i.test(address)) return 'fr';
++	if (/antwerp|gent|ghent|leuven|brugge|hasselt|mechelen/i.test(address)) return 'nl';
++	const tag = /<html[^>]+lang=["']?([a-z]{2})/i.exec(html)?.[1]?.toLowerCase();
++	if (tag === 'fr' || tag === 'nl') return tag;
++	if (country === 'BE' || country === 'LU' || !country) return fallback === 'en' ? 'fr' : fallback;
+ 	return fallback;
+ }
+ 
+diff --git a/src/lib/server/text-lang.ts b/src/lib/server/text-lang.ts
+new file mode 100644
+index 0000000..9560c78
+--- /dev/null
++++ b/src/lib/server/text-lang.ts
+@@ -0,0 +1,14 @@
++// Which language a web page is written in, from its words (not its <html lang> tag, which templates often leave on "en").
++type Lang = 'fr' | 'nl' | 'en';
++const WORDS: Record<Lang, RegExp> = {
++	fr: /\b(le|la|les|des|et|est|pour|vous|nous|avec|sur|une|du|au|aux|notre|votre|horaires|réserver|accueil|contactez)\b/gi,
++	nl: /\b(de|het|een|en|van|voor|met|op|wij|u|uw|onze|niet|ook|openingsuren|reserveren|welkom|contacteer)\b/gi,
++	en: /\b(the|and|for|you|your|our|with|we|are|this|opening|hours|book|welcome|contact us)\b/gi
++};
++export function textLang(html: string): Lang | null {
++	const text = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').slice(0, 20000);
++	const n = { fr: text.match(WORDS.fr)?.length ?? 0, nl: text.match(WORDS.nl)?.length ?? 0, en: text.match(WORDS.en)?.length ?? 0 };
++	const best = (Object.keys(n) as Lang[]).sort((a, b) => n[b] - n[a])[0];
++	const second = Math.max(...Object.values(n).filter((_, i) => (Object.keys(n) as Lang[])[i] !== best));
++	return n[best] >= 15 && n[best] > second * 1.3 ? best : null;
++}
+-- 
+2.43.0
+

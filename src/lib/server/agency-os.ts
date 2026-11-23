@@ -30,6 +30,7 @@ export type AgencyOS = {
 	built?: { at: string; kind: string; why: string[]; seen?: boolean }; // what Undercut built from the URL
 	layoutV?: number; // version of the block set the saved layout was made for
 	brief?: boolean; // morning email (on unless turned off)
+	ui?: 'fr' | 'nl' | 'en'; // language of the app, chosen by the agency (messages to businesses use their own language)
 };
 const LAYOUT_V = 4; // v4: the sales loop first; tasks, agenda and analytics off by default (add them in Customise)
 export type Size = 's' | 'm' | 'l' | 'xl';
@@ -142,7 +143,8 @@ export function setProfile(profile: AgencyProfile) {
 		s.built = { at: new Date().toISOString(), kind: l.kind, why: l.why, seen: first ? false : s.built?.seen };
 	}
 	// the dashboard takes the colour of the agency's site, unless the user picked one
-	if (profile.color && !s.theme.picked) s.theme = { accent: profile.color };
+	// the dashboard takes the agency's own colour, automatically
+	if (profile.color) s.theme = { accent: profile.color };
 	saveOS(s);
 }
 
@@ -237,5 +239,11 @@ export function setBrief(on: boolean) {
 export function dismissBuilt() {
 	const s = getOS();
 	if (s.built) s.built.seen = true;
+	saveOS(s);
+}
+
+export function setUi(ui: 'fr' | 'nl' | 'en') {
+	const s = getOS();
+	s.ui = ui;
 	saveOS(s);
 }

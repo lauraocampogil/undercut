@@ -9,6 +9,7 @@
 import * as env from '$app/env/private';
 import { reviewLead } from './lead-ai.ts';
 import { googlePlace, type Complaint, type Topic } from './reviews.ts';
+import { textLang } from './text-lang.ts';
 import type { AgencyProfile, Service } from './agency-profile.ts';
 
 const UA = 'UndercutBot/1.0 (+https://getundercut.app; prospects)';
@@ -126,10 +127,11 @@ function mainFor(issues: Issue[], sells: Set<string>, fallback: Main): Main {
 }
 
 // ---------- the business's language ----------
-// Its own website says it (<html lang>); otherwise the postcode: Brussels and Wallonia → French, Flanders → Dutch.
+// What their site is actually written in (the words, not the <html lang> tag: many French sites keep a template's lang="en-US"),
+// else the postcode (Brussels and Wallonia → French, Flanders → Dutch). In Belgium and France it is never English by default.
 export function prospectLang(html: string, address: string, country: string, fallback: Lang): Lang {
-	const tag = /<html[^>]+lang=["']?([a-z]{2})/i.exec(html)?.[1]?.toLowerCase();
-	if (tag === 'fr' || tag === 'nl' || tag === 'en') return tag;
+	const t = html ? textLang(html) : null;
+	if (t) return t;
 	if (/\b(france|frankrijk)\b/i.test(address) || country === 'FR') return 'fr';
 	if (country === 'NL') return 'nl';
 	const pc = Number(/\b([1-9]\d{3})\b/.exec(address)?.[1] ?? 0);
@@ -137,6 +139,11 @@ export function prospectLang(html: string, address: string, country: string, fal
 		if ((pc >= 1000 && pc <= 1299) || (pc >= 1300 && pc <= 1499) || (pc >= 4000 && pc <= 7999)) return 'fr';
 		if ((pc >= 1500 && pc <= 3999) || (pc >= 8000 && pc <= 9999)) return 'nl';
 	}
+	if (/brux|brussel|liège|namur|charleroi|mons\b/i.test(address)) return 'fr';
+	if (/antwerp|gent|ghent|leuven|brugge|hasselt|mechelen/i.test(address)) return 'nl';
+	const tag = /<html[^>]+lang=["']?([a-z]{2})/i.exec(html)?.[1]?.toLowerCase();
+	if (tag === 'fr' || tag === 'nl') return tag;
+	if (country === 'BE' || country === 'LU' || !country) return fallback === 'en' ? 'fr' : fallback;
 	return fallback;
 }
 

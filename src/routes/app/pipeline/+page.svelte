@@ -1,36 +1,33 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
 	import { act } from '#lib/act.ts';
-	import { eur } from '#lib/biz-format.ts';
+	import { dict, weekday, type UiLang } from '#lib/i18n.ts';
 	let { data } = $props();
 
+	const t = $derived(dict(page.data.ui));
+	const ui = $derived((page.data.ui ?? 'fr') as UiLang);
 	type Card = (typeof data.waiting)[number];
 	let showLost = $state(false);
 	const keep = () => async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => update({ reset: false });
-	const DAY = 86400000;
 	const ago = (d?: string) => {
 		if (!d) return '';
-		const n = Math.round((Date.now() - new Date(d + 'T12:00:00').getTime()) / DAY);
-		return n <= 0 ? 'Today' : n === 1 ? 'Yesterday' : `${n} days`;
+		const n = Math.round((Date.now() - new Date(d + 'T12:00:00').getTime()) / 86400000);
+		return n <= 0 ? t.sentToday : n === 1 ? t.yesterday : t.days(n);
 	};
-	const day = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long' });
-	const waitingLine = (c: Card) => {
-		if (!c.next) return 'Waiting for their answer';
-		if (c.followups >= 2) return `Last follow-up sent · moves to Not now on ${day(c.next)}`;
-		return `Follow-up ${c.followups + 1} on ${day(c.next)}${c.followups ? ' · last one after that' : ''}`;
-	};
+	const waitingLine = (c: Card) => (!c.next ? t.waitingAnswer : c.followups >= 2 ? t.waitingLast(weekday(c.next, ui)) : t.waitingNext(c.followups + 1, weekday(c.next, ui)));
 	const cols = $derived([
-		{ key: 'waiting', title: 'Waiting for a reply', hint: 'Undercut follows up', cards: data.waiting, empty: 'Messages you send from Today land here.' },
-		{ key: 'replied', title: 'Replied', hint: 'Your turn', cards: data.replied, empty: 'When someone answers, tap “They replied” on their card.' },
-		{ key: 'won', title: 'Clients', hint: 'Won', cards: data.won, empty: 'Signed clients show up here.' }
+		{ key: 'waiting', title: t.colWaiting, hint: t.colWaitingHint, cards: data.waiting, empty: t.emptyWaiting },
+		{ key: 'replied', title: t.colReplied, hint: t.colRepliedHint, cards: data.replied, empty: t.emptyReplied },
+		{ key: 'won', title: t.colWon, hint: t.colWonHint, cards: data.won, empty: t.emptyWon }
 	]);
 </script>
 
-<svelte:head><title>Pipeline · Undercut</title></svelte:head>
+<svelte:head><title>{t.repliesTitle} · Undercut</title></svelte:head>
 
 <section>
-	<p class="label">Everyone you wrote to · Undercut follows up for you{#if data.toSend} · <a href="/app" class="underline">{data.toSend} waiting in Today</a>{/if}</p>
-	<h1 class="display mt-2 text-[48px] sm:text-[72px]">Your <em>pipeline</em></h1>
+	<p class="label">{t.repliesHelp}{#if data.toSend} · <a href="/app" class="underline">{t.waitingInToday(data.toSend)}</a>{/if}</p>
+	<h1 class="display mt-2 text-[48px] sm:text-[72px]"><em>{t.repliesTitle}</em></h1>
 </section>
 
 <div class="mt-6 grid items-start gap-4 [grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
@@ -45,26 +42,21 @@
 					<article class="flex flex-col gap-1.5 rounded-[18px] bg-tile p-4">
 						<div class="flex items-baseline justify-between gap-2">
 							<h3 class="min-w-0 truncate font-medium">{c.name}</h3>
-							<span class="text-xs whitespace-nowrap text-muted">{col.key === 'waiting' ? (ago(c.contactedAt) === 'Today' ? 'Sent today' : ago(c.contactedAt)) : col.key === 'replied' ? ago(c.updatedAt) : `Since ${new Date(c.updatedAt + 'T12:00:00').toLocaleDateString('en-GB', { month: 'short' })}`}</span>
+							<span class="text-xs whitespace-nowrap text-muted">{col.key === 'waiting' ? ago(c.contactedAt) : ago(c.updatedAt)}</span>
 						</div>
-						<p class="text-sm text-ink-2">
-							{#if col.key === 'waiting'}{waitingLine(c)}
-							{:else if col.key === 'replied'}{c.note || c.category}
-							{:else}{[c.category, c.value ? `${eur(c.value)}/month` : ''].filter(Boolean).join(' · ')}{/if}
-						</p>
+						<p class="text-sm text-ink-2">{col.key === 'waiting' ? waitingLine(c) : [c.category, c.email || c.phone].filter(Boolean).join(' · ')}</p>
 						<div class="mt-1 flex flex-wrap items-center gap-2">
 							{#if col.key === 'waiting'}
-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="btn btn-primary text-sm">They replied</button></form>
-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">Not now</button></form>
+								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="btn btn-primary text-sm">{t.theyReplied}</button></form>
+								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">{t.notNow}</button></form>
 							{:else if col.key === 'replied'}
-								<form method="POST" action={act('makeClient')}><input type="hidden" name="id" value={c.id} /><button class="btn btn-primary text-sm">They signed</button></form>
-								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">Email</a>{/if}
-								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">Call</a>{/if}
-								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">Not now</button></form>
-							{:else if c.clientId}
-								<a href="/app/crm/{c.clientId}" class="pill text-sm">Open client</a>
+								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="won" class="btn btn-primary text-sm">{t.theySigned}</button></form>
+								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">{t.email}</a>{/if}
+								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">{t.call}</a>{/if}
+								<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="lost" class="text-sm text-muted underline">{t.notNow}</button></form>
 							{:else}
-								<form method="POST" action={act('makeClient')}><input type="hidden" name="id" value={c.id} /><button class="pill text-sm">Open client</button></form>
+								{#if c.email}<a href="mailto:{c.email}" class="pill text-sm">{t.email}</a>{/if}
+								{#if c.phone}<a href="tel:{c.phone}" class="pill text-sm">{t.call}</a>{/if}
 							{/if}
 						</div>
 					</article>
@@ -77,19 +69,19 @@
 </div>
 
 <p class="mt-5 text-sm text-muted">
-	No answer after 2 follow-ups? They move to
-	<button class="text-ink underline" onclick={() => (showLost = !showLost)} aria-expanded={showLost}>Not now ({data.lost.length})</button>
-	and you never chase them again.
+	{t.lostLine(data.lost.length)}
+	<button class="text-ink underline" onclick={() => (showLost = !showLost)} aria-expanded={showLost}>{t.lostLink(data.lost.length)}</button>
+	{t.lostEnd}
 </p>
 {#if showLost}
 	<ul class="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
 		{#each data.lost as c (c.id)}
 			<li class="card flex items-center justify-between gap-3 px-4 py-3">
 				<span class="min-w-0"><span class="block truncate font-medium">{c.name}</span><span class="block text-xs text-muted">{c.category}</span></span>
-				<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="pill text-sm">They replied</button></form>
+				<form method="POST" action={act('stage')} use:enhance={keep}><input type="hidden" name="id" value={c.id} /><button name="stage" value="talking" class="pill text-sm">{t.theyReplied}</button></form>
 			</li>
 		{:else}
-			<li class="text-sm text-muted">Nobody here.</li>
+			<li class="text-sm text-muted">{t.nobody}</li>
 		{/each}
 	</ul>
 {/if}

@@ -1,7 +1,7 @@
 // Form actions shared by the cockpit (/app) and the prospects page (/app/prospects).
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import { profileFromUrl, type Service } from './agency-profile.ts';
-import { applyAsk, dismissBuilt, findMore, getOS, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
+import { applyAsk, dismissBuilt, findMore, getOS, setUi, removeItem, setGoal, setLayout, setProfile, setTheme, updateItem, type Stage } from './agency-os.ts';
 import { isHex } from '#lib/theme.ts';
 
 const SERVICES: Service[] = ['web', 'app', 'social', 'seo', 'branding', 'ads', 'video'];
@@ -45,6 +45,11 @@ export const agencyActions = {
 		const found = await findMore(5);
 		if (found.error) return fail(400, { findError: found.error });
 		return { found: found.added };
+	},
+	ui: async ({ request }: E) => {
+		const v = String((await request.formData()).get('ui'));
+		if (v === 'fr' || v === 'nl' || v === 'en') setUi(v);
+		return { uiSaved: true };
 	},
 	find: async () => {
 		const r = await findMore(5);

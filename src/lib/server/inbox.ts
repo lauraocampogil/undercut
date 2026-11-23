@@ -20,7 +20,7 @@ export type InboxItem = {
 	// for the one-card-at-a-time "Today" view
 	name: string; // the business or the person
 	meta: string; // one line under the name
-	reasonsTitle?: string;
+	reasonsTitle?: 'why' | 'told';
 	reasons?: string[]; // why they need the agency (or what you told them)
 	proof?: { label: string; url: string }[]; // links to check it yourself
 	lang?: Lang;
@@ -65,7 +65,9 @@ const REMIND: Record<Lang, (p: { who: string; label: string; amount: string; due
 };
 
 /** Everything to approve today, most urgent first. */
-export function inboxItems(): InboxItem[] {
+export function inboxItems(opts: { payments?: boolean; ui?: Lang } = {}): InboxItem[] {
+	const ui: Lang = opts.ui ?? 'en';
+	const W = { fr: { wrote: 'écrit le', google: 'sur Google', high: 'Bon budget', medium: 'Budget moyen', low: 'Petit budget' }, nl: { wrote: 'geschreven op', google: 'op Google', high: 'Goed budget', medium: 'Gemiddeld budget', low: 'Klein budget' }, en: { wrote: 'you wrote on', google: 'on Google', high: 'Good budget', medium: 'Medium budget', low: 'Small budget' } }[ui];
 	const os = getOS();
 	const b = getBiz();
 	const t = today();
@@ -76,14 +78,14 @@ export function inboxItems(): InboxItem[] {
 	// 1) payment reminders: overdue, and no reminder in the last 7 days
 	const recent = (d?: string) => Boolean(d && d > addDays(t, -7));
 	const cname = (id?: string) => (id ? b.clients.find((c) => c.id === id) : undefined);
-	for (const p of b.payments) {
+	for (const p of opts.payments === false ? [] : b.payments) {
 		if (p.paidAt || p.due >= t || recent(p.lastReminder)) continue;
 		const step = Math.min(2, (p.reminders ?? 0) + 1);
 		const c = cname(p.clientId);
 		const m = REMIND[lang]({ who: c?.contact?.split(' ')[0] || p.who, label: p.label || (lang === 'fr' ? 'ma facture' : lang === 'nl' ? 'mijn factuur' : 'my invoice'), amount: money(p.amount, lang), due: date(p.due, lang), agency, step, iban: b.details.iban });
 		items.push({ key: `payment:${p.id}`, kind: 'payment', id: p.id, name: p.who, meta: `${p.label || 'Invoice'} · due ${date(p.due, 'en')} · ${p.reminders ? `${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : 'no reminder sent yet'}`, lang, title: `${p.who} owes ${money(p.amount, 'en')}`, why: `${p.label || 'Invoice'} · due ${p.due}${p.reminders ? ` · ${p.reminders} reminder${p.reminders > 1 ? 's' : ''} sent` : ''}`, to: p.email || c?.email, phone: c?.phone, subject: m.subject, message: m.text, step, late: true });
 	}
-	for (const d of b.docs) {
+	for (const d of opts.payments === false ? [] : b.docs) {
 		if (d.kind !== 'invoice' || d.status !== 'sent' || !d.due || d.due >= t || recent(d.lastReminder)) continue;
 		const c = cname(d.clientId);
 		const step = Math.min(2, (d.reminders ?? 0) + 1);
@@ -100,22 +102,21 @@ export function inboxItems(): InboxItem[] {
 	for (const p of due) {
 		const step = Math.min(MAX_FOLLOWUPS, (p.followups ?? 0) + 1);
 		const m = FOLLOW[p.lang ?? lang](step, p.name, agency);
-		const wrote = p.contactedAt ? date(p.contactedAt, 'en') : '';
-		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, name: p.name, meta: [p.category, p.city, wrote && `you wrote on ${wrote}`].filter(Boolean).join(' · '), reasonsTitle: 'What you told them', reasons: [p.detail || p.pitch].filter(Boolean), lang: p.lang ?? lang, instagram: p.instagram, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
+		const wrote = p.contactedAt ? date(p.contactedAt, ui) : '';
+		items.push({ key: `followup:${p.id}`, kind: 'followup', id: p.id, name: p.name, meta: [p.category, p.city, wrote && `${W.wrote} ${wrote}`].filter(Boolean).join(' · '), reasonsTitle: 'told', reasons: [p.detail || p.pitch].filter(Boolean), lang: p.lang ?? lang, instagram: p.instagram, title: `Follow up ${p.name}`, why: step === MAX_FOLLOWUPS ? 'Last follow-up: after this it moves to “Not now”' : `No answer since ${p.contactedAt ?? p.updatedAt.slice(0, 10)}`, to: p.email, phone: p.phone, subject: m.subject, message: m.text, step, late: p.next! < t });
 	}
 
 	// 3) first messages: the best new prospects, a few a day
 	const sentToday = os.pipeline.filter((p) => p.contactedAt === t).length;
 	const fresh = os.pipeline.filter((p) => p.stage === 'new').sort((a, z) => z.score - a.score).slice(0, Math.max(0, FIRST_PER_DAY - sentToday));
-	const BUDGET = { high: 'Good budget', medium: 'Medium budget', low: 'Small budget' } as const;
 	for (const p of fresh)
 		items.push({
 			key: `first:${p.id}`,
 			kind: 'first',
 			id: p.id,
 			name: p.name,
-			meta: [p.category, p.address || p.city, p.google?.rating ? `★ ${p.google.rating} on Google (${p.google.count ?? 0})` : '', p.budget && BUDGET[p.budget]].filter(Boolean).join(' · '),
-			reasonsTitle: 'Why they need you',
+			meta: [p.category, p.address || p.city, p.google?.rating ? `★ ${p.google.rating} ${W.google} (${p.google.count ?? 0})` : '', p.budget && W[p.budget]].filter(Boolean).join(' · '),
+			reasonsTitle: 'why',
 			// a real customer complaint first, then the biggest problems
 			reasons: [...(p.detail ? [p.detail] : []), ...[...p.issues].sort((a, z) => (z.key === 'review' ? 99 : z.weight) - (a.key === 'review' ? 99 : a.weight)).map((i) => i.label)].slice(0, 3),
 			proof: p.proof,

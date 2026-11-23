@@ -5,7 +5,6 @@
 	import SplitChars from '#lib/components/SplitChars.svelte';
 	import DotGlobe from '#lib/components/DotGlobe.svelte';
 	import CutText from '#lib/components/CutText.svelte';
-	import ToolWall from '#lib/components/ToolWall.svelte';
 	import { reveal, inview, pointer, scrub, countUp, spotlight, nightZone } from '#lib/motion.ts';
 	import { PLANS } from '#lib/plans.ts';
 	import { themeStyle } from '#lib/theme.ts';
@@ -30,9 +29,9 @@
 	const bars = [3, 5, 4, 7, 6, 9, 8, 11, 10, 13];
 	const steps = [
 		{ n: '01', t: 'Paste your URL', d: 'Your site or your Instagram. We read what you sell, where you work, in which language.', k: 'READING youragency.com' },
-		{ n: '02', t: 'Get prospects', d: 'Real businesses around you. Each website opened and checked: mobile, speed, https, last update, socials.', k: 'CHECKING businesses near you' },
-		{ n: '03', t: 'Send the message', d: 'The first message is written from what we found. You read it, change it, send it yourself.', k: 'WRITING message 1/5' },
-		{ n: '04', t: 'Keep the client', d: 'Once they sign, their site or app lives in your dashboard: leads, fixes, reports, every Monday.', k: 'TRACKING 3 clients' }
+		{ n: '02', t: 'Get businesses that need you', d: 'Real businesses around you. Their website checked (mobile, speed, https, socials) and their Google reviews read: what their own customers complain about.', k: 'CHECKING businesses near you' },
+		{ n: '03', t: 'Approve the message', d: 'Written in their language (French, Dutch or English) from what we found. One business at a time: read it, change it, send it from your own email.', k: 'WRITING message 1/5' },
+		{ n: '04', t: 'Follow up, then sign', d: 'No answer after 4 days? The follow-up is written for you. After two, Undercut stops. When they reply, it’s your turn.', k: 'FOLLOWING UP 2 businesses' }
 	];
 	const scans = [
 		'lumenhair.com · mobile ✕ · https ✕ · score 90',
@@ -40,11 +39,11 @@
 		'harperlaw.com · last update 2019 · score 55',
 		'olive-kitchen.com · 4.8 s on mobile · score 48',
 		'brut-studio.com · no instagram · score 40',
-		'motionphysio.com · 46 leads this month',
-		'moove app · crash-free 99.7%'
+		'maison lenoir · “wrong opening hours on Google” · score 75',
+		'salon iris · replied “oui, envoyez-moi les idées”'
 	];
 	const statement =
-		'You started an agency to make [great work] — not to chase clients across ten tabs. Undercut finds the businesses that need you, writes the first message, and keeps your clients [coming back.] You create. [We bring the work.]';
+		'You started an agency to make [great work] — not to chase clients across ten tabs. Undercut finds the businesses that need you, writes the first message and tells you when to follow up. You create. [We bring the work.]';
 	const lit = (() => {
 		let on = false;
 		return statement.split(' ').map((raw) => {
@@ -55,19 +54,19 @@
 		});
 	})();
 	const jobs = [
-		{ k: 'Prospects', t: 'Finds you clients', d: 'Every week, local businesses that need what you sell — no website, a slow site, no Instagram — with the first message written. You send it yourself.' },
-		{ k: 'Pipeline', t: 'Keeps you on track', d: 'Who you contacted, who answered, who signed, and when to call back. A simple CRM and agenda, already set up.' },
-		{ k: 'Clients', t: 'Helps you keep them', d: 'Their website or app at a glance: leads, Google, speed, crashes. Fix issues in one click and send a Monday report with your logo.' }
+		{ k: 'Find', t: 'Finds the businesses', d: 'Local businesses that need what you sell: no website, a slow site, no Instagram, or customers complaining on Google about things you fix.' },
+		{ k: 'Write', t: 'Writes to them', d: 'A first message in their language, around one real problem, with an easy yes. You read it and send it yourself.' },
+		{ k: 'Follow up', t: 'Reminds you to follow up', d: 'Follow-ups written and due at the right time. When someone replies, they move to your turn. Nothing to set up.' }
 	];
 	const faqs = [
-		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut visits each website — mobile, speed, https, last update, Instagram — and only keeps the ones that need what you sell.' },
+		{ q: 'Where do the prospects come from?', a: 'Real local businesses from OpenStreetMap, around the city you work in. Undercut visits each website — mobile, speed, https, last update, Instagram — reads their Google reviews, and only keeps the ones that need what you sell.' },
+		{ q: 'Why would they answer?', a: 'Because the message talks about one real problem they have (often what their own customers wrote on Google), in their language, and asks for an easy “yes” to 3 free ideas. No video call to book.' },
 		{ q: 'Do you send the messages for me?', a: 'Undercut writes every message and puts it in “To approve”. You read it, change it if you want and send it from your own email or as a DM in one click. No spam, no new domain to warm up, nothing goes out without you.' },
-		{ q: 'Why not use a free agent like Harvey?', a: 'Harvey is great if you can install it: a paid Claude plan, Python, the terminal, a second domain and weeks of mailbox warm-up. Undercut works in two minutes from your browser or phone, in French, Dutch or English, and also tracks your follow-ups and who owes you money.' },
+		{ q: 'Why not use a free agent like Harvey?', a: 'Harvey is great if you can install it: a paid Claude plan, Python, the terminal, a second domain and weeks of mailbox warm-up. Undercut works in two minutes from your browser or phone, in French, Dutch or English, and reminds you to follow up.' },
 		{ q: 'Is it legal to contact these businesses?', a: 'Undercut only uses public business data (OpenStreetMap). You send a few personal messages yourself, and every first message says how to opt out. You stay responsible for what you send.' },
-		{ q: 'Can I make the dashboard mine?', a: 'Yes. Hide blocks, reorder them, give it your colour — or just type “hide agenda” or “clients first”.' },
 		{ q: 'What if my agency is only on Instagram?', a: 'Paste the Instagram link and tell us your city and what you sell. That’s enough to start.' },
-		{ q: 'What does it track for my clients?', a: 'Leads (forms, calls, WhatsApp), visits, Google Search and Maps, speed and SEO with one-click fixes, heatmaps — and for apps: users, crashes, store reviews and paywall.' },
-		{ q: 'Is it GDPR-friendly?', a: 'No cookies, no IP addresses, nothing typed in forms is recorded. Data in the EU.' }
+		{ q: 'Is it only for web agencies?', a: 'No. Websites, social media, SEO, ads, branding, apps, photo and video: Undercut looks for the problem your service fixes and writes about that.' },
+		{ q: 'Where is my data?', a: 'In the EU. Undercut only uses public business information and never sends anything without your click.' }
 	];
 	const nav = [
 		['#how', 'How it works'],
@@ -83,15 +82,15 @@
 	];
 	const notes = [
 		{ t: 'Businesses that need you, found every week', x: '22%', y: '-2%' },
-		{ t: 'Who you contacted, who signed', x: '74%', y: '56%' },
-		{ t: 'Every client’s site and app, at a glance', x: '58%', y: '97%' }
+		{ t: 'Who replied, who signed', x: '74%', y: '56%' },
+		{ t: 'Follow-ups, written for you', x: '58%', y: '97%' }
 	];
 </script>
 
 <svelte:window bind:scrollY={y} />
 <svelte:head>
-	<title>Undercut — find clients, keep them. The dashboard for agencies.</title>
-	<meta name="description" content="Paste your agency’s URL. Undercut finds local businesses that need what you sell, writes the first message, and keeps your clients’ sites and apps healthy — one dashboard." />
+	<title>Undercut — your next clients, found for you</title>
+	<meta name="description" content="Paste your agency’s URL. Undercut finds local businesses that need what you sell, writes the first message in their language and reminds you to follow up. You just approve." />
 	<meta name="theme-color" content="#ECECEA" />
 </svelte:head>
 
@@ -146,7 +145,7 @@
 
 				<!-- KPI row -->
 				<div class="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-					{#each [['New prospects', '12', '+5 this week'], ['In conversation', '4', '2 replied today'], ['Won this month', '2 / 3', '€1,400 / month'], ['Client leads', '186', '↑ 18% vs last month']] as [l, v, sub], i (l)}
+					{#each [['New prospects', '12', '+5 this week'], ['In conversation', '4', '2 replied today'], ['Won this month', '2', '€1,400 / month'], ['Follow-ups today', '3', 'written for you']] as [l, v, sub], i (l)}
 						<div class="rounded-[16px] p-3.5 {i === 0 ? 'bg-ink text-white' : 'bg-white shadow-[0_0_0_1px_rgba(0,0,0,.04)]'}">
 							<p class="text-[10px] {i === 0 ? 'text-white/60' : 'text-muted'}">{l}</p>
 							<p class="mt-1.5 text-[24px] leading-none font-medium tracking-[-0.04em]">{v}</p>
@@ -174,7 +173,7 @@
 					<div class="grid gap-2">
 						<!-- chart -->
 						<div class="rounded-[16px] bg-white p-4 shadow-[0_0_0_1px_rgba(0,0,0,.04)]">
-							<div class="flex items-center justify-between"><p class="text-[12px] font-semibold">Leads for your clients</p><p class="text-[10px] text-muted">12 weeks</p></div>
+							<div class="flex items-center justify-between"><p class="text-[12px] font-semibold">Replies</p><p class="text-[10px] text-muted">12 weeks</p></div>
 							<div class="mt-3 flex h-20 items-end gap-1.5">
 								{#each weeks as w, i (i)}<span class="flex-1 rounded-t-[4px] {i === weeks.length - 1 ? 'bg-ink' : 'bg-black/[.1]'}" style="height:{(w / 19) * 100}%"></span>{/each}
 							</div>
@@ -194,18 +193,17 @@
 				<!-- clients + this week -->
 				<div class="mt-2 grid gap-2 lg:grid-cols-[1.35fr_1fr]">
 					<div class="rounded-[16px] bg-white p-4 shadow-[0_0_0_1px_rgba(0,0,0,.04)]">
-						<div class="flex items-center justify-between"><p class="text-[12px] font-semibold">Clients</p><p class="text-[10px] text-muted">health · 28 days</p></div>
-						<div class="mt-2 grid grid-cols-[1fr_auto_auto] items-center gap-x-4 gap-y-2 text-[11px]">
-							{#each [['Motion Physio', '46 leads', 82], ['Lou Studio', '3,501 visits', 58], ['Moove app', '1,204 users', 91]] as [c, m, h] (c)}
-								<span class="truncate">{c}</span><span class="text-muted">{m}</span>
-								<span class="flex items-center gap-2"><span class="h-1.5 w-16 overflow-hidden rounded-full bg-black/[.06]"><span class="block h-full rounded-full {Number(h) < 70 ? 'bg-[#E3A21A]' : 'bg-ink'}" style="width:{h}%"></span></span><span class="w-5 text-right font-medium">{h}</span></span>
+						<div class="flex items-center justify-between"><p class="text-[12px] font-semibold">From their Google reviews</p><p class="text-[10px] text-muted">1–3 stars</p></div>
+						<ul class="mt-2 space-y-2 text-[11px]">
+							{#each [['Maison Lenoir', '“Indiqué ouvert le dimanche, porte fermée.”'], ['Garage Martens', '“Personne ne répond au téléphone.”'], ['Bistro Kom', '“Geen menu online te vinden.”']] as [c, q] (c)}
+								<li class="flex items-center gap-3"><span class="w-24 shrink-0 truncate font-medium">{c}</span><span class="min-w-0 truncate text-muted italic">{q}</span></li>
 							{/each}
-						</div>
+						</ul>
 					</div>
 					<div class="rounded-[16px] bg-white p-4 shadow-[0_0_0_1px_rgba(0,0,0,.04)]">
 						<p class="text-[12px] font-semibold">This week</p>
 						<ul class="mt-2 space-y-1.5 text-[11px]">
-							{#each [['Follow up with Harper Law', 'Today', true], ['Lou Studio: 3 pages without description', 'Fix in 1 click', false], ['Call with Corner Bakery', 'Thu 10:00', false]] as [t, w, u] (t)}
+							{#each [['Follow up with Harper Law', 'Today', true], ['Salon Iris replied: send the 3 ideas', 'Your turn', false], ['Last follow-up: Olive Kitchen', 'Thu', false]] as [t, w, u] (t)}
 								<li class="flex items-center gap-2"><span class="grid size-3.5 shrink-0 place-items-center rounded-full border {u ? 'border-ink' : 'border-black/20'}">{#if u}<span class="size-1.5 rounded-full bg-ink"></span>{/if}</span><span class="min-w-0 flex-1 truncate">{t}</span><span class="shrink-0 text-[10px] text-muted">{w}</span></li>
 							{/each}
 						</ul>
@@ -253,7 +251,7 @@
 	<!-- ================= HERO ================= -->
 	<section class="relative isolate mx-auto flex min-h-dvh max-w-[1280px] flex-col px-5 pt-32 sm:px-10 sm:pt-40" use:pointer>
 		<div class="flex flex-wrap items-center justify-between gap-3 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase" use:reveal>
-			<span class="tag">For freelancers & small studios · web, social, communication</span>
+			<span class="tag">For freelancers & small studios · web, social, SEO, ads, photo & video</span>
 			<a href="/beta" class="hidden items-center gap-2 sm:flex"><span class="relative flex size-2"><span class="ping-soft absolute inset-0 rounded-full bg-ink"></span><span class="relative size-2 rounded-full bg-ink"></span></span>Free beta · 30 places</a>
 		</div>
 		<div class="mt-10 grid flex-1 items-center gap-10 lg:mt-6 lg:grid-cols-[1.15fr_1fr]">
@@ -261,9 +259,9 @@
 				<h1 class="text-[clamp(38px,4.7vw,72px)] leading-[1.05] font-medium tracking-[-0.04em]">
 					<SplitChars as="span" class="block text-ink/40" text="Paste your URL." delay={150} step={30} />
 					<SplitChars as="span" class="block" text="Get your next" delay={500} />
-					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['clients.', 'follow-ups.', 'payments.', 'dashboard.']} shift={0.035} /></span>
+					<span class="block" use:reveal={{ delay: 900 }}><CutText words={['clients.', 'replies.', 'projects.']} shift={0.035} /></span>
 				</h1>
-				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut finds local businesses that need what you sell, writes the first message and reminds you to follow up. You just approve.</p>
+				<p class="mt-12 max-w-[31rem] text-[19px] leading-[1.75] text-ink-2" use:reveal={{ delay: 1100 }}>Undercut finds local businesses that need what you sell, reads what their customers complain about, writes the first message in their language and reminds you to follow up. You just approve.</p>
 				<div class="mt-10" use:reveal={{ delay: 1250 }}>
 					{@render urlForm('hero-url')}
 					<p class="mt-4 text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">Free preview: your first 5 prospects · no account</p>
@@ -285,16 +283,6 @@
 			<line x1="-5" y1="78" x2="105" y2="44" stroke="rgb(13 13 13 / .14)" stroke-width="1" vector-effect="non-scaling-stroke" pathLength="1" class="cut-line" />
 		</svg>
 		<div class="h-16"></div>
-	</section>
-
-	<!-- ================= TOOLS ================= -->
-	<section class="relative mx-auto max-w-[1280px] px-5 py-24 sm:px-10 sm:py-36">
-		<div class="text-center">
-			<p class="tag" use:reveal>Plugs into your tools</p>
-			<SplitText text={'Keep your tools.\n*Undercut does the work around them.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
-			<p class="mx-auto mt-6 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 150 }}>Prospects come from OpenStreetMap, Claude writes the messages, and they go out from your own email or as an Instagram or WhatsApp DM. Connect Google to follow your clients’ sites and apps.</p>
-		</div>
-		<div class="mt-16"><ToolWall /></div>
 	</section>
 
 	<!-- ================= LIVE SCAN STRIP ================= -->
@@ -324,10 +312,10 @@
 		<section class="relative mx-auto max-w-[1280px] px-5 pt-10 pb-20 sm:px-10">
 			<div class="flex flex-wrap items-end justify-between gap-8">
 				<div>
-					<p class="tag zone-muted">What your dashboard does</p>
-					<h2 class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" use:reveal>One dashboard.<br /><span class="zone-muted">Three jobs.</span></h2>
+					<p class="tag zone-muted">What Undercut does</p>
+					<h2 class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" use:reveal>One job:<br /><span class="zone-muted">your next clients.</span></h2>
 				</div>
-				<p class="zone-muted max-w-sm leading-[1.75]" use:reveal={{ delay: 150 }}>Everything a small agency does to grow, in one place — built from your website, in your language.</p>
+				<p class="zone-muted max-w-sm leading-[1.75]" use:reveal={{ delay: 150 }}>Built from your website, in your language. No CRM to fill, no dashboard to set up.</p>
 			</div>
 			<ol class="mt-16 grid gap-3 lg:grid-cols-3" use:reveal>
 				{#each jobs as j, i (j.t)}
@@ -346,16 +334,14 @@
 									</div>
 								{/each}
 							{:else if i === 1}
-								<div class="grid grid-cols-4 gap-1.5 text-center">
-									{#each [['To contact', 12], ['Contacted', 7], ['Talking', 4], ['Won', 2]] as [l, n], k (l)}
-										<div class="rounded-[12px] py-3 transition-colors duration-500 {k === 3 ? 'group-[.in]:bg-white group-[.in]:text-ink' : 'bg-white/[.06]'}" style="transition-delay:{600 + k * 120}ms"><p class="text-xl leading-none font-medium">{n}</p><p class="mt-1 text-[10px] opacity-60">{l}</p></div>
-									{/each}
-								</div>
-								<p class="mt-3 flex items-center gap-2 text-xs opacity-70"><span class="size-1.5 rounded-full bg-white"></span>Follow up with Harper Law · today</p>
+								<p class="text-[11px] opacity-50">Bakery · written in French</p>
+								<p class="mt-2 text-sm leading-relaxed opacity-0 transition-opacity delay-500 duration-700 group-[.in]:opacity-90">“Bonjour, dans vos avis Google, un client écrit qu’il a trouvé porte fermée un dimanche indiqué ouvert. C’est le genre de détail qui se règle en ligne…”</p>
+								<p class="mt-3 flex gap-2 text-[11px]"><span class="rounded-full bg-white px-2.5 py-1 text-ink">Send by email</span><span class="rounded-full bg-white/10 px-2.5 py-1">Copy for Instagram</span></p>
 							{:else}
-								<div class="flex items-center gap-4">
-									<svg viewBox="0 0 36 36" class="size-16 -rotate-90"><circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="3" /><circle cx="18" cy="18" r="15" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" class="transition-[stroke-dashoffset] delay-500 duration-[1400ms] ease-out group-[.in]:[stroke-dashoffset:18]" /></svg>
-									<div><p class="text-2xl leading-none font-medium">46 leads</p><p class="mt-1 text-xs opacity-60">Motion Physio · ↑ 24% · 1 fix ready</p></div>
+								<div class="space-y-2 text-sm">
+									<p class="flex items-center justify-between gap-3 opacity-0 transition-opacity delay-500 duration-500 group-[.in]:opacity-100"><span>Harper Law</span><span class="rounded-full bg-white/10 px-2.5 py-1 text-[11px]">Follow-up today</span></p>
+									<p class="flex items-center justify-between gap-3 opacity-0 transition-opacity delay-700 duration-500 group-[.in]:opacity-100"><span>Salon Iris</span><span class="rounded-full bg-white px-2.5 py-1 text-[11px] text-ink">Replied</span></p>
+									<p class="text-xs opacity-60">“Oui, envoyez-moi les idées !”</p>
 								</div>
 							{/if}
 						</div>
@@ -381,9 +367,9 @@
 	<!-- ================= PRODUCT (tilts flat on scroll) ================= -->
 	<section class="relative mx-auto max-w-[1280px] px-4 py-24 sm:px-10 sm:py-40">
 		<div class="text-center">
-			<p class="tag" use:reveal>The dashboard</p>
-			<SplitText text={'One screen.\n*Everything that matters.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
-			<p class="mx-auto mt-8 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>Prospects, pipeline, this week’s to-do and every client’s site and app. It builds itself from your URL — then you shape it.</p>
+			<p class="tag" use:reveal>The app</p>
+			<SplitText text={'One screen.\n*Your next clients.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+			<p class="mx-auto mt-8 max-w-lg leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>Businesses that need you, who replied and what to follow up today. It builds itself from your URL, in your colours and your language.</p>
 		</div>
 		<div class="relative mt-20 [perspective:2000px]" use:scrub={{ start: 0.95, end: 0.92 }}>
 			<div class="relative origin-top transition-transform duration-150 ease-out" style="transform:rotateX(calc(22deg - var(--p,0) * 22deg)) scale(calc(.9 + var(--p,0) * .1));opacity:calc(.4 + var(--p,0) * .6)">
@@ -408,7 +394,7 @@
 		<div class="lg:sticky lg:top-32 lg:self-start">
 			<p class="tag" use:reveal>How it works</p>
 			<SplitText text={'How it works,\n*step by step.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
-			<p class="mt-8 max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>What happens after you paste your website — from finding a business to signing it and keeping it happy.</p>
+			<p class="mt-8 max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>What happens after you paste your website — from finding a business to signing it.</p>
 		</div>
 		<ol class="relative" use:scrub={{ start: 0.8, end: 0.5 }}>
 			<span class="absolute top-2 bottom-2 left-[11px] w-px origin-top bg-[linear-gradient(to_bottom,rgba(13,13,13,.5)_50%,transparent_50%)] bg-[length:1px_6px]" style="transform:scaleY(var(--p,0))" aria-hidden="true"></span>
@@ -428,15 +414,15 @@
 		<div class="flex flex-wrap items-end justify-between gap-8">
 			<div>
 				<p class="tag" use:reveal>Features</p>
-				<SplitText text={'Find. Sign. Keep.\n*Nothing else.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
+				<SplitText text={'Find. Write. Follow up.\n*Nothing else.*'} class="mt-6 text-[clamp(32px,4.2vw,58px)] leading-[1.08] font-medium tracking-[-0.035em]" emClass="font-serif font-normal text-ink/40" />
 			</div>
-			<p class="max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>Everything an agency needs to bring clients in and keep them happy. Nothing an analyst would.</p>
+			<p class="max-w-sm leading-[1.75] text-ink-2" use:reveal={{ delay: 200 }}>Everything to bring clients in. No CRM, no analytics, no settings to learn.</p>
 		</div>
 		<div class="mt-20 grid grid-cols-1 gap-3 md:grid-cols-6" use:reveal>
 			<article class="card group flex flex-col gap-8 p-8 md:col-span-4" data-stagger use:inview use:spotlight>
 				<div class="flex flex-wrap items-start justify-between gap-3">
 					<div><span class="tag">Find clients</span><h3 class="mt-4 text-[32px] leading-tight font-medium tracking-[-0.03em]">Prospects that need you.</h3></div>
-					<p class="max-w-xs text-sm leading-[1.75] text-ink-2">Real businesses around you, each website checked, a first message written from what we found.</p>
+					<p class="max-w-xs text-sm leading-[1.75] text-ink-2">Real businesses around you, each website checked and Google reviews read, a first message written from what we found.</p>
 				</div>
 				<div class="rounded-[20px] bg-white/60 p-5 shadow-[inset_0_0_0_1px_rgba(0,0,0,.05)]">
 					<p class="flex items-center justify-between gap-3"><span><b class="block text-lg font-medium">Lumen Hair Studio</b><span class="text-xs text-muted">Hair salon · 400 m away</span></span><span class="grid size-12 place-items-center rounded-full bg-ink font-semibold text-white">90</span></p>
@@ -445,42 +431,24 @@
 				</div>
 			</article>
 			<article class="card-dark group flex flex-col gap-6 p-8 md:col-span-2" data-stagger use:inview use:spotlight>
-				<div><span class="tag text-white/50!">Pipeline</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Signed this month.</h3></div>
+				<div><span class="tag text-white/50!">Replies</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Signed this month.</h3></div>
 				<div class="mt-auto">{@render dotbars(bars, true)}</div>
 				<p class="text-xs text-white/50">reply rate 32% · 3 signed</p>
 			</article>
 			<article class="card flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:spotlight>
-				<div><span class="tag">Make it yours</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Shape it in words.</h3></div>
-				<p class="text-sm leading-[1.75] text-ink-2">Hide blocks, reorder them — or just type what you want.</p>
-				<p class="mt-auto rounded-[16px] bg-black/[.04] px-4 py-3 text-[12px] text-ink-2">“Hide the agenda and put clients first.”</p>
+				<div><span class="tag">Their customers</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">The problem, in their own reviews.</h3></div>
+				<p class="text-sm leading-[1.75] text-ink-2">1–3 star Google reviews about things you fix: hours, booking, phone, website, menu, photos.</p>
+				<p class="mt-auto rounded-[16px] bg-black/[.04] px-4 py-3 text-[12px] text-ink-2 italic">“Impossible de réserver en ligne.”</p>
 			</article>
 			<article class="card flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:spotlight>
-				<div><span class="tag">Keep clients</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Show them the leads.</h3></div>
-				<p class="text-sm leading-[1.75] text-ink-2">Forms, calls and WhatsApps counted per channel. No cookies, no setup.</p>
-				<p class="mt-auto"><span class="big text-[56px]" use:countUp={{ to: 46 }}>46</span><span class="ml-2 text-xs text-muted">leads · ↑ 24%</span></p>
+				<div><span class="tag">Their language</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">French, Dutch or English.</h3></div>
+				<p class="text-sm leading-[1.75] text-ink-2">Every message in the language the business speaks, read from its own website.</p>
+				<p class="mt-auto flex gap-2 text-sm">{#each ['FR', 'NL', 'EN'] as l (l)}<span class="rounded-full bg-black/[.04] px-3 py-1.5">{l}</span>{/each}</p>
 			</article>
-			<article class="card group flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:inview use:spotlight>
-				<div><span class="tag">One-click fixes</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Fix it. Don’t ticket it.</h3></div>
-				<div class="mt-auto rounded-[18px] bg-black/[.04] p-4">
-					<p class="text-[11px] text-muted">/services · description missing</p>
-					<div class="mt-3 flex items-center justify-between">
-						<span class="relative h-7 w-12 rounded-full bg-black/10 transition-colors delay-700 duration-300 group-[.in]:bg-ink"><span class="absolute top-1 left-1 size-5 rounded-full bg-white shadow transition-transform delay-700 duration-300 group-[.in]:translate-x-5"></span></span>
-						<span class="text-xs font-medium opacity-0 transition-opacity delay-1000 duration-300 group-[.in]:opacity-100">Live on the site ✓</span>
-					</div>
-				</div>
-			</article>
-			<article class="card flex flex-col gap-5 p-8 md:col-span-3" data-stagger use:spotlight>
-				<div><span class="tag">Apps too</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Crashes, reviews, paywall.</h3></div>
-				<div class="mt-auto grid grid-cols-3 gap-2 text-center">
-					{#each [['99.7%', 'crash-free'], ['4.6★', 'app store'], ['3.1%', 'paywall']] as [v, l] (l)}<div class="rounded-[16px] bg-black/[.04] p-4"><p class="text-xl font-medium">{v}</p><p class="mt-1 text-[10px] text-muted uppercase">{l}</p></div>{/each}
-				</div>
-			</article>
-			<article class="card flex flex-col gap-5 p-8 md:col-span-3" data-stagger use:spotlight>
-				<div><span class="tag">Reports</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Monday reports with your logo.</h3></div>
-				<div class="mt-auto flex items-center gap-4 rounded-[18px] bg-black/[.04] p-4">
-					<span class="grid size-11 shrink-0 place-items-center rounded-xl border border-dashed border-ink/20 text-[10px] text-muted">logo</span>
-					<div class="min-w-0 flex-1"><p class="text-sm font-medium">October for Lou Studio</p><p class="truncate text-[11px] text-muted">38 leads (+12) · 4 fixes done</p></div>
-				</div>
+			<article class="card flex flex-col gap-5 p-8 md:col-span-2" data-stagger use:spotlight>
+				<div><span class="tag">You approve</span><h3 class="mt-4 text-[26px] leading-tight font-medium tracking-[-0.03em]">Nothing goes out without you.</h3></div>
+				<p class="text-sm leading-[1.75] text-ink-2">From your own email or as an Instagram DM. No new domain, no spam, no warm-up.</p>
+				<p class="mt-auto"><span class="big text-[56px]">0</span><span class="ml-2 text-xs text-muted">messages sent without your click</span></p>
 			</article>
 		</div>
 	</section>
@@ -524,8 +492,8 @@
 					<p class="-mt-3 text-xs opacity-60"><s>€{p.price}</s> after the first 30 · free during the beta</p>
 					<ul class="space-y-2 text-sm opacity-80">
 						<li>✓ {p.prospects} prospects a month</li>
-						<li>✓ Today: messages, follow-ups and payment reminders to approve</li>
-						<li>✓ {id === 'freelance' ? 'Morning email, pipeline, clients' : '3 team members · FR, NL and EN messages'}</li>
+						<li>✓ Today: first messages and follow-ups to approve</li>
+						<li>✓ {id === 'freelance' ? 'Google reviews read · morning email' : '3 team members · FR, NL and EN messages'}</li>
 					</ul>
 					<a href="/beta" class="btn mt-auto {id === 'agency' ? 'bg-white text-ink hover:bg-white/90' : 'btn-primary'}">Join the free beta</a>
 				</div>
