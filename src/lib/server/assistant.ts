@@ -87,7 +87,7 @@ Answer in the user's language, short and concrete (max ~120 words, plain sentenc
 		const res = await fetch('https://api.anthropic.com/v1/messages', {
 			method: 'POST',
 			headers: { 'x-api-key': env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-			body: JSON.stringify({ model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5', max_tokens: 900, system, tools: [...BUSINESS_TOOLS, ...(client ? TOOLS : TOOLS.filter((t) => ['list_clients', 'keyword_research', 'propose_action'].includes(t.name)))], messages: convo }),
+			body: JSON.stringify({ model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', max_tokens: 900, system, tools: [...BUSINESS_TOOLS, ...(client ? TOOLS : TOOLS.filter((t) => ['list_clients', 'keyword_research', 'propose_action'].includes(t.name)))], messages: convo }),
 			signal: AbortSignal.timeout(60_000)
 		});
 		if (!res.ok) throw new Error(`Claude ${res.status}`);

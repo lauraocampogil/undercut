@@ -114,7 +114,7 @@ async function aiAlts(client: Client, imgs: { abs: string; context: string; page
 		const res = await fetch('https://api.anthropic.com/v1/messages', {
 			method: 'POST',
 			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-			body: JSON.stringify({ model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5', max_tokens: 1200, messages: [{ role: 'user', content }] }),
+			body: JSON.stringify({ model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5', max_tokens: 1200, messages: [{ role: 'user', content }] }),
 			signal: AbortSignal.timeout(45_000)
 		});
 		if (!res.ok) return {};
@@ -151,7 +151,7 @@ async function aiCopy(client: Client, pages: PageAudit[]): Promise<Record<string
 			method: 'POST',
 			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
 			body: JSON.stringify({
-				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+				model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
 				max_tokens: 1500,
 				messages: [
 					{

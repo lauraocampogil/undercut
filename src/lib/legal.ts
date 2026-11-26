@@ -9,17 +9,16 @@ export const COMPANY = {
 	country: 'Belgium',
 	email: 'hello@getundercut.app',
 	site: 'https://getundercut.app',
-	updated: '2026-11-19'
+	updated: '2026-11-24'
 };
 
 export type Section = { id: string; h: string; p: (string | string[])[] };
 
 export const SUBPROCESSORS = [
-	['Hetzner Online (Germany)', 'Server hosting for the app and its data', 'EU'],
-	['Supabase (EU region)', 'Database for accounts and workspaces', 'EU'],
-	['Resend', 'Sending emails (reports, alerts, invitations)', 'US — Standard Contractual Clauses'],
+	['Hetzner Online (Germany)', 'Server hosting for the app', 'EU'],
+	['Supabase (EU region)', 'Database for accounts, analyses and the public database', 'EU'],
+	['Resend', 'Sending emails (welcome, password reset)', 'US — Standard Contractual Clauses'],
 	['Stripe', 'Payments and invoices', 'EU / US — Standard Contractual Clauses'],
-	['Google (APIs)', 'Reading Analytics, Search Console, Business Profile, Tag Manager and PageSpeed data you connect', 'EU / US — Standard Contractual Clauses'],
-	['Anthropic', 'AI features (summaries, suggested fixes, messages). No data used for training.', 'US — Standard Contractual Clauses'],
-	['OpenStreetMap services (Nominatim, Overpass)', 'Finding public business listings for prospects — only a city name and categories are sent', 'EU']
+	['Google', 'Sign in with Google (only your name, email and profile picture)', 'EU / US — Standard Contractual Clauses'],
+	['Anthropic', 'Grouping public reviews into topics. Only review texts are sent, never your account data. No data used for training.', 'US — Standard Contractual Clauses']
 ] as const;

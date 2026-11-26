@@ -31,4 +31,4 @@
 	let { name, size = 16 }: { name: keyof typeof P; size?: number } = $props();
 </script>
 
-<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0"><path d={P[name]} /></svg>
+<svg width={size} height={size} viewBox="-1.5 -1.5 27 27" overflow="visible" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0"><path d={P[name]} /></svg>

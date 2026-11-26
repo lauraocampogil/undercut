@@ -44,12 +44,24 @@ export const authEnabled = () => dbOn() || Boolean(getAccount().passwordHash || 
 function sign(payload: string) {
 	return createHmac('sha256', secret()).update(payload).digest('base64url');
 }
+// The site (getundercut.app) and the app (app.getundercut.app) share the login: the cookie is set on the parent domain.
+function cookieDomain(): string | undefined {
+	try {
+		const site = env.SITE_URL ? new URL(env.SITE_URL).hostname : '';
+		const app = env.PUBLIC_BASE_URL ? new URL(env.PUBLIC_BASE_URL).hostname : '';
+		return site && app && site !== app && app.endsWith(`.${site}`) ? site : undefined;
+	} catch {
+		return undefined;
+	}
+}
 export function startSession(cookies: Cookies, email: string, secure: boolean) {
 	const payload = Buffer.from(JSON.stringify({ e: email, x: Date.now() + MAX_AGE * 1000, w: currentWs() ?? undefined })).toString('base64url');
-	cookies.set(COOKIE, `${payload}.${sign(payload)}`, { path: '/', httpOnly: true, sameSite: 'lax', secure, maxAge: MAX_AGE });
+	cookies.set(COOKIE, `${payload}.${sign(payload)}`, { path: '/', domain: cookieDomain(), httpOnly: true, sameSite: 'lax', secure, maxAge: MAX_AGE });
 }
 export function endSession(cookies: Cookies) {
-	cookies.delete(COOKIE, { path: '/' });
+	cookies.delete(COOKIE, { path: '/' }); // older host-only cookies
+	const domain = cookieDomain();
+	if (domain) cookies.delete(COOKIE, { path: '/', domain });
 }
 
 export function findUser(email: string): (User & { passwordHash?: string }) | null {

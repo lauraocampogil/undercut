@@ -1,4 +1,6 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
+import { deleteAccount } from '#lib/server/account.ts';
+import { endSession } from '#lib/server/auth.ts';
 import { dbOn } from '#lib/server/db.ts';
 import { getAccount, listMembers, saveAccount, saveMembers } from '#lib/server/store.ts';
 import { hashPassword, passwordProblem, startSession, verifyPassword, findUser } from '#lib/server/auth.ts';
@@ -48,5 +50,16 @@ export const actions = {
 		}
 		startSession(cookies, u.email, url.protocol === 'https:');
 		return { pwSaved: true };
+	},
+	delete: async ({ request, locals, cookies }) => {
+		if (locals.user?.role !== 'owner') return fail(403, { delError: 'Only the account owner can delete it.' });
+		if (String((await request.formData()).get('confirm') ?? '') !== 'DELETE') return fail(400, { delError: 'Type DELETE to confirm.' });
+		try {
+			await deleteAccount(locals.ws ?? null);
+		} catch (e) {
+			return fail(400, { delError: (e as Error).message });
+		}
+		endSession(cookies);
+		redirect(303, '/?deleted=1');
 	}
 };

@@ -1,3 +1,20 @@
-# allow crawling everything by default
+# allow crawling the public site, keep the app private
 User-agent: *
-Disallow:
+Disallow: /app/
+Disallow: /admin/
+Disallow: /api/
+
+# AI assistants are welcome on the public pages (see /llms.txt)
+User-agent: GPTBot
+Allow: /
+Disallow: /app/
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /app/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /app/
+
+Sitemap: https://getundercut.app/sitemap.xml

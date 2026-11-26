@@ -2,10 +2,9 @@
 	import { page } from '$app/state';
 	import Logo from '#lib/components/Logo.svelte';
 	import Icon from '#lib/components/Icon.svelte';
-	import Assistant from '#lib/components/Assistant.svelte';
-	import { dict } from '#lib/i18n.ts';
+	import { appT } from '#lib/app-i18n.ts';
 	let { data, children } = $props();
-	const t = $derived(dict(data.ui));
+	const L = $derived(appT(data.lang));
 
 	let drawer = $state(false); // mobile sidebar
 	// lock the page behind the open mobile sidebar
@@ -18,15 +17,16 @@
 	const path = $derived(page.url.pathname);
 	const current = $derived(data.clients.find((c) => path.startsWith(`/app/clients/${c.id}`)));
 	const q = $derived(page.url.searchParams.get('days') ? `?days=${page.url.searchParams.get('days')}` : '');
-	const planLabel = $derived({ trial: 'Free trial', freelance: 'Freelance', agency: 'Agency', studio: 'Studio' }[data.billing.plan]);
+	const planLabel = $derived(({ trial: 'Free plan', freelance: 'Freelance', agency: 'Agency', studio: 'Studio', full: 'Full database' } as Record<string, string>)[data.billing.plan]);
 	const initial = (s: string) => s.trim().slice(0, 1).toUpperCase() || 'U';
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	type Item = { href: string; label: string; icon: any; badge?: number };
-	// Undercut does one thing: find clients. Three places only.
+	// Undercut: what users hate, and who fixes it. Two places only.
 	const agencyNav = $derived([
-		{ href: '/app', label: t.navToday, icon: 'grid', badge: data.toApprove },
-		{ href: '/app/pipeline', label: t.navReplies, icon: 'target' }
+		{ href: '/app/analyses', label: L.nav.home, icon: 'grid' },
+		{ href: '/app/following', label: L.nav.following, icon: 'star' },
+		{ href: '/app/database', label: L.nav.database, icon: 'list' }
 	] as Item[]);
 	const clientNav = $derived.by(() => {
 		if (!current) return [] as { group: string; items: Item[] }[];
@@ -62,7 +62,7 @@
 			const appMode = page.url.searchParams.get('mode') === 'app' || current?.type === 'app';
 			return path === hp && (hq === 'mode=app') === appMode;
 		}
-		if (['/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline', '/app/settings'].includes(hp)) return path === hp || path.startsWith(hp + '/');
+		if (['/app/analyses', '/app/following', '/app/database', '/app/crm', '/app/invoices', '/app/tasks', '/app/prospects', '/app/analytics', '/app/pipeline', '/app/settings'].includes(hp)) return path === hp || path.startsWith(hp + '/');
 		return hp === '/app' ? path === '/app' : path === hp || (!hp.endsWith('/settings') && hp.split('/').length > 4 && path.startsWith(hp + '/'));
 	};
 
@@ -76,11 +76,11 @@
 {#snippet link(it: Item)}
 	<a
 		href={it.href + (it.href.includes('/clients/') && !it.href.endsWith('/settings') ? (it.href.includes('?') ? q.replace('?', '&') : q) : '')}
-		class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors {isActive(it.href) ? 'bg-ink text-white' : 'text-ink-2 hover:bg-black/5'}"
+		class="flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors {isActive(it.href) ? 'bg-black/[0.06] font-medium text-ink' : 'text-ink-2 hover:bg-black/[0.04]'}"
 	>
 		<Icon name={it.icon} />
 		<span class="flex-1 truncate">{it.label}</span>
-		{#if it.badge}<span class="rounded-full px-1.5 text-[10px] font-semibold {isActive(it.href) ? 'bg-white text-ink' : 'bg-ink text-white'}">{it.badge}</span>{/if}
+		{#if it.badge}<span class="rounded-full bg-ink px-1.5 text-[10px] font-semibold text-white">{it.badge}</span>{/if}
 	</a>
 {/snippet}
 
@@ -102,39 +102,39 @@
 			<span class="flex items-center gap-2"><button class="icon-btn size-9 lg:hidden" onclick={() => (drawer = false)} aria-label="Close menu"><Icon name="x" /></button></span>
 		</div>
 
-		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Agency">
+		<nav class="mt-3 flex flex-col gap-0.5" aria-label="Main">
 			{#each agencyNav as it (it.href)}{@render link(it)}{/each}
 		</nav>
 
 
 		<div class="mt-auto flex flex-col gap-2 pt-4">
-			<button class="flex items-center gap-3 rounded-2xl bg-ink px-3 py-2.5 text-sm text-white" onclick={() => window.dispatchEvent(new CustomEvent('undercut:open'))}>
-				<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9zM19 15l.9 2.6 2.6.9-2.6.9L19 22l-.9-2.6-2.6-.9 2.6-.9z" /></svg>
-				<span class="flex-1 text-left">{t.askAi}</span><kbd class="rounded bg-white/15 px-1.5 text-[10px]">⌘J</kbd>
-			</button>
+			<a href="/app/feedback" class="rounded-2xl border border-line bg-white p-4 text-sm {path === '/app/feedback' ? 'border-ink' : ''}">
+				<span class="flex items-center gap-2 font-medium"><span class="rounded-full bg-ink px-2 py-0.5 text-[10px] font-semibold text-white">{L.feedback.badge}</span>{L.feedback.nav}</span>
+				{#if data.betaTester}<span class="mt-1.5 block text-xs leading-relaxed text-muted">{L.feedback.card}</span>{/if}
+			</a>
+			{#if !data.full}
+				<a href="/app/settings/billing" class="rounded-2xl border border-line bg-white p-4 text-sm">
+					<span class="block font-medium">{L.nav.unlock}</span>
+					<span class="mt-1 block text-xs leading-relaxed text-muted">{L.nav.unlockText}</span>
+					<span class="mt-3 inline-block text-xs font-medium underline">{L.nav.seePlan}</span>
+				</a>
+			{/if}
 
 			<!-- account & settings -->
 			<div class="relative">
 				{#if menu === 'account'}
 					<div class="absolute right-0 bottom-full left-0 z-40 mb-2 rounded-[20px] bg-white py-2 text-sm shadow-[0_20px_60px_-20px_rgba(0,0,0,.35)]">
-						<p class="label px-4 pt-1 pb-1">{t.tabAgency}</p>
-						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 font-medium hover:bg-tile">
-							<span class="grid size-6 place-items-center rounded-md bg-accent text-[11px] text-accent-ink">{initial(data.agency.name)}</span>
-							<span class="flex-1 truncate">{data.agency.name}</span><span class="rounded-full bg-tile px-2 py-0.5 text-[10px] font-normal">{data.beta ? 'Beta' : planLabel}</span>
-						</a>
-						<a href="/app/settings" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>{t.navSettings}</a>
-						<a href="/app/settings/team" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>{t.team}</a>
-						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>{t.billing}</a>
+						<a href="/app/settings/billing" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="bill" /></span>{L.nav.billing}</a>
 						<div class="my-2 border-t border-line"></div>
-						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="team" /></span>{t.myAccount}</a>
-						<form method="POST" action="/logout"><button class="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>{t.logout}</button></form>
+						<a href="/app/settings/account" class="flex items-center gap-3 px-4 py-2 hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="cog" /></span>{L.nav.account}</a>
+						<form method="POST" action="/logout"><button class="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-tile"><span class="grid w-6 place-items-center"><Icon name="logout" /></span>{L.nav.logout}</button></form>
 					</div>
 				{/if}
 				<button class="flex w-full items-center gap-3 rounded-2xl p-2 text-left text-sm hover:bg-white {menu === 'account' ? 'bg-white' : ''}" onclick={() => (menu = menu === 'account' ? null : 'account')} aria-expanded={menu === 'account'} aria-label="Account and settings">
 					<span class="relative grid size-9 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-ink">
 						{initial(data.account.name)}
 					</span>
-					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">{t.account}</span></span>
+					<span class="min-w-0 flex-1"><span class="block truncate font-medium">{data.account.name}</span><span class="block truncate text-xs text-muted">{data.full ? L.nav.full : L.nav.free}</span></span>
 					<Icon name="cog" size={15} />
 				</button>
 			</div>
@@ -149,5 +149,4 @@
 			{@render children()}
 		</div>
 	</main>
-	<Assistant clients={data.clients} />
 </div>

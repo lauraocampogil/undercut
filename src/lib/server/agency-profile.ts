@@ -102,7 +102,7 @@ async function aiRefine(p: AgencyProfile, text: string): Promise<AgencyProfile |
 			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
 			signal: AbortSignal.timeout(15000),
 			body: JSON.stringify({
-				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+				model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
 				max_tokens: 250,
 				messages: [{ role: 'user', content: `From this agency website text, answer JSON only: {"name":"","services":[subset of "web","app","social","seo","branding","ads"],"city":"main city or empty","country":"BE/FR/NL/LU or empty","lang":"fr|nl|en","summary":"one sentence: what they sell to whom"}.\n\n${text.slice(0, 5000)}` }]
 			})

@@ -229,7 +229,7 @@ export async function aiSummary(client: Client, m: Metrics, insights: Insight[],
 				'content-type': 'application/json'
 			},
 			body: JSON.stringify({
-				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+				model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
 				max_tokens: 300,
 				messages: [
 					{

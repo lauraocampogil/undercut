@@ -50,7 +50,8 @@ export async function lookup(id: string, cc: string): Promise<StoreApp | null> {
 			updated: String(a.currentVersionReleaseDate ?? '').slice(0, 10),
 			notes: String(a.releaseNotes ?? '').slice(0, 600),
 			price: a.formattedPrice ?? 'Free',
-			url: a.trackViewUrl ?? ''
+			url: a.trackViewUrl ?? '',
+			screenshots: [...(a.screenshotUrls ?? []), ...(a.ipadScreenshotUrls ?? [])].slice(0, 6)
 		};
 	});
 }

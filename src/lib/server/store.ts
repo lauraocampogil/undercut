@@ -2,7 +2,7 @@
 // - local (no SUPABASE_URL): JSON files in ./.data — one agency workspace, zero setup.
 // - multi-agency (Supabase): every agency has its own workspace; its documents live in the `kv` table,
 //   loaded once in memory per workspace (reads stay synchronous) and saved on every write.
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Agency, Client } from '#lib/types.ts';
 import { currentCtx } from './context.ts';
@@ -33,6 +33,28 @@ function read<T>(file: string, fallback: T): T {
 	if (!existsSync(p)) return fallback;
 	try {
 		return JSON.parse(readFileSync(p, 'utf8')) as T;
+	} catch {
+		return fallback;
+	}
+}
+
+/** Like read(), without the copy: for big documents read often (the caller must not change the result unless it saves it). */
+const localMemo = new Map<string, { mtime: number; data: unknown }>();
+export function readShared<T>(file: string, fallback: T): T {
+	const ctx = currentCtx();
+	if (dbOn() && ctx) {
+		const docs = wsCache.get(ctx.ws)?.docs;
+		return docs?.has(file) ? (docs.get(file) as T) : fallback;
+	}
+	const p = join(DIR, file);
+	if (!existsSync(p)) return fallback;
+	try {
+		const mtime = statSync(p).mtimeMs;
+		const hit = localMemo.get(p);
+		if (hit && hit.mtime === mtime) return hit.data as T;
+		const data = JSON.parse(readFileSync(p, 'utf8')) as T;
+		localMemo.set(p, { mtime, data });
+		return data;
 	} catch {
 		return fallback;
 	}
@@ -246,7 +268,7 @@ export const hasWeb = (c: Client) => clientType(c) !== 'app';
 export const hasApp = (c: Client) => clientType(c) !== 'web';
 
 // The signed-in person (MVP: one local account; production: Supabase Auth)
-export type Account = { name: string; email: string; language: 'en' | 'fr' | 'nl' | 'es'; passwordHash?: string; googleLogin?: boolean };
+export type Account = { name: string; email: string; language: 'en' | 'fr' | 'nl' | 'es'; passwordHash?: string; googleLogin?: boolean; beta?: boolean; founder?: boolean; freeUntil?: string; noEmails?: boolean };
 export function getAccount(): Account {
 	return read<Account>('account.json', { name: 'Agency owner', email: '', language: 'en' });
 }
@@ -264,7 +286,7 @@ export function saveMembers(m: Member[]) {
 }
 
 // Billing (MVP: plan stored locally; production: Stripe customer + subscription)
-export type Billing = { plan: 'trial' | 'freelance' | 'agency' | 'studio'; trialEnds: string; customerId?: string };
+export type Billing = { plan: 'trial' | 'freelance' | 'agency' | 'studio' | 'full'; trialEnds: string; customerId?: string; subscriptionId?: string; checkedAt?: string };
 export function getBilling(): Billing {
 	return read<Billing>('billing.json', { plan: 'trial', trialEnds: new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10) });
 }

@@ -1,57 +1,53 @@
-import { redirect } from '@sveltejs/kit';
-import * as env from '$app/env/private';
-import { getBilling, listClients, saveBilling } from '#lib/server/store.ts';
-import { usageThisMonth } from '#lib/server/usage.ts';
-import { PLANS, type PlanId } from '#lib/plans.ts';
+import { fail, redirect } from '@sveltejs/kit';
+import { getAccount, getBilling } from '#lib/server/store.ts';
+import { checkoutUrl, confirmCheckout, isFounder, portalUrl, stripeReady, syncSubscription } from '#lib/server/billing.ts';
+import { PRICE } from '#lib/pricing.ts';
+import { db, dbOn } from '#lib/server/db.ts';
+import { readData, writeData } from '#lib/server/store.ts';
 
-const PRICE: Record<string, string | undefined> = { freelance: env.STRIPE_PRICE_FREELANCE, agency: env.STRIPE_PRICE_AGENCY, studio: env.STRIPE_PRICE_STUDIO };
-
-async function stripe(path: string, params: Record<string, string>) {
-	const res = await fetch(`https://api.stripe.com/v1/${path}`, {
-		method: 'POST',
-		headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'content-type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams(params)
-	});
-	const j = await res.json();
-	if (!res.ok) throw new Error(j.error?.message ?? 'Stripe error');
-	return j;
-}
-
-export const load = ({ url }) => {
-	const done = url.searchParams.get('plan');
-	if (url.searchParams.get('status') === 'success' && done && done in PLANS) saveBilling({ ...getBilling(), plan: done as PlanId });
-	return {
-	billing: getBilling(),
-	clientsUsed: listClients().length,
-	usage: usageThisMonth(),
-	stripe: Boolean(env.STRIPE_SECRET_KEY),
-	status: url.searchParams.get('status')
-	};
+export const load = async ({ url, locals }) => {
+	const sid = url.searchParams.get('session_id');
+	let status = url.searchParams.get('status');
+	if (sid) status = (await confirmCheckout(sid, locals.ws ?? undefined).catch(() => false)) ? 'success' : 'failed';
+	else await syncSubscription();
+	const b = getBilling();
+	const acc = getAccount();
+	return { lifetime: Boolean(acc.beta), freeUntil: acc.freeUntil && Date.now() < Date.parse(acc.freeUntil) ? acc.freeUntil : null, founder: await isFounder(locals.user?.email), notified: readData<boolean>('notify-paid.json', false), full: b.plan !== 'trial', hasCustomer: Boolean(b.customerId), stripe: stripeReady(), status, price: PRICE };
 };
 
 export const actions = {
-	choose: async ({ request, url }) => {
-		const plan = String((await request.formData()).get('plan')) as PlanId;
-		if (!(plan in PLANS) || plan === 'trial') return { error: 'Unknown plan' };
-		if (env.STRIPE_SECRET_KEY && PRICE[plan]) {
-			const s = await stripe('checkout/sessions', {
-				mode: 'subscription',
-				'line_items[0][price]': PRICE[plan]!,
-				'line_items[0][quantity]': '1',
-				success_url: `${url.origin}/app/settings/billing?status=success&plan=${plan}`,
-				cancel_url: `${url.origin}/app/settings/billing?status=cancelled`,
-				allow_promotion_codes: 'true'
-			});
-			redirect(303, s.url);
+	subscribe: async ({ url, locals }) => {
+		if (!stripeReady()) return fail(400, { error: 'Payments are not set up yet (STRIPE_SECRET_KEY and STRIPE_PRICE_DATABASE).' });
+		if (getBilling().plan === 'full') return fail(400, { error: 'You already have the full database.' });
+		let to: string;
+		try {
+			const free = getAccount().freeUntil;
+			to = await checkoutUrl(url.origin, locals.user?.email || undefined, locals.ws ?? undefined, await isFounder(locals.user?.email), free && Date.parse(free) > Date.now() + 864e5 ? free : undefined);
+		} catch (e) {
+			return fail(400, { error: (e as Error).message });
 		}
-		// No Stripe configured: switch locally so the flow can be tried end-to-end.
-		saveBilling({ ...getBilling(), plan });
-		return { switched: plan };
+		redirect(303, to);
 	},
 	portal: async ({ url }) => {
-		const b = getBilling();
-		if (!env.STRIPE_SECRET_KEY || !b.customerId) return { error: 'Billing portal opens once a Stripe subscription exists.' };
-		const s = await stripe('billing_portal/sessions', { customer: b.customerId, return_url: `${url.origin}/app/settings/billing` });
-		redirect(303, s.url);
+		let to: string;
+		try {
+			to = await portalUrl(url.origin);
+		} catch (e) {
+			return fail(400, { error: (e as Error).message });
+		}
+		redirect(303, to);
+	},
+	// before payments are open: people who want the full database leave their email (Supabase table waitlist, kind = 'database')
+	notify: async ({ locals, request }) => {
+		const email = locals.user?.email;
+		if (!email) return fail(401, { error: 'Log in first.' });
+		const f = await request.formData();
+		const val = (k: string) => String(f.get(k) ?? '').trim().slice(0, 600);
+		const answers = { building: val('building'), use: val('use'), missing: val('missing'), pay: val('pay') };
+		const note = JSON.stringify(answers);
+		if (dbOn()) await db.upsert('waitlist', { email, name: locals.user?.name ?? '', kind: 'database', website: answers.building.slice(0, 200), note }, 'email').catch((e) => console.warn('[waitlist]', e));
+		writeData('notify-paid.json', true);
+		const acc = getAccount();
+	return { lifetime: Boolean(acc.beta), freeUntil: acc.freeUntil && Date.now() < Date.parse(acc.freeUntil) ? acc.freeUntil : null, founder: await isFounder(locals.user?.email), notified: true };
 	}
 };

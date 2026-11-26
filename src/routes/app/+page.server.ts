@@ -1,3 +1,4 @@
+import { redirect } from '@sveltejs/kit';
 import { getOS, monthlyQuota, usedThisMonth } from '#lib/server/agency-os.ts';
 import { agencyActions } from '#lib/server/agency-actions.ts';
 import { businessActions } from '#lib/server/business-actions.ts';
@@ -9,6 +10,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Today: Undercut does one thing, find clients. First messages and follow-ups to approve, one at a time.
 export const load = async () => {
+	redirect(303, '/app/analyses'); // the MVP lives in Analyses
 	// who replied since last time (from the agency's mailbox, at most every 5 minutes)
 	await Promise.race([syncReplies().catch(() => 0), wait(5000)]);
 	const os = getOS();

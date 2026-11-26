@@ -244,7 +244,7 @@ export async function goalCoach(client: Client, p: GoalProgress[]): Promise<stri
 			method: 'POST',
 			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
 			body: JSON.stringify({
-				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+				model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
 				max_tokens: 250,
 				messages: [{ role: 'user', content: `You coach a web agency on a client goal. 3 short sentences, plain words, no markdown: where they stand, the single biggest lever, what to do this week. Use only these facts.\n\nClient: ${client.name}\n${p.map((x) => `Goal: ${x.label} ${x.goal.target} by ${x.goal.deadline}. Now: ${x.current ?? 'unknown'} (${x.pct}%). Pace ${x.weeklyGrowth ?? '?'}%/week, needed ${x.neededGrowth ?? '?'}%/week. Math: ${x.math.join(' ')} Actions: ${x.actions.map((a) => a.title + ' (' + a.why + ')').join('; ')}`).join('\n')}` }]
 			})

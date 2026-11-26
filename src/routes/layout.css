@@ -24,7 +24,7 @@
 	--color-bad: #d6453d;
 	--color-bad-bg: #fbe7e5;
 
-	--radius-card: 28px;
+	--radius-card: 16px;
 }
 
 :root {
@@ -33,15 +33,8 @@
 }
 
 html {
-	/* soft light, fixed: white glow top-left, warm grey right, fine dot grid */
-	background-color: var(--color-paper);
-	background-image:
-		radial-gradient(1100px 700px at 8% -10%, rgb(255 255 255 / 0.95), transparent 60%),
-		radial-gradient(900px 650px at 105% 10%, rgb(248 248 245 / 0.9), transparent 60%),
-		radial-gradient(800px 600px at 60% 110%, rgb(220 222 226 / 0.7), transparent 60%),
-		radial-gradient(rgb(0 0 0 / 0.07) 1px, transparent 1px);
-	background-size: auto, auto, auto, 22px 22px;
-	background-attachment: fixed;
+	/* flat warm grey, no gradients */
+	background-color: #f3f3f1;
 	color: var(--color-ink);
 	-webkit-font-smoothing: antialiased;
 }
@@ -78,30 +71,17 @@ body {
 /* Liquid glass: frosted white, specular top edge, hairline border, soft drop */
 .card {
 	min-width: 0;
-	background:
-		radial-gradient(140% 80% at 0% 0%, rgb(255 255 255 / 0.65), transparent 55%),
-		linear-gradient(180deg, rgb(255 255 255 / 0.82), rgb(255 255 255 / 0.6));
-	backdrop-filter: blur(22px) saturate(170%);
-	-webkit-backdrop-filter: blur(22px) saturate(170%);
+	background: #ffffff;
 	border-radius: var(--radius-card);
-	box-shadow:
-		inset 0 1px 0 rgb(255 255 255 / 0.95),
-		inset 0 0 0 1px rgb(255 255 255 / 0.55),
-		0 0 0 1px rgb(0 0 0 / 0.06),
-		0 18px 40px -26px rgb(0 0 0 / 0.35);
+	border: 1px solid rgb(0 0 0 / 0.07);
 }
 .glass-btn {
-	background: linear-gradient(180deg, rgb(255 255 255 / 0.75), rgb(255 255 255 / 0.45));
-	backdrop-filter: blur(14px) saturate(160%);
-	-webkit-backdrop-filter: blur(14px) saturate(160%);
-	box-shadow:
-		inset 0 1px 0 rgb(255 255 255 / 0.9),
-		0 0 0 1px rgb(0 0 0 / 0.07),
-		0 6px 18px -10px rgb(0 0 0 / 0.3);
-	transition: transform 0.15s ease;
+	background: #ffffff;
+	border: 1px solid rgb(0 0 0 / 0.1);
+	transition: border-color 0.15s ease, background 0.15s ease;
 }
 .glass-btn:hover {
-	transform: translateY(-1px);
+	border-color: rgb(0 0 0 / 0.25);
 }
 /* mono label in brackets: [ NEW PROSPECTS ] */
 .tag {
@@ -184,7 +164,7 @@ body {
 		border-color 0.15s ease;
 }
 .btn:active {
-	transform: scale(0.97);
+	opacity: 0.85;
 }
 .btn-primary {
 	background: var(--color-ink);
@@ -673,5 +653,126 @@ html {
 	.roll > span,
 	.roll::after {
 		transition: none;
+	}
+}
+
+/* dropdown: our own chevron with room on the right (the native arrow gets clipped in rounded pills) */
+select.select {
+	appearance: none;
+	-webkit-appearance: none;
+	background-color: #ffffff;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8b90' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 0.85rem center;
+	border: 1px solid rgb(0 0 0 / 0.1);
+	border-radius: 10px;
+	padding: 0.5rem 2.25rem 0.5rem 0.85rem;
+	font-size: 0.875rem;
+	line-height: 1.25rem;
+	cursor: pointer;
+}
+select.select:hover {
+	border-color: rgb(0 0 0 / 0.25);
+}
+
+/* bars that grow when their block scrolls into view (marketing pages) */
+.grow-bar {
+	width: var(--w);
+}
+.js .reveal .grow-bar {
+	width: 0;
+	transition: width 1.2s var(--ease-out) calc(var(--d, 0ms) + 300ms);
+}
+.js .reveal.in .grow-bar {
+	width: var(--w);
+}
+@media (prefers-reduced-motion: reduce) {
+	.js .reveal .grow-bar {
+		transition: none;
+		width: var(--w);
+	}
+}
+
+/* scroll story previews */
+.typing {
+	animation: typing 1s steps(9, end) 0.2s both;
+	border-right: 2px solid var(--color-ink);
+	width: 9.5ch;
+	flex: none;
+}
+@keyframes typing {
+	from {
+		width: 0;
+	}
+}
+.pop {
+	animation: pop-in 0.5s var(--ease-out, ease) var(--d, 0ms) both;
+}
+@keyframes pop-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px) scale(0.96);
+	}
+}
+.fillbar {
+	width: var(--w);
+	animation: fill-in 1s var(--ease-out, ease) calc(var(--d, 0ms) + 200ms) both;
+}
+@keyframes fill-in {
+	from {
+		width: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.typing,
+	.pop,
+	.fillbar {
+		animation: none;
+	}
+}
+
+.growh {
+	height: var(--h);
+	animation: grow-h 0.8s var(--ease-out, ease) var(--d, 0ms) both;
+}
+@keyframes grow-h {
+	from {
+		height: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.growh {
+		animation: none;
+	}
+}
+
+/* landing: gentle float, endless marquee */
+.float {
+	animation: float 7s ease-in-out var(--d, 0s) infinite;
+}
+@keyframes float {
+	0%,
+	100% {
+		translate: 0 0;
+	}
+	50% {
+		translate: 0 -10px;
+	}
+}
+.marquee-track {
+	animation: marquee 90s linear infinite;
+}
+.marquee:hover .marquee-track {
+	animation-play-state: paused;
+}
+@keyframes marquee {
+	to {
+		transform: translateX(-50%);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.float,
+	.marquee-track {
+		animation: none;
 	}
 }

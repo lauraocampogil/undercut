@@ -1,14 +1,19 @@
+import { sendEmail } from '#lib/server/email.ts';
+import { welcomeEmail } from '#lib/server/mails.ts';
+import { tierOfRow, langOfRow } from '#lib/server/beta-invite.ts';
+import { welcomeSubject, unsubscribeLink } from '#lib/server/mails.ts';
+import * as env from '$app/env/private';
 import { redirect } from '@sveltejs/kit';
 import { exchangeCode, googleIdentity } from '#lib/server/google.ts';
 import { acceptInviteWithGoogle, findUser, inviteWorkspace, startSession } from '#lib/server/auth.ts';
 import { addLogin, createWorkspace, getAccount, getAgency, listClients, loadWorkspace, lookupLogin, saveAccount, saveAgency, writeData } from '#lib/server/store.ts';
 import { dbOn } from '#lib/server/db.ts';
 import { inWorkspace } from '#lib/server/context.ts';
-import { markJoined, rowByCode, seatsLeft } from '#lib/server/beta.ts';
+import { markJoined, rowByCode } from '#lib/server/beta.ts';
 
 export const GET = async ({ url, cookies, locals }) => {
 	const mode = cookies.get('oauth_mode') === 'login' ? 'login' : 'data';
-	const next = cookies.get('oauth_next') || (mode === 'login' ? '/app' : '/app/settings/advanced');
+	const next = cookies.get('oauth_next') || (mode === 'login' ? '/app/analyses' : '/app/settings/advanced');
 	const invite = cookies.get('oauth_invite');
 	const beta = cookies.get('oauth_beta');
 	for (const k of ['oauth_next', 'oauth_mode', 'oauth_invite', 'oauth_beta']) cookies.delete(k, { path: '/' });
@@ -55,19 +60,21 @@ export const GET = async ({ url, cookies, locals }) => {
 				redirect(303, u.role === 'client' && u.clientId ? `/app/clients/${u.clientId}` : next);
 			}
 			// c) new agency: open sign-up (a beta invitation only pre-fills the agency name)
+			if (env.WAITLIST === 'on' && !beta) redirect(303, '/waitlist');
 			const r = beta ? await rowByCode(beta) : null;
 			const row = r && r.status !== 'joined' ? r : null;
-			if (!row && (await seatsLeft()) <= 0) redirect(303, '/beta?full=1');
-			const nws = await createWorkspace(row?.agency || `${id.name}’s agency`);
+			const gLang = langOfRow(row) ?? (['fr', 'es'].includes(cookies.get('lang') ?? '') ? (cookies.get('lang') as 'fr' | 'es') : 'en');
+			const nws = await createWorkspace(id.name || id.email);
 			await addLogin(id.email, nws);
 			await inWorkspace(nws, () => {
-				saveAccount({ name: id.name, email: id.email, language: 'en', googleLogin: true });
-				saveAgency({ ...getAgency(), name: row?.agency || `${id.name}’s agency` });
+				saveAccount({ name: id.name, email: id.email, language: gLang, googleLogin: true, beta: tierOfRow(row) === 'free' || undefined, founder: tierOfRow(row) === 'founder' || undefined, freeUntil: tierOfRow(row) === 'founder' ? new Date(Date.now() + 30 * 864e5).toISOString() : undefined });
+				saveAgency({ ...getAgency(), name: id.name || id.email });
 				writeData('clients.json', []);
 				startSession(cookies, id.email, secure);
 			});
 			if (row) await markJoined(beta!, nws);
-			redirect(303, '/onboarding');
+			void sendEmail(id.email, welcomeSubject(gLang), welcomeEmail(id.name, id.email, gLang), unsubscribeLink(id.email));
+			redirect(303, next.startsWith('/app') ? next : '/app/analyses');
 		}
 		// 1) accepting an invitation
 		if (invite) {
@@ -82,7 +89,7 @@ export const GET = async ({ url, cookies, locals }) => {
 			saveAccount({ ...owner, name: id.name, email: id.email, googleLogin: true });
 			writeData('clients.json', listClients().filter((c) => !c.demo)); // a real workspace starts clean
 			startSession(cookies, id.email, secure);
-			redirect(303, '/onboarding');
+			redirect(303, next.startsWith('/app') ? next : '/app/analyses');
 		}
 		// 3) owner or team member signing in
 		const u = findUser(id.email);

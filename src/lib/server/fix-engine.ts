@@ -60,7 +60,7 @@ async function aiTitleDesc(keyword: string, client: Client, page: { title: strin
 			method: 'POST',
 			headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
 			body: JSON.stringify({
-				model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+				model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
 				max_tokens: 300,
 				messages: [{ role: 'user', content: `Rewrite the Google title (max 60 characters) and meta description (max 155 characters) of this page so it ranks for the search "${keyword}". Language: ${page.lang}. Keep the facts of the current page, no invented claims or prices. Put the keyword near the start of the title, end the title with the brand "${client.name}". Answer as JSON {"title":"…","description":"…"} only.\n\nCurrent title: ${page.title}\nCurrent description: ${page.desc}\nMain heading: ${page.h1}` }]
 			})
@@ -135,7 +135,7 @@ export async function howToFix(client: Client, problem: string, detail = ''): Pr
 				method: 'POST',
 				headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
 				body: JSON.stringify({
-					model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+					model: env.ANTHROPIC_MODEL || 'claude-sonnet-5-5',
 					max_tokens: 700,
 					messages: [
 						{

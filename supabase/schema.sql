@@ -61,3 +61,13 @@ alter table logins enable row level security;
 alter table kv enable row level security;
 alter table sites enable row level security;
 alter table waitlist enable row level security;
+
+-- Undercut public database: products their owner published (one row per product page /p/<slug>)
+create table if not exists public_products (
+  slug text primary key,
+  workspace_id uuid references workspaces(id) on delete cascade,
+  score int not null default 0,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+create index if not exists public_products_score on public_products (score desc);
