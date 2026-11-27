@@ -1,21 +1,18 @@
 <script lang="ts">
-	// Mark: a "u" sliced on the diagonal, the lower half slid forward — the cut that moves things up.
+	// Mark: cut, cut, point — two strokes (the reviews you cut through) and a dot (the answer at the end).
 	let { size = 30, light = false, wordmark = true }: { size?: number; light?: boolean; wordmark?: boolean } = $props();
-	const uid = $props.id();
-	const U = 'M7.5 6.5h5.5v10.5a3 3 0 0 0 6 0V6.5h5.5v10.5a8.5 8.5 0 0 1-17 0z';
+	const bg = $derived(light ? '#FFFFFF' : '#0B0B0B');
+	const fg = $derived(light ? '#0B0B0B' : '#FFFFFF');
 </script>
 
 <span class="group/logo inline-flex items-center gap-2">
-	<svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" class="shrink-0">
-		<defs>
-			<clipPath id="t{uid}"><path d="M0 0H32V9L0 19Z" /></clipPath>
-			<clipPath id="b{uid}"><path d="M0 20.8L32 10.8V32H0Z" /></clipPath>
-		</defs>
-		<rect width="32" height="32" rx="9" fill={light ? '#FFFFFF' : '#0D0D0D'} />
-		<path d={U} fill={light ? '#0D0D0D' : '#FFFFFF'} clip-path="url(#t{uid})" />
-		<g class="transition-transform duration-300 group-hover/logo:translate-x-[1px]" transform="translate(1.6 0)">
-			<path d={U} fill={light ? '#0D0D0D' : '#FFFFFF'} clip-path="url(#b{uid})" />
+	<svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" class="shrink-0">
+		<rect width="64" height="64" rx="15" fill={bg} />
+		<g transform="translate(9 14) scale(0.41)" stroke={fg} stroke-width="19" stroke-linecap="round">
+			<line x1="16" y1="88" x2="58" y2="12" />
+			<line x1="58" y1="88" x2="74" y2="60" />
 		</g>
+		<circle cx="48.4" cy="48.4" r="4" fill={fg} class="transition-transform duration-300 group-hover/logo:translate-x-[1.5px]" />
 	</svg>
-	{#if wordmark}<span class="text-[22px] leading-none font-semibold tracking-[-0.05em] {light ? 'text-white' : ''}">undercut</span>{/if}
+	{#if wordmark}<span class="text-[22px] leading-none font-extrabold tracking-[-0.05em] {light ? 'text-white' : ''}">undercut</span>{/if}
 </span>
