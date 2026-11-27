@@ -11,6 +11,27 @@ import { ideasError, makeIdeas } from '#lib/server/opportunities.ts';
 // Dev only: is Claude reachable, and how long do the database queries take?
 export const GET = async ({ url, cookies }) => {
 	if (!dev) error(404);
+	if (url.searchParams.get('stripetest')) {
+		// dev only: does the Stripe key have the permissions Undercut needs? Nothing is charged; the test session is expired at once.
+		const env = (await import('$app/env/private')) as unknown as Record<string, string | undefined>;
+		const key = env.STRIPE_SECRET_KEY ?? '';
+		const call = async (method: string, path: string, body?: Record<string, string>) => {
+			const r = await fetch(`https://api.stripe.com/v1/${path}`, { method, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/x-www-form-urlencoded' }, body: body ? new URLSearchParams(body) : undefined });
+			const j = await r.json().catch(() => ({}));
+			return { ok: r.ok, status: r.status, error: j?.error?.message?.slice(0, 160), id: j?.id, amount: j?.unit_amount, currency: j?.currency };
+		};
+		const out: Record<string, unknown> = { keyType: key.slice(0, 8) };
+		out.price49 = await call('GET', `prices/${env.STRIPE_PRICE_DATABASE}`);
+		out.price29 = await call('GET', `prices/${env.STRIPE_PRICE_FOUNDER}`);
+		const s = await call('POST', 'checkout/sessions', { mode: 'subscription', 'line_items[0][price]': env.STRIPE_PRICE_FOUNDER ?? '', 'line_items[0][quantity]': '1', success_url: 'https://app.getundercut.app/app/settings/billing?session_id={CHECKOUT_SESSION_ID}', cancel_url: 'https://app.getundercut.app/app/settings/billing' });
+		out.checkout = { ok: s.ok, status: s.status, error: s.error };
+		if (s.id) out.readSession = await call('GET', `checkout/sessions/${s.id}`).then((x) => ({ ok: x.ok, error: x.error }));
+		if (s.id) out.expire = await call('POST', `checkout/sessions/${s.id}/expire`).then((x) => ({ ok: x.ok, error: x.error }));
+		out.subscriptions = await call('GET', 'subscriptions?limit=1').then((x) => ({ ok: x.ok, error: x.error }));
+		out.customers = await call('GET', 'customers?limit=1').then((x) => ({ ok: x.ok, error: x.error }));
+		out.portal = await call('GET', 'billing_portal/configurations?limit=1').then((x) => ({ ok: x.ok, error: x.error }));
+		return json(out);
+	}
 	if (url.searchParams.get('launchcheck')) {
 		// what the launch needs, without showing any secret
 		const env = await import('$app/env/private');

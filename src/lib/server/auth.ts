@@ -12,7 +12,7 @@ import { dbOn } from './db.ts';
 
 export type User = { email: string; name: string; role: Member['role']; clientId?: string };
 export const COOKIE = 'uc_session';
-const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const MAX_AGE = 60 * 60 * 24 * 14; // 14 days, then sign in again (with the email code)
 
 export function secret() {
 	if (env.SESSION_SECRET) return env.SESSION_SECRET;

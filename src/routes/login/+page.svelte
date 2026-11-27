@@ -10,6 +10,14 @@
 <div class="grid min-h-dvh place-items-center bg-paper px-4 py-10">
 	<div class="w-full max-w-sm">
 		<a href="/" class="flex justify-center" aria-label="Undercut home"><Logo /></a>
+		{#if data.signedInAs}
+			<div class="card mt-8 space-y-4 p-7">
+				<h1 class="text-[28px] leading-tight font-medium tracking-tight">You’re signed in</h1>
+				<p class="text-sm text-ink-2">as <b>{data.signedInAs}</b></p>
+				<a href={data.next} class="btn btn-primary w-full justify-center py-3 text-base">Open my dashboard</a>
+				<form method="POST" action="/logout"><button class="btn btn-ghost w-full justify-center">Log out</button></form>
+			</div>
+		{:else}
 		<form method="POST" onsubmit={() => (busy = true)} class="card mt-8 space-y-4 p-7">
 			<div>
 				<h1 class="text-[32px] leading-tight font-medium tracking-tight">Log in</h1>
@@ -26,6 +34,7 @@
 			<button class="btn btn-primary w-full justify-center py-3 text-base" disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</button>
 			<p class="text-center text-xs text-muted"><a class="underline" href="/forgot">Forgot your password?</a></p>
 		</form>
+		{/if}
 		<div class="mt-4 rounded-[22px] border border-line p-5 text-center text-sm">
 			<span class="text-ink-2">No account yet?</span>
 			<a href="/signup{data.next && data.next !== '/app' ? `?next=${encodeURIComponent(data.next)}` : ''}" class="ml-1 font-medium underline">Create one, it’s free</a>

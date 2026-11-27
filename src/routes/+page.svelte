@@ -15,7 +15,7 @@
 	const t = $derived(SITE[data.lang]);
 	const open = $derived(data.rows.filter((r) => !r.locked && r.app.icon));
 	const amount = PRICE.full.replace('/mo', '');
-	const wl = $derived(data.waitlist && !data.signedIn);
+	const wl = $derived(data.waitlist); // waitlist mode: every button leads to the waitlist, signed in or not (the app is behind Log in)
 	const go = (p: string) => (wl ? '/waitlist' : p);
 	const WL = {
 		en: { pill: 'Early access · 30 founding spots at €29', ph: 'you@email.com', cta: 'Join the waitlist' },

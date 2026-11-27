@@ -1,6 +1,7 @@
 import { sendEmail } from '#lib/server/email.ts';
 import { welcomeEmail } from '#lib/server/mails.ts';
 import { tierOfRow, langOfRow } from '#lib/server/beta-invite.ts';
+import { beginVerify } from '#lib/server/login-code.ts';
 import { welcomeSubject, unsubscribeLink } from '#lib/server/mails.ts';
 import * as env from '$app/env/private';
 import { redirect } from '@sveltejs/kit';
@@ -51,13 +52,10 @@ export const GET = async ({ url, cookies, locals }) => {
 			const ws = await lookupLogin(id.email);
 			if (ws) {
 				await loadWorkspace(ws);
-				const u = await inWorkspace(ws, () => {
-					const u = findUser(id.email);
-					if (u) startSession(cookies, u.email, secure);
-					return u;
-				});
+				const u = await inWorkspace(ws, () => findUser(id.email));
 				if (!u) redirect(303, back('error=unknown'));
-				redirect(303, u.role === 'client' && u.clientId ? `/app/clients/${u.clientId}` : next);
+				// Google said who it is: a code sent to the email finishes the sign-in, every time
+				redirect(303, await beginVerify(cookies, u.email, ws, u.role === 'client' && u.clientId ? `/app/clients/${u.clientId}` : next, secure));
 			}
 			// c) new agency: open sign-up (a beta invitation only pre-fills the agency name)
 			if (env.WAITLIST === 'on' && !beta) redirect(303, '/waitlist');
@@ -95,8 +93,7 @@ export const GET = async ({ url, cookies, locals }) => {
 		const u = findUser(id.email);
 		if (!u) redirect(303, back('error=unknown'));
 		if (u.role === 'owner' && !owner.googleLogin) saveAccount({ ...owner, googleLogin: true });
-		startSession(cookies, u.email, secure);
-		redirect(303, u.role === 'client' && u.clientId ? `/app/clients/${u.clientId}` : next);
+		redirect(303, await beginVerify(cookies, u.email, null, u.role === 'client' && u.clientId ? `/app/clients/${u.clientId}` : next, secure));
 	}
 
 	// data connection

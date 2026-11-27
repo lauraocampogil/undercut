@@ -16,27 +16,42 @@
 	let trForm = $state<HTMLFormElement>();
 	let howForm = $state<HTMLFormElement>();
 	let howBusy = $state(false);
+	// each automatic request is tried once per page view: a failure shows its message and a retry link, never a loop
+	let insightTried = $state(false);
+	let howTried = $state(false);
+	let trTried = $state(false);
+	let insightError = $state('');
+	let howError = $state('');
 	$effect(() => {
-		if (data.best && !data.best.how && howForm && !howBusy && !form?.howError) howForm.requestSubmit();
+		if (data.best && !data.best.how && howForm && !howBusy && !howTried) {
+			howTried = true;
+			howForm.requestSubmit();
+		}
 	});
 	let translating = $state(false);
 	let original = $state(false);
 	let zoom = $state<string | null>(null);
 	// the full analysis is written on first open (a few seconds), then kept
 	$effect(() => {
-		if (!data.insight && insightForm && !asking && !form?.insightError) insightForm.requestSubmit();
+		if (!data.insight && insightForm && !asking && !insightTried) {
+			insightTried = true;
+			insightForm.requestSubmit();
+		}
 	});
 	// reviews in the dashboard's language: translated once, then kept
 	$effect(() => {
-		if (data.untranslated && trForm && !translating && !form?.translateError) trForm.requestSubmit();
+		if (data.untranslated && trForm && !translating && !trTried) {
+			trTried = true;
+			trForm.requestSubmit();
+		}
 	});
 	const SRC: Record<string, string> = { googleplay: 'Google Play', hackernews: 'Hacker News', github: 'GitHub', appstore: 'App Store' };
 	const stars = (n: number) => (n ? '★'.repeat(n) + '☆'.repeat(5 - n) : '');
 </script>
 
-<form method="POST" action="?/insight" bind:this={insightForm} class="hidden" use:enhance={() => { asking = true; return async ({ update }) => { await update(); asking = false; }; }}></form>
-{#if data.best}<form method="POST" action="?/how" bind:this={howForm} class="hidden" use:enhance={() => { howBusy = true; return async ({ update }) => { await update(); howBusy = false; }; }}><input type="hidden" name="rival" value={data.best.name} /></form>{/if}
-<form method="POST" action="?/translate" bind:this={trForm} class="hidden" use:enhance={() => { translating = true; return async ({ update }) => { await update({ invalidateAll: true }); translating = false; }; }}></form>
+<form method="POST" action="?/insight" bind:this={insightForm} class="hidden" use:enhance={() => { asking = true; insightError = ''; return async ({ result, update }) => { if (result.type === 'failure') insightError = String(result.data?.insightError ?? 'Error'); await update({ reset: false }); asking = false; }; }}></form>
+{#if data.best}<form method="POST" action="?/how" bind:this={howForm} class="hidden" use:enhance={() => { howBusy = true; howError = ''; return async ({ result, update }) => { if (result.type === 'failure') howError = String(result.data?.howError ?? 'Error'); await update({ reset: false }); howBusy = false; }; }}><input type="hidden" name="rival" value={data.best.name} /></form>{/if}
+<form method="POST" action="?/translate" bind:this={trForm} class="hidden" use:enhance={() => { translating = true; return async ({ update }) => { await update({ invalidateAll: true, reset: false }); translating = false; }; }}></form>
 
 {#snippet shots(list: string[], name: string)}
 	<div class="flex gap-3 overflow-x-auto pb-1">
@@ -93,7 +108,7 @@
 		</section>
 	{:else}
 		<section class="card flex items-center gap-3 p-6 text-sm text-ink-2">
-			{#if form?.insightError}{form.insightError} <button class="underline" onclick={() => insightForm?.requestSubmit()}>{T.retry}</button>
+			{#if insightError}{insightError} <button class="underline" onclick={() => insightForm?.requestSubmit()}>{T.retry}</button>
 			{:else}<span class="size-2 animate-pulse rounded-full bg-ink"></span>{T.writing(data.n)}{/if}
 		</section>
 	{/if}
@@ -128,8 +143,8 @@
 							</div>
 						{/if}
 						<p class="mt-2 text-xs text-muted">{T.howSource}</p>
-					{:else if form?.howError}
-						<p class="mt-2 text-sm text-ink-2">{form.howError} <button class="underline" onclick={() => howForm?.requestSubmit()}>{T.retry}</button></p>
+					{:else if howError}
+						<p class="mt-2 text-sm text-ink-2">{howError} <button class="underline" onclick={() => howForm?.requestSubmit()}>{T.retry}</button></p>
 					{:else}
 						<p class="mt-2 flex items-center gap-2 text-sm text-ink-2"><span class="size-2 animate-pulse rounded-full bg-ink"></span>{T.howLoading(data.best.name)}</p>
 					{/if}
