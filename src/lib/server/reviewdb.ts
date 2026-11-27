@@ -336,8 +336,30 @@ async function fromGitHub(p: StoreApp, quick = false): Promise<Review[]> {
 		.map((i: any) => ({ id: `gh:${i.id}`, source: 'github' as const, stars: 0, title: String(i.title).slice(0, 200), text: String(i.body ?? '').replace(/\s+/g, ' ').slice(0, 600), date: String(i.created_at ?? '').slice(0, 10), version: '', url: i.html_url }));
 }
 
+// Trustpilot: reviews of websites and SaaS without an app (the page carries its reviews as JSON in __NEXT_DATA__).
+export async function fromTrustpilot(p: StoreApp, quick = false): Promise<Review[]> {
+	if (!p.domain) return [];
+	const out: Review[] = [];
+	for (let page = 1; page <= (quick ? 1 : 8); page++) {
+		const res = await fetch(`https://www.trustpilot.com/review/${encodeURIComponent(p.domain)}?languages=all&page=${page}`, {
+			headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36', 'accept-language': 'en' },
+			signal: AbortSignal.timeout(10000)
+		});
+		if (!res.ok) break;
+		const html = await res.text();
+		const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+		if (!m) break;
+		const reviews = JSON.parse(m[1])?.props?.pageProps?.reviews ?? [];
+		if (!reviews.length) break;
+		for (const r of reviews)
+			out.push({ id: `tp:${r.id}`, source: 'trustpilot', stars: Number(r.rating) || 0, title: String(r.title ?? '').slice(0, 200), text: String(r.text ?? '').slice(0, 800), date: String(r.dates?.publishedDate ?? r.dates?.experiencedDate ?? '').slice(0, 10), version: '', url: `https://www.trustpilot.com/reviews/${r.id}` });
+	}
+	return out;
+}
+
 // Reddit is not used: its public search blocks server requests (429) and new API apps need Reddit's approval.
 const FETCHERS: Partial<Record<Source, (p: StoreApp, quick?: boolean) => Promise<Review[]>>> = { appstore: fromAppStore, googleplay: fromGooglePlay, hackernews: fromHackerNews, github: fromGitHub };
+// fromTrustpilot is ready but Trustpilot blocks server requests (bot check, 403): turn it on with a scraping provider later.
 
 async function fetchAll(p: StoreApp, quick = false, keep = 600): Promise<{ reviews: Review[]; sources: Partial<Record<Source, number>>; badShare?: number }> {
 	const results = await Promise.all(
@@ -468,7 +490,7 @@ export async function analyze(input: string, resolved?: StoreApp | null, competi
 	if (!app) throw new Error('We could not find this product. Try its website, its App Store link or its Google Play link.');
 	const comps = await findCompetitors(app, competitorHint);
 	const products: ProductData[] = await Promise.all([app, ...comps].map(async (a, i) => ({ app: a, ...(await fetchAll(a, false, i === 0 ? 600 : 200)) })));
-	if (!products[0].reviews.length) throw new Error(`We found ${app.name} but no reviews or mentions yet (App Store, Google Play, Reddit, Hacker News).`);
+	if (!products[0].reviews.length) throw new Error(`We found ${app.name}, but it has no app on the App Store or Google Play and almost no mentions on Hacker News or GitHub, so there are no reviews to read yet. Undercut works best for products with an app; websites without one are coming.`);
 	aiError = '';
 	fallbackUsed = false;
 	const themes = await groupThemes(products);

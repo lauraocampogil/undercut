@@ -1,7 +1,7 @@
 // Shared types for Undercut's review database (safe to import in components).
-export type Source = 'appstore' | 'googleplay' | 'reddit' | 'hackernews' | 'github';
+export type Source = 'appstore' | 'googleplay' | 'reddit' | 'hackernews' | 'github' | 'trustpilot';
 // Reddit stays in the type only for old data; it is not a source any more.
-export const SOURCES: Partial<Record<Source, string>> = { appstore: 'App Store', googleplay: 'Google Play', hackernews: 'Hacker News', github: 'GitHub' };
+export const SOURCES: Partial<Record<Source, string>> = { appstore: 'App Store', googleplay: 'Google Play', hackernews: 'Hacker News', github: 'GitHub', trustpilot: 'Trustpilot' };
 
 /** A product: an app, a website or a SaaS. Store ids when it has apps. */
 export type StoreApp = {

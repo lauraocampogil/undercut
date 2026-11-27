@@ -11,6 +11,20 @@ import { ideasError, makeIdeas } from '#lib/server/opportunities.ts';
 // Dev only: is Claude reachable, and how long do the database queries take?
 export const GET = async ({ url, cookies }) => {
 	if (!dev) error(404);
+	if (url.searchParams.get('tpraw')) {
+		const r = await fetch(`https://www.trustpilot.com/review/${url.searchParams.get('tpraw')}?languages=all`, { headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36', 'accept-language': 'en' } });
+		const t = await r.text();
+		const m = t.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+		let keys: unknown = null;
+		try { const pp = m ? JSON.parse(m[1])?.props?.pageProps : null; keys = pp ? { keys: Object.keys(pp).slice(0, 30), reviews: Array.isArray(pp.reviews) ? pp.reviews.length : typeof pp.reviews } : null; } catch (e) { keys = String(e); }
+		return json({ status: r.status, len: t.length, next: Boolean(m), keys, title: (t.match(/<title>([^<]*)/) || [])[1] });
+	}
+	if (url.searchParams.get('tp')) {
+		const { fromTrustpilot, resolveProduct } = await import('#lib/server/reviewdb.ts');
+		const app = await resolveProduct(url.searchParams.get('tp')!);
+		const r = app ? await fromTrustpilot(app, true).catch((e) => String(e)) : 'not found';
+		return json({ app: app && { name: app.name, domain: app.domain, url: app.url }, n: Array.isArray(r) ? r.length : r, sample: Array.isArray(r) ? r.slice(0, 2).map((x) => `${x.stars}★ ${x.title}`) : null });
+	}
 	if (url.searchParams.get('stripetest')) {
 		// dev only: does the Stripe key have the permissions Undercut needs? Nothing is charged; the test session is expired at once.
 		const env = (await import('$app/env/private')) as unknown as Record<string, string | undefined>;
